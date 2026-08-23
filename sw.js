@@ -1,4 +1,4 @@
-const CACHE = "box-log-v1";
+const CACHE = "box-log-v2";
 const ASSETS = [
   "./",
   "./index.html",

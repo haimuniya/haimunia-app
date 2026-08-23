@@ -190,6 +190,8 @@ function localISODate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function todayISO() { return localISODate(new Date()); }
+const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function esc(str) { return String(str ?? "").replace(/[&<>"']/g, (c) => ESC_MAP[c]); }
 let customMovements = [];
 function allMovements() { return MOVEMENTS.concat(customMovements); }
 function movementById(id) { return allMovements().find((m) => m.id === id); }
@@ -366,6 +368,13 @@ let builderMovements = {};
 let builderMoveSearch = "";
 let confirmClear = false;
 let storageOK = true;
+let importMessage = "";
+let importMsgTimeout = null;
+function setImportMessage(msg) {
+  importMessage = msg;
+  clearTimeout(importMsgTimeout);
+  importMsgTimeout = setTimeout(() => { importMessage = ""; render(); }, 5000);
+}
 
 // ---------- Derived helpers ----------
 function entriesFor(id) { return entries.filter((e) => e.exerciseId === id); }
@@ -420,6 +429,78 @@ async function deleteEntry(id) {
   try { await dbDelete(id); } catch (e) { storageOK = false; }
   render();
 }
+function exportData() {
+  const payload = {
+    app: "box-log",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    entries,
+    customMovements,
+    wodEntries,
+    customWods,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `box-log-backup-${todayISO()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function triggerImport() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "application/json";
+  input.addEventListener("change", () => {
+    if (input.files && input.files[0]) importDataFromFile(input.files[0]);
+  });
+  input.click();
+}
+
+async function importDataFromFile(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (e) {
+    setImportMessage("Import failed — not a valid backup file");
+    render();
+    return;
+  }
+  if (!data || typeof data !== "object") {
+    setImportMessage("Import failed — not a valid backup file");
+    render();
+    return;
+  }
+  const lists = {
+    customMovements: Array.isArray(data.customMovements) ? data.customMovements : [],
+    customWods: Array.isArray(data.customWods) ? data.customWods : [],
+    entries: Array.isArray(data.entries) ? data.entries : [],
+    wodEntries: Array.isArray(data.wodEntries) ? data.wodEntries : [],
+  };
+  let ok = 0, skipped = 0;
+  for (const m of lists.customMovements) { try { if (!m.id) throw 0; await dbAddMovement(m); ok++; } catch (e) { skipped++; } }
+  for (const w of lists.customWods) { try { if (!w.id) throw 0; await dbAddCustomWod(w); ok++; } catch (e) { skipped++; } }
+  for (const e of lists.entries) { try { if (!e.id) throw 0; await dbPut(e); ok++; } catch (err) { skipped++; } }
+  for (const e of lists.wodEntries) { try { if (!e.id) throw 0; await dbPutWodEntry(e); ok++; } catch (err) { skipped++; } }
+
+  try {
+    entries = await dbLoadAll();
+    entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    customMovements = await dbLoadMovements();
+    wodEntries = await dbLoadWodEntries();
+    wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    customWods = await dbLoadCustomWods();
+    storageOK = true;
+  } catch (e) {
+    storageOK = false;
+  }
+  setImportMessage(skipped ? `Imported ${ok} item${ok === 1 ? "" : "s"}, skipped ${skipped}` : `Imported ${ok} item${ok === 1 ? "" : "s"}`);
+  render();
+}
+
 async function clearAllData() {
   entries = [];
   wodEntries = [];
@@ -539,7 +620,7 @@ function renderWodBuilderMovements(query) {
   const byCategory = {};
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
   if (Object.keys(byCategory).length === 0) {
-    el.innerHTML = `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">No movement matches "${builderMoveSearch}"</div>`;
+    el.innerHTML = `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">No movement matches "${esc(builderMoveSearch)}"</div>`;
     return;
   }
   el.innerHTML = Object.entries(byCategory).map(([cat, items]) => `
@@ -702,7 +783,7 @@ function renderLogTab() {
     <button class="exercise-select" data-action="open-picker">
       <div class="flex items-center gap-8">
         <div class="dot" style="background:${CATEGORY_COLORS[selected.category]}"></div>
-        <span style="font-weight:800; font-size:16px;">${selected.name}</span>
+        <span style="font-weight:800; font-size:16px;">${esc(selected.name)}</span>
       </div>
       <span style="color:var(--steel); font-size:12px; font-weight:600;">change ›</span>
     </button>
@@ -732,7 +813,7 @@ function renderLogTab() {
       <div class="flex items-center gap-8">
         ${todaysEntries[0].isPR ? ICONS.flame : ""}
         <div style="text-align:left;">
-          <div style="font-weight:700; font-size:13px;">Last: ${movementById(todaysEntries[0].exerciseId) ? movementById(todaysEntries[0].exerciseId).name : "?"} — ${todaysEntries[0].sets}×${todaysEntries[0].reps} @ ${todaysEntries[0].weight}</div>
+          <div style="font-weight:700; font-size:13px;">Last: ${esc(movementById(todaysEntries[0].exerciseId) ? movementById(todaysEntries[0].exerciseId).name : "?")} — ${todaysEntries[0].sets}×${todaysEntries[0].reps} @ ${todaysEntries[0].weight}</div>
           <div style="color:var(--steel); font-size:11px;">${todaysEntries.length} set${todaysEntries.length === 1 ? "" : "s"} logged today</div>
         </div>
       </div>
@@ -772,7 +853,7 @@ function renderDetailCard(m) {
   return `
     <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
       <div class="flex items-center justify-between" style="margin-bottom:12px;">
-        <span style="font-weight:800; font-size:15px;">${m.name}</span>
+        <span style="font-weight:800; font-size:15px;">${esc(m.name)}</span>
         ${trend !== null ? `<span class="flex items-center gap-6" style="font-weight:700; font-size:12px;">${trend > 0 ? ICONS.up : trend < 0 ? ICONS.down : ICONS.flat}${trend > 0 ? "+" : ""}${trend} kg est. 1RM</span>` : ""}
       </div>
       ${renderChart(chartData)}
@@ -795,7 +876,7 @@ function renderHistoryListArea() {
     return;
   }
   if (active.length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">No movement matches "${historySearch}"</div>`;
+    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">No movement matches "${esc(historySearch)}"</div>`;
     return;
   }
   area.innerHTML = active.map((m) => {
@@ -804,7 +885,7 @@ function renderHistoryListArea() {
         <div class="flex items-center gap-8">
           ${ICONS.chevron}
           <div class="dot" style="background:${CATEGORY_COLORS[m.category]}"></div>
-          <span style="font-weight:700; font-size:14px;">${m.name}</span>
+          <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
         </div>
         <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${bestEst1RM(m.id)} kg</span>
       </button>`;
@@ -864,7 +945,7 @@ function renderCalDetail() {
         <div class="log-row">
           <div class="flex items-center gap-8">
             ${e.isPR ? ICONS.flame : ""}
-            <span style="font-weight:700; font-size:14px;">${movementById(e.exerciseId) ? movementById(e.exerciseId).name : "?"}</span>
+            <span style="font-weight:700; font-size:14px;">${esc(movementById(e.exerciseId) ? movementById(e.exerciseId).name : "?")}</span>
           </div>
           <div class="flex items-center gap-10">
             <span class="mono" style="color:var(--steel); font-size:13px;">${e.sets}×${e.reps} @ ${e.weight}</span>
@@ -878,7 +959,7 @@ function renderCalDetail() {
           <div class="flex items-center justify-between" style="width:100%;">
             <div class="flex items-center gap-8">
               ${e.isPR ? ICONS.flame : ""}
-              <span style="font-weight:700; font-size:14px;">${w ? w.name : "?"}</span>
+              <span style="font-weight:700; font-size:14px;">${esc(w ? w.name : "?")}</span>
               <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}</span>
             </div>
             <div class="flex items-center gap-10">
@@ -886,7 +967,7 @@ function renderCalDetail() {
               <button data-action="delete-wod-entry" data-id="${e.id}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
             </div>
           </div>
-          ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-right:23px;">${e.notes}</div>` : ""}
+          ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-right:23px;">${esc(e.notes)}</div>` : ""}
         </div>`;
       }).join("")}
     </div>`}
@@ -975,7 +1056,7 @@ function renderHistoryTab() {
     ${activeExercises().length > 0 ? `
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="historySearch" dir="auto" placeholder="Search your movements" value="${historySearch.replace(/"/g, "&quot;")}" />
+      <input id="historySearch" dir="auto" placeholder="Search your movements" value="${esc(historySearch)}" />
     </div>` : ""}
 
     <div id="historyListArea"></div>
@@ -986,6 +1067,12 @@ function renderFooter() {
   return `
     <div class="footer">
       <div class="footer-note">${storageOK ? "Saved on this device only, no server" : "Couldn't save — check available storage"}</div>
+      <div class="flex items-center justify-center gap-10" style="margin-bottom:8px;">
+        <button class="link-btn" data-action="export-data">Export backup</button>
+        <span style="color:var(--border); font-size:11px;">·</span>
+        <button class="link-btn" data-action="import-data">Import backup</button>
+      </div>
+      ${importMessage ? `<div class="footer-note" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
       ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">Clear all data</button>` : `
         <div class="flex items-center justify-center gap-10">
           <span style="color:var(--steel); font-size:11px;">Delete everything?</span>
@@ -1080,8 +1167,8 @@ function renderWodLogSection() {
       <div class="flex items-center gap-8">
         <div class="dot" style="background:${CATEGORY_COLORS[w.category]}"></div>
         <div>
-          <span style="font-weight:800; font-size:16px;">${w.name}</span>
-          ${w.desc ? `<div class="wod-desc">${w.desc}</div>` : ""}
+          <span style="font-weight:800; font-size:16px;">${esc(w.name)}</span>
+          ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
         </div>
       </div>
       <span style="color:var(--steel); font-size:12px; font-weight:600;">change ›</span>
@@ -1117,16 +1204,16 @@ function renderWodLogSection() {
     <div class="steppers" style="margin-bottom:16px;">
       ${renderStepper("wodScaledWeight", "SCALED WEIGHT (KG)", wodScaledWeight, 2.5, 0, "wod-step")}
     </div>
-    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="Movement changes? (optional, e.g. banded pull-ups)" value="${wodNotes.replace(/"/g, "&quot;")}" />
+    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="Movement changes? (optional, e.g. banded pull-ups)" value="${esc(wodNotes)}" />
     <div class="flex items-center justify-between" style="margin-bottom:16px;">
-      ${lastScaled ? `<button data-action="copy-last-scaled" style="color:var(--steel); font-size:12px; text-align:left;">↺ Last time: ${lastScaled.notes ? lastScaled.notes + " — " : ""}${formatWodEntry(lastScaled)}</button>` : `<span style="color:var(--steel); font-size:12px;">First time scaling this one</span>`}
+      ${lastScaled ? `<button data-action="copy-last-scaled" style="color:var(--steel); font-size:12px; text-align:left;">↺ Last time: ${lastScaled.notes ? esc(lastScaled.notes) + " — " : ""}${formatWodEntry(lastScaled)}</button>` : `<span style="color:var(--steel); font-size:12px;">First time scaling this one</span>`}
     </div>` : ""}
 
     ${inputsHtml}
 
     <button data-action="save-wod" class="save-btn" style="max-width:none; margin:20px 0 24px;">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      Log WOD — ${w.name}
+      Log WOD — ${esc(w.name)}
     </button>
 
     ${todaysWods.length === 0 ? `
@@ -1135,7 +1222,7 @@ function renderWodLogSection() {
       <div class="flex items-center gap-8">
         ${todaysWods[0].isPR ? ICONS.flame : ""}
         <div style="text-align:left;">
-          <div style="font-weight:700; font-size:13px;">Last: ${wodById(todaysWods[0].wodId) ? wodById(todaysWods[0].wodId).name : "?"} — ${formatWodEntry(todaysWods[0])} (${todaysWods[0].rx ? "Rx" : "Scaled"})</div>
+          <div style="font-weight:700; font-size:13px;">Last: ${esc(wodById(todaysWods[0].wodId) ? wodById(todaysWods[0].wodId).name : "?")} — ${formatWodEntry(todaysWods[0])} (${todaysWods[0].rx ? "Rx" : "Scaled"})</div>
           <div style="color:var(--steel); font-size:11px;">${todaysWods.length} WOD${todaysWods.length === 1 ? "" : "s"} logged today</div>
         </div>
       </div>
@@ -1159,7 +1246,7 @@ function renderWodDetailCard(w) {
   return `
     <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
       <div class="flex items-center justify-between" style="margin-bottom:12px;">
-        <span style="font-weight:800; font-size:15px;">${w.name}</span>
+        <span style="font-weight:800; font-size:15px;">${esc(w.name)}</span>
         <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">best ${formatWodBest(w.id)}</span>
       </div>
       ${renderChart(chartData)}
@@ -1174,7 +1261,7 @@ function renderWodDetailCard(w) {
               </div>
               <span class="mono" style="font-size:13px;">${formatWodEntry(e)}</span>
             </div>
-            ${e.notes ? `<div style="color:var(--steel); font-size:12px;">${e.notes}</div>` : ""}
+            ${e.notes ? `<div style="color:var(--steel); font-size:12px;">${esc(e.notes)}</div>` : ""}
           </div>`).join("")}
       </div>
     </div>`;
@@ -1190,7 +1277,7 @@ function renderWodHistoryListArea() {
     return;
   }
   if (active.length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">No WOD matches "${wodHistorySearch}"</div>`;
+    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">No WOD matches "${esc(wodHistorySearch)}"</div>`;
     return;
   }
   area.innerHTML = active.map((w) => {
@@ -1199,7 +1286,7 @@ function renderWodHistoryListArea() {
         <div class="flex items-center gap-8">
           ${ICONS.chevron}
           <div class="dot" style="background:${CATEGORY_COLORS[w.category]}"></div>
-          <span style="font-weight:700; font-size:14px;">${w.name}</span>
+          <span style="font-weight:700; font-size:14px;">${esc(w.name)}</span>
         </div>
         <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${formatWodBest(w.id)}</span>
       </button>`;
@@ -1213,7 +1300,7 @@ function renderWodHistorySection() {
     ${activeWods().length > 0 ? `
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="wodHistorySearch" dir="auto" placeholder="Search your WODs" value="${wodHistorySearch.replace(/"/g, "&quot;")}" />
+      <input id="wodHistorySearch" dir="auto" placeholder="Search your WODs" value="${esc(wodHistorySearch)}" />
     </div>` : ""}
     <div id="wodHistoryListArea"></div>
   `;
@@ -1278,8 +1365,8 @@ function renderPickerList(query) {
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
   const list = document.getElementById("pickerList");
   const addRow = query.trim() && !exactMatch
-    ? `<button class="movement-btn" data-action="add-movement" data-name="${query.trim().replace(/"/g, "&quot;")}" style="border-color:var(--brass); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ Add "${query.trim()}" as a new movement</span>
+    ? `<button class="movement-btn" data-action="add-movement" data-name="${esc(query.trim())}" style="border-color:var(--brass); margin-top:4px;">
+         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ Add "${esc(query.trim())}" as a new movement</span>
        </button>`
     : "";
   if (Object.keys(byCategory).length === 0) {
@@ -1291,7 +1378,7 @@ function renderPickerList(query) {
       <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${cat}</span></div>
       ${items.map((m) => `
         <button class="movement-btn ${selectedId === m.id ? "active" : ""}" data-action="pick-movement" data-id="${m.id}">
-          <span style="font-weight:600; font-size:14px;">${m.name}</span>
+          <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
           ${selectedId === m.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
         </button>`).join("")}
     </div>`).join("");
@@ -1336,8 +1423,8 @@ function renderWodPickerList(query) {
   filtered.forEach((w) => { (byCategory[w.category] = byCategory[w.category] || []).push(w); });
   const list = document.getElementById("wodPickerList");
   const addRow = query.trim() && !exactMatch
-    ? `<button class="movement-btn" data-action="open-wod-builder" data-name="${query.trim().replace(/"/g, "&quot;")}" style="border-color:var(--energy); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ Build "${query.trim()}" as a new WOD</span>
+    ? `<button class="movement-btn" data-action="open-wod-builder" data-name="${esc(query.trim())}" style="border-color:var(--energy); margin-top:4px;">
+         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ Build "${esc(query.trim())}" as a new WOD</span>
        </button>`
     : `<button class="movement-btn" data-action="open-wod-builder" data-name="" style="border-color:var(--energy); margin-top:4px;">
          <span style="font-weight:700; font-size:14px; color:var(--energy);">+ Build a custom WOD</span>
@@ -1354,8 +1441,8 @@ function renderWodPickerList(query) {
       ${byCategory[cat].map((w) => `
         <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${w.id}">
           <div>
-            <span style="font-weight:600; font-size:14px;">${w.name}</span>
-            ${w.desc ? `<div class="wod-desc">${w.desc}</div>` : ""}
+            <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
+            ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
           </div>
           ${selectedWodId === w.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
         </button>`).join("")}
@@ -1396,6 +1483,8 @@ document.addEventListener("click", (e) => {
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
   else if (action === "cal-select-day") { calSelectedDate = el.dataset.date; renderCalendarGrid(); }
   else if (action === "select-history") { historyId = el.dataset.id; renderHistoryListArea(); }
+  else if (action === "export-data") { exportData(); }
+  else if (action === "import-data") { triggerImport(); }
   else if (action === "ask-clear") { confirmClear = true; render(); }
   else if (action === "do-clear") { clearAllData(); }
   else if (action === "cancel-clear") { confirmClear = false; render(); }
