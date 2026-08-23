@@ -186,7 +186,10 @@ function fmtDate(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" });
 }
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+function localISODate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function todayISO() { return localISODate(new Date()); }
 let customMovements = [];
 function allMovements() { return MOVEMENTS.concat(customMovements); }
 function movementById(id) { return allMovements().find((m) => m.id === id); }
@@ -430,6 +433,10 @@ async function clearAllData() {
   } catch (e) {
     storageOK = false;
   }
+  selectedId = MOVEMENTS[0].id;
+  historyId = MOVEMENTS[0].id;
+  selectedWodId = WOD_LIBRARY[0].id;
+  wodHistoryId = WOD_LIBRARY[0].id;
   confirmClear = false;
   render();
 }
@@ -897,9 +904,9 @@ function daysAgoLabel(iso) {
 function renderVolumeReport() {
   const now = new Date();
   const cutoff7 = new Date(now); cutoff7.setDate(now.getDate() - 6);
-  const cutoff7ISO = cutoff7.toISOString().slice(0, 10);
+  const cutoff7ISO = localISODate(cutoff7);
   const cutoff30 = new Date(now); cutoff30.setDate(now.getDate() - 29);
-  const cutoff30ISO = cutoff30.toISOString().slice(0, 10);
+  const cutoff30ISO = localISODate(cutoff30);
 
   const cats = REPORT_CATEGORIES.concat(customMovements.length ? ["Custom"] : []);
   const rows = cats.map((cat) => {
@@ -951,10 +958,10 @@ function renderCalendarTab() {
 }
 function renderHistoryTab() {
   const now = new Date();
-  const monthPrefix = now.toISOString().slice(0, 7);
+  const monthPrefix = localISODate(now).slice(0, 7);
   const prCountThisMonth = entries.filter((e) => e.isPR && e.date.startsWith(monthPrefix)).length;
   const start = new Date(now); start.setDate(now.getDate() - now.getDay());
-  const startISO = start.toISOString().slice(0, 10);
+  const startISO = localISODate(start);
   const sessionsThisWeek = new Set(entries.filter((e) => e.date >= startISO).map((e) => e.date)).size;
   const totalSetsLogged = entries.reduce((sum, e) => sum + e.sets, 0);
 
@@ -985,6 +992,7 @@ function renderFooter() {
           <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">Yes, delete</button>
           <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">Cancel</button>
         </div>`}
+      <div class="footer-note" style="margin-top:10px;">© ${new Date().getFullYear()} Shahaf Rachmany</div>
     </div>`;
 }
 
