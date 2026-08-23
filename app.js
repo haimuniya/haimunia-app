@@ -49,6 +49,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
+const APP_VERSION = "1.0.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1079,7 +1080,7 @@ function renderFooter() {
           <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">Yes, delete</button>
           <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">Cancel</button>
         </div>`}
-      <div class="footer-note" style="margin-top:10px;">© ${new Date().getFullYear()} Shahaf Rachmany</div>
+      <div class="footer-note" style="margin-top:10px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
     </div>`;
 }
 

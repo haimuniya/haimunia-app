@@ -1,4 +1,4 @@
-const CACHE = "box-log-v2";
+const CACHE = "box-log-v1.0.0"; // keep in sync with APP_VERSION in app.js
 const ASSETS = [
   "./",
   "./index.html",
