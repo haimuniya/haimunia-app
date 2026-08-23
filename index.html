@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, minimum-scale=1, user-scalable=no" />
+<title>Box Log</title>
+<meta name="theme-color" content="#101B30" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Box Log" />
+<link rel="manifest" href="./manifest.json" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
+<link rel="icon" href="./icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700&family=Anton&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#101B30; --surface:#1A2740; --surface2:#23324F; --border:#34435F;
+    --chalk:#F2ECE1; --steel:#8891A6; --red:#D8453C; --blue:#3E6FD9;
+    --yellow:#E0B23C; --green:#4B9B5F; --purple:#9B6FD9; --brass:#E8B98A;
+    --energy:#E85D3D;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body{ margin:0; padding:0; background:var(--bg); color:var(--chalk); font-family:'Rubik',sans-serif; overscroll-behavior-y:contain; touch-action:pan-y; overflow-x:hidden; width:100%; }
+  body{ min-height:100dvh; }
+  button, input, textarea { font-family:inherit; }
+  button{ background:none; border:none; color:inherit; cursor:pointer; padding:0; }
+  input{ font-size:16px; }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--brass); outline-offset:2px; }
+  .mono{ font-family:'JetBrains Mono',monospace; }
+  .flex{ display:flex; }
+  .col{ flex-direction:column; }
+  .items-center{ align-items:center; }
+  .justify-between{ justify-content:space-between; }
+  .justify-center{ justify-content:center; }
+  .flex-1{ flex:1; }
+  .gap-6{ gap:6px; } .gap-8{ gap:8px; } .gap-10{ gap:10px; }
+  .wrap{ flex-wrap:wrap; }
+  #app{ max-width:480px; margin:0 auto; padding: calc(env(safe-area-inset-top,0px) + 20px) 16px calc(env(safe-area-inset-bottom,0px) + 100px); overflow-x:hidden; }
+  .header{ display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; }
+  .eyebrow{ color:var(--energy); font-size:12px; font-weight:800; letter-spacing:1px; }
+  .h1{ color:var(--chalk); font-family:'Anton',sans-serif; font-weight:400; text-transform:uppercase; font-size:32px; letter-spacing:0.5px; line-height:0.95; text-shadow:0 0 24px rgba(232,93,61,.3); }
+  .tabbar{ display:flex; background:var(--surface); border-radius:14px; padding:4px; margin-bottom:20px; border:1px solid var(--border); gap:2px; }
+  .tabbtn{ flex:1; min-width:0; padding:10px 0; border-radius:10px; font-weight:700; font-size:12.5px; color:var(--steel); border:1px solid transparent; transition:all .15s; white-space:nowrap; }
+  .tabbtn.active{ background:var(--surface2); color:var(--chalk); border-color:var(--border); box-shadow:inset 0 -2px 0 var(--energy); }
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; }
+  .exercise-select{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:14px 16px; margin-bottom:12px; }
+  .dot{ width:8px; height:8px; border-radius:999px; flex-shrink:0; }
+  .stat-row{ display:flex; gap:8px; margin-bottom:16px; }
+  .stat-card{ flex:1; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+  .stat-label{ color:var(--steel); font-size:11px; font-weight:600; }
+  .stat-value{ font-weight:800; font-size:16px; }
+  .bar-wrap{ background:var(--surface); border:1px solid var(--border); border-radius:18px; margin-bottom:16px; position:relative; overflow:hidden; transition:border-color .3s; }
+  .bar-wrap.pr{ border-color:var(--brass); animation:pop .4s ease; }
+  .pr-flash{ position:absolute; inset:0; background:rgba(184,130,63,.14); display:flex; align-items:center; justify-content:center; gap:6px; color:var(--brass); font-weight:800; font-size:14px; z-index:1; }
+  @keyframes pop{ 0%{transform:scale(1);} 40%{transform:scale(1.04);} 100%{transform:scale(1);} }
+  .barbell{ display:flex; flex-direction:column; align-items:center; gap:10px; padding:14px 0; }
+  .bar-row{ display:flex; align-items:center; height:78px; }
+  .plate{ border-radius:3px; border:1px solid rgba(0,0,0,.35); box-shadow:inset 0 0 0 1px rgba(255,255,255,.08); flex-shrink:0; transition:all .2s; }
+  .collar{ width:10px; height:10px; border-radius:2px; background:#4a4d54; flex-shrink:0; }
+  .sleeve{ width:46px; height:8px; background:#5a5e66; border-radius:2px; flex-shrink:0; }
+  .bar-center{ width:64px; height:20px; display:flex; align-items:center; justify-content:center; background:var(--surface2); border:1px solid var(--border); border-radius:6px; font-weight:700; font-size:13px; color:var(--brass); flex-shrink:0; }
+  .bar-caption{ color:var(--steel); font-size:11px; }
+  .steppers{ display:flex; gap:8px; margin-bottom:16px; }
+  .stepper{ flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .stepper-label{ color:var(--steel); font-size:11px; font-weight:600; white-space:nowrap; }
+  .stepper-box{ width:100%; min-width:0; display:flex; align-items:center; justify-content:space-between; background:var(--surface2); border-radius:14px; border:1px solid var(--border); }
+  .stepper-btn{ width:34px; height:44px; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:opacity .15s; }
+  .stepper-btn:active{ opacity:.6; }
+  .stepper-val{ font-weight:700; font-size:16px; min-width:0; text-align:center; }
+  .est-line{ text-align:center; color:var(--steel); font-size:12px; margin-bottom:20px; }
+  .est-line b{ color:var(--brass); font-weight:700; }
+  .section-label{ color:var(--steel); font-size:12px; font-weight:700; margin-bottom:10px; letter-spacing:.5px; }
+  .empty{ color:var(--steel); font-size:13px; text-align:center; padding:24px 0; }
+  .log-row{ display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; }
+  .log-list{ display:flex; flex-direction:column; gap:8px; }
+  .exercise-row{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; text-align:left; transition:all .15s; margin-bottom:8px; }
+  .exercise-row.active{ background:var(--surface2); border-color:var(--brass); }
+  .chart-card{ background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:16px; margin-bottom:16px; }
+  .rep-table{ display:flex; gap:6px; margin-top:14px; padding-top:12px; border-top:1px solid var(--border); }
+  .rep-cell{ flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:8px 4px; text-align:center; }
+  .rep-cell-label{ color:var(--steel); font-size:10px; font-weight:700; }
+  .rep-cell-val{ font-weight:700; font-size:13px; }
+  .bottom-bar{ position:fixed; left:0; right:0; bottom:0; display:flex; justify-content:center; background:linear-gradient(to top, var(--bg) 60%, transparent); padding:10px 16px calc(env(safe-area-inset-bottom,0px) + 14px); z-index:30; }
+  .save-btn{ width:100%; max-width:448px; background:var(--energy); color:#1a0d08; font-family:'Anton',sans-serif; font-weight:400; text-transform:uppercase; letter-spacing:0.5px; font-size:19px; padding:16px 0; border-radius:16px; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 8px 28px rgba(232,93,61,.4); transition:opacity .15s; }
+  .save-btn:active{ opacity:.85; }
+  .footer{ text-align:center; margin-top:28px; }
+  .footer-note{ color:var(--border); font-size:11px; margin-bottom:8px; }
+  .link-btn{ color:var(--border); font-size:11px; text-decoration:underline; }
+  .modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; display:none; align-items:flex-end; overflow:hidden; }
+  .modal-overlay.open{ display:flex; }
+  .modal-sheet{ background:var(--bg); border-top-left-radius:22px; border-top-right-radius:22px; width:100%; max-height:85%; padding-bottom:env(safe-area-inset-bottom,0px); display:flex; flex-direction:column; border:1px solid var(--border); border-bottom:none; overflow-x:hidden; }
+  .modal-head{ display:flex; align-items:center; justify-content:space-between; padding:16px 16px 8px; }
+  .modal-title{ color:var(--chalk); font-weight:800; font-size:16px; }
+  .search-box{ display:flex; align-items:center; margin:0 16px 12px; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:8px 12px; gap:8px; }
+  .search-box input{ background:transparent; border:none; color:var(--chalk); flex:1; outline:none; }
+  .modal-list{ overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; padding:0 16px 24px; flex:1; min-height:0; }
+  .cat-group{ margin-bottom:14px; }
+  .cat-head{ display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .cat-name{ color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
+  .movement-btn{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; text-align:left; margin-bottom:6px; }
+  .movement-btn.active{ background:var(--surface2); border-color:var(--brass); }
+  @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
+
+  .cal-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .cal-nav-btn{ width:36px; height:36px; display:flex; align-items:center; justify-content:center; background:var(--surface); border:1px solid var(--border); border-radius:10px; }
+  .cal-month-label{ font-weight:800; font-size:15px; }
+  .cal-weekdays{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:6px; }
+  .cal-weekday{ text-align:center; color:var(--steel); font-size:10px; font-weight:700; }
+  .cal-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:18px; }
+  .cal-cell{ aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:10px; background:var(--surface); border:1px solid var(--border); position:relative; gap:2px; }
+  .cal-cell.empty{ background:transparent; border-color:transparent; }
+  .cal-cell.today{ border-color:var(--chalk); }
+  .cal-cell.selected{ background:var(--surface2); border-color:var(--brass); }
+  .cal-daynum{ font-size:12px; font-weight:600; color:var(--chalk); }
+  .cal-dot{ width:5px; height:5px; border-radius:999px; background:var(--steel); }
+  .cal-dot.pr{ background:var(--brass); }
+  .report-row{ display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:8px; }
+  .report-flag{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  .subtabbar{ display:flex; background:var(--surface2); border-radius:12px; padding:3px; margin-bottom:16px; border:1px solid var(--border); }
+  .subtabbtn{ flex:1; padding:8px 0; border-radius:9px; font-weight:700; font-size:13px; color:var(--steel); }
+  .subtabbtn.active{ background:var(--surface); color:var(--chalk); }
+  .rx-toggle{ display:flex; gap:8px; margin-bottom:16px; }
+  .rx-btn{ flex:1; padding:10px 0; border-radius:12px; border:1px solid var(--border); background:var(--surface); font-weight:700; font-size:13px; color:var(--steel); }
+  .rx-btn.active-rx{ background:rgba(63,132,85,.15); border-color:var(--green); color:var(--green); }
+  .rx-btn.active-scaled{ background:rgba(224,178,60,.15); border-color:var(--yellow); color:var(--yellow); }
+  .wod-desc{ color:var(--steel); font-size:12px; margin-top:2px; }
+  .text-input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:var(--chalk); font-size:16px; }
+  .format-chip{ padding:10px 0; border-radius:12px; border:1px solid var(--border); background:var(--surface); font-weight:700; font-size:13px; color:var(--steel); text-align:center; flex:1; }
+  .format-chip.active{ background:rgba(232,93,61,.15); border-color:var(--energy); color:var(--energy); }
+  .movecheck-row{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 14px; margin-bottom:6px; text-align:left; }
+  .movecheck-row.checked{ background:var(--surface2); border-color:var(--brass); }
+  .movecheck-box{ width:18px; height:18px; border-radius:5px; border:1.5px solid var(--border); flex-shrink:0; display:flex; align-items:center; justify-content:center; }
+  .movecheck-row.checked .movecheck-box{ background:var(--brass); border-color:var(--brass); }
+</style>
+</head>
+<body>
+<div id="loading" style="min-height:100dvh; display:flex; align-items:center; justify-content:center;">
+  <div style="color:var(--steel); font-size:13px; font-weight:700;">Loading your log…</div>
+</div>
+
+<div id="app" style="display:none;">
+  <div class="header">
+    <div>
+      <div class="eyebrow">STRENGTH LOG</div>
+      <div class="h1">Box Log</div>
+    </div>
+    <div id="dateLabel" style="color:var(--steel); font-size:13px; font-weight:600;"></div>
+  </div>
+
+  <div class="tabbar">
+    <button class="tabbtn active" id="tabAddBtn" data-action="switch-tab" data-tab="add">Log</button>
+    <button class="tabbtn" id="tabHistoryBtn" data-action="switch-tab" data-tab="history">Progress</button>
+    <button class="tabbtn" id="tabCalendarBtn" data-action="switch-tab" data-tab="calendar">Calendar</button>
+    <button class="tabbtn" id="tabWodBtn" data-action="switch-tab" data-tab="wod">WODs</button>
+  </div>
+
+  <div id="content"></div>
+</div>
+
+<div class="bottom-bar" id="bottomBar" style="display:none;">
+  <button class="save-btn" data-action="save-set">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+    <span id="saveBtnLabel">Log set</span>
+  </button>
+</div>
+
+<div class="modal-overlay" id="pickerOverlay" data-action="close-picker">
+  <div class="modal-sheet">
+    <div class="modal-head">
+      <span class="modal-title">Choose movement</span>
+      <button data-action="close-picker" style="color:var(--steel); padding:4px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="search-box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="pickerSearch" dir="auto" placeholder="Search movement" />
+    </div>
+    <div class="modal-list" id="pickerList"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wodPickerOverlay" data-action="close-wod-picker">
+  <div class="modal-sheet">
+    <div class="modal-head">
+      <span class="modal-title">Choose WOD</span>
+      <button data-action="close-wod-picker" style="color:var(--steel); padding:4px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="search-box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="wodPickerSearch" dir="auto" placeholder="Search WOD" />
+    </div>
+    <div class="modal-list" id="wodPickerList"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wodBuilderOverlay" data-action="close-wod-builder">
+  <div class="modal-sheet">
+    <div class="modal-head">
+      <span class="modal-title">Build a WOD</span>
+      <button data-action="close-wod-builder" style="color:var(--steel); padding:4px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-list" style="padding:0 16px calc(env(safe-area-inset-bottom, 0px) + 24px);">
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">NAME</div>
+      <input id="wodBuilderName" class="text-input" dir="auto" style="margin-bottom:16px;" placeholder="e.g. Monday's WOD" />
+
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">FORMAT</div>
+      <div class="flex" style="gap:8px; margin-bottom:4px;" id="wodBuilderFormats">
+        <button class="format-chip" data-action="builder-set-format" data-format="time">For Time</button>
+        <button class="format-chip" data-action="builder-set-format" data-format="amrap">AMRAP</button>
+        <button class="format-chip" data-action="builder-set-format" data-format="load">Max Load</button>
+      </div>
+      <div id="wodBuilderFormatHint" style="color:var(--steel); font-size:11px; margin-bottom:16px;">Required — pick one</div>
+
+      <button data-action="create-wod" class="save-btn" style="max-width:none; margin-bottom:20px;">Create WOD</button>
+
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">MOVEMENTS (optional)</div>
+      <div class="search-box" style="margin:0 0 12px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="wodBuilderMoveSearch" dir="auto" placeholder="Search movements" />
+      </div>
+      <div id="wodBuilderMovements" style="margin-bottom:16px;"></div>
+    </div>
+  </div>
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>
