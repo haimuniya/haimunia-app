@@ -951,6 +951,7 @@ function renderCalendarTab() {
 }
 function renderHistoryTab() {
   const now = new Date();
+  const monthPrefix = now.toISOString().slice(0, 7);
   const prCountThisMonth = entries.filter((e) => e.isPR && e.date.startsWith(monthPrefix)).length;
   const start = new Date(now); start.setDate(now.getDate() - now.getDay());
   const startISO = start.toISOString().slice(0, 10);
