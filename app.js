@@ -49,7 +49,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -198,16 +198,17 @@ function allMovements() { return MOVEMENTS.concat(customMovements); }
 function movementById(id) { return allMovements().find((m) => m.id === id); }
 
 // ---------- IndexedDB ----------
-const DB_NAME = "box-log-db", STORE = "entries", MOVSTORE = "movements", WODSTORE = "wodEntries", CUSTOMWODSTORE = "customWods";
+const DB_NAME = "box-log-db", STORE = "entries", MOVSTORE = "movements", WODSTORE = "wodEntries", CUSTOMWODSTORE = "customWods", BWSTORE = "bodyweight";
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 4);
+    const req = indexedDB.open(DB_NAME, 5);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(MOVSTORE)) db.createObjectStore(MOVSTORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(WODSTORE)) db.createObjectStore(WODSTORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(CUSTOMWODSTORE)) db.createObjectStore(CUSTOMWODSTORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(BWSTORE)) db.createObjectStore(BWSTORE, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -303,6 +304,33 @@ async function dbClearCustomWods() {
     tx.onerror = () => reject(tx.error);
   });
 }
+async function dbLoadBodyweight() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BWSTORE, "readonly");
+    const req = tx.objectStore(BWSTORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function dbPutBodyweight(entry) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BWSTORE, "readwrite");
+    tx.objectStore(BWSTORE).put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbClearBodyweight() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BWSTORE, "readwrite");
+    tx.objectStore(BWSTORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 async function dbLoadAll() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -369,6 +397,11 @@ let builderMovements = {};
 let builderMoveSearch = "";
 let confirmClear = false;
 let storageOK = true;
+
+// Bodyweight tab state
+let bodyweightEntries = [];
+let bwWeight = 70;
+
 let importMessage = "";
 let importMsgTimeout = null;
 function setImportMessage(msg) {
@@ -430,6 +463,30 @@ async function deleteEntry(id) {
   try { await dbDelete(id); } catch (e) { storageOK = false; }
   render();
 }
+
+// ---------- Bodyweight ----------
+async function saveBodyweight() {
+  const today = todayISO();
+  const existing = bodyweightEntries.find((e) => e.date === today);
+  const entry = existing
+    ? { ...existing, weight: bwWeight, ts: Date.now() }
+    : { id: "bw-" + Date.now().toString() + Math.random().toString(36).slice(2), date: today, ts: Date.now(), weight: bwWeight };
+  bodyweightEntries = bodyweightEntries.filter((e) => e.id !== entry.id);
+  bodyweightEntries.unshift(entry);
+  try { await dbPutBodyweight(entry); storageOK = true; } catch (e) { storageOK = false; }
+  render();
+}
+const LAST_EXPORT_KEY = "boxlog:lastExportAt";
+function markExported() {
+  try { localStorage.setItem(LAST_EXPORT_KEY, String(Date.now())); } catch (e) {}
+}
+function daysSinceLastExport() {
+  try {
+    const v = localStorage.getItem(LAST_EXPORT_KEY);
+    if (!v) return null;
+    return Math.floor((Date.now() - Number(v)) / 86400000);
+  } catch (e) { return null; }
+}
 function exportData() {
   const payload = {
     app: "box-log",
@@ -439,6 +496,7 @@ function exportData() {
     customMovements,
     wodEntries,
     customWods,
+    bodyweightEntries,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -449,6 +507,8 @@ function exportData() {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+  markExported();
+  render();
 }
 
 function triggerImport() {
@@ -480,12 +540,14 @@ async function importDataFromFile(file) {
     customWods: Array.isArray(data.customWods) ? data.customWods : [],
     entries: Array.isArray(data.entries) ? data.entries : [],
     wodEntries: Array.isArray(data.wodEntries) ? data.wodEntries : [],
+    bodyweightEntries: Array.isArray(data.bodyweightEntries) ? data.bodyweightEntries : [],
   };
   let ok = 0, skipped = 0;
   for (const m of lists.customMovements) { try { if (!m.id) throw 0; await dbAddMovement(m); ok++; } catch (e) { skipped++; } }
   for (const w of lists.customWods) { try { if (!w.id) throw 0; await dbAddCustomWod(w); ok++; } catch (e) { skipped++; } }
   for (const e of lists.entries) { try { if (!e.id) throw 0; await dbPut(e); ok++; } catch (err) { skipped++; } }
   for (const e of lists.wodEntries) { try { if (!e.id) throw 0; await dbPutWodEntry(e); ok++; } catch (err) { skipped++; } }
+  for (const e of lists.bodyweightEntries) { try { if (!e.id) throw 0; await dbPutBodyweight(e); ok++; } catch (err) { skipped++; } }
 
   try {
     entries = await dbLoadAll();
@@ -494,6 +556,9 @@ async function importDataFromFile(file) {
     wodEntries = await dbLoadWodEntries();
     wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     customWods = await dbLoadCustomWods();
+    bodyweightEntries = await dbLoadBodyweight();
+    bodyweightEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    if (bodyweightEntries[0]) bwWeight = bodyweightEntries[0].weight;
     storageOK = true;
   } catch (e) {
     storageOK = false;
@@ -507,11 +572,13 @@ async function clearAllData() {
   wodEntries = [];
   customMovements = [];
   customWods = [];
+  bodyweightEntries = [];
   try {
     await dbClear();
     await dbClearWodEntries();
     await dbClearMovements();
     await dbClearCustomWods();
+    await dbClearBodyweight();
   } catch (e) {
     storageOK = false;
   }
@@ -519,6 +586,7 @@ async function clearAllData() {
   historyId = MOVEMENTS[0].id;
   selectedWodId = WOD_LIBRARY[0].id;
   wodHistoryId = WOD_LIBRARY[0].id;
+  bwWeight = 70;
   confirmClear = false;
   render();
 }
@@ -1038,6 +1106,43 @@ function renderCalendarTab() {
     ${renderVolumeReport()}
   `;
 }
+function renderBodyweightCard() {
+  const sorted = bodyweightEntries.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
+  const last = bodyweightEntries.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+  const chartData = sorted.map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.weight, isPR: false }));
+  return `
+    <div class="chart-card" style="margin-bottom:16px;">
+      <div class="flex items-center justify-between" style="margin-bottom:${chartData.length ? "12px" : "0"};">
+        <span style="font-weight:800; font-size:15px;">Bodyweight</span>
+        ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${last.weight} kg · ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">No check-ins yet</span>`}
+      </div>
+      ${chartData.length ? renderChart(chartData) : ""}
+      <div class="steppers" style="margin-top:14px; margin-bottom:0;">
+        ${renderStepper("bwWeight", "WEIGHT (KG)", bwWeight, 0.5, 0, "bw-step")}
+      </div>
+      <button data-action="save-bw" class="save-btn" style="max-width:none; margin-top:14px;">Log bodyweight — today</button>
+    </div>`;
+}
+
+function renderAllTimePRs() {
+  const rows = activeExercises()
+    .map((m) => ({ id: m.id, name: m.name, category: m.category, value: `${bestEst1RM(m.id)} kg` }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!rows.length) return "";
+  return `
+    <div class="section-label">ALL-TIME PRS</div>
+    <div class="log-list" style="margin-bottom:16px;">
+      ${rows.map((r) => `
+        <button class="log-row" data-action="select-history" data-id="${r.id}" style="width:100%; text-align:left;">
+          <div class="flex items-center gap-8">
+            <div class="dot" style="background:${CATEGORY_COLORS[r.category]}"></div>
+            <span style="font-weight:700; font-size:13px;">${esc(r.name)}</span>
+          </div>
+          <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${r.value}</span>
+        </button>`).join("")}
+    </div>`;
+}
+
 function renderHistoryTab() {
   const now = new Date();
   const monthPrefix = localISODate(now).slice(0, 7);
@@ -1054,6 +1159,9 @@ function renderHistoryTab() {
       <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">sets logged</div></div>
     </div>
 
+    ${renderBodyweightCard()}
+    ${renderAllTimePRs()}
+
     ${activeExercises().length > 0 ? `
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
@@ -1068,6 +1176,14 @@ function renderFooter() {
   return `
     <div class="footer">
       <div class="footer-note">${storageOK ? "Saved on this device only, no server" : "Couldn't save — check available storage"}</div>
+      ${(() => {
+        const hasData = entries.length || wodEntries.length || bodyweightEntries.length;
+        if (!hasData) return "";
+        const days = daysSinceLastExport();
+        if (days !== null && days < 30) return "";
+        const msg = days === null ? "You haven't backed up yet" : `Last backup ${days} days ago`;
+        return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${msg} — export a backup below</div>`;
+      })()}
       <div class="flex items-center justify-center gap-10" style="margin-bottom:8px;">
         <button class="link-btn" data-action="export-data">Export backup</button>
         <span style="color:var(--border); font-size:11px;">·</span>
@@ -1296,8 +1412,28 @@ function renderWodHistoryListArea() {
   }).join("");
 }
 
+function renderAllTimeWodPRs() {
+  const rows = activeWods()
+    .map((w) => ({ id: w.id, name: w.name, category: w.category, value: formatWodBest(w.id) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (!rows.length) return "";
+  return `
+    <div class="section-label">ALL-TIME PRS</div>
+    <div class="log-list" style="margin-bottom:16px;">
+      ${rows.map((r) => `
+        <button class="log-row" data-action="select-wod-history" data-id="${r.id}" style="width:100%; text-align:left;">
+          <div class="flex items-center gap-8">
+            <div class="dot" style="background:${CATEGORY_COLORS[r.category]}"></div>
+            <span style="font-weight:700; font-size:13px;">${esc(r.name)}</span>
+          </div>
+          <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${r.value}</span>
+        </button>`).join("")}
+    </div>`;
+}
+
 function renderWodHistorySection() {
   return `
+    ${renderAllTimeWodPRs()}
     ${activeWods().length > 0 ? `
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
@@ -1541,6 +1677,15 @@ document.addEventListener("click", (e) => {
       if (valSpan) valSpan.textContent = valMap[field];
     });
   }
+  else if (action === "bw-step") {
+    const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
+    if (field === "bwWeight") bwWeight = Math.max(min, +(bwWeight + dir * step).toFixed(2));
+    document.querySelectorAll(`.stepper-btn[data-field="${field}"]`).forEach((btn) => {
+      const valSpan = btn.parentElement.querySelector(".stepper-val");
+      if (valSpan) valSpan.textContent = bwWeight;
+    });
+  }
+  else if (action === "save-bw") { saveBodyweight(); }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
     renderWodContent();
@@ -1585,6 +1730,9 @@ async function init() {
     wodEntries = await dbLoadWodEntries();
     wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     customWods = await dbLoadCustomWods();
+    bodyweightEntries = await dbLoadBodyweight();
+    bodyweightEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    if (bodyweightEntries[0]) bwWeight = bodyweightEntries[0].weight;
   } catch (e) {
     storageOK = false;
   }
