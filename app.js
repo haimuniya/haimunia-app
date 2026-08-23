@@ -49,7 +49,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.2.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -370,7 +370,9 @@ async function dbClear() {
 
 // ---------- State ----------
 let entries = [];
-let tab = "add";
+const VALID_TABS = ["add", "history", "calendar", "wod"];
+const urlTab = new URLSearchParams(location.search).get("tab");
+let tab = VALID_TABS.includes(urlTab) ? urlTab : "add";
 let selectedId = MOVEMENTS[0].id;
 let weight = 20, reps = 5, sets = 1;
 let historyId = MOVEMENTS[0].id;
@@ -790,6 +792,11 @@ function flashPR() {
     el.classList.remove("pr");
     if (flash) flash.style.display = "none";
   }, 1400);
+}
+
+function showUpdateBanner() {
+  const el = document.getElementById("updateBanner");
+  if (el) el.style.display = "block";
 }
 
 // ---------- Icons ----------
@@ -1591,7 +1598,8 @@ document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const action = el.dataset.action;
-  if (action === "switch-tab") { tab = el.dataset.tab; render(); }
+  if (action === "reload-app") { location.reload(); }
+  else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
   else if (action === "view-today-calendar") {
     tab = "calendar";
     const t = new Date();
@@ -1741,7 +1749,16 @@ async function init() {
   render();
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+    navigator.serviceWorker.register("./sw.js").then((reg) => {
+      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) showUpdateBanner();
+        });
+      });
+    }).catch(() => {});
   }
 }
 init();
