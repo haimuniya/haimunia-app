@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.4.2";
+const APP_VERSION = "2.5.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -479,7 +479,7 @@ const urlTab = new URLSearchParams(location.search).get("tab");
 let tab = VALID_TABS.includes(urlTab) ? urlTab : "add";
 let selectedId = MOVEMENTS[0].id;
 let weight = 20, reps = 5, sets = 1;
-let historyId = MOVEMENTS[0].id;
+let historyId = null;
 let historySearch = "";
 const now0 = new Date();
 let calYear = now0.getFullYear();
@@ -495,7 +495,7 @@ let wodMinutes = 3, wodSeconds = 0, wodRounds = 5, wodReps = 0, wodWeight = 20;
 let wodRx = true;
 let wodScaledWeight = 20;
 let wodNotes = "";
-let wodHistoryId = WOD_LIBRARY[0].id;
+let wodHistoryId = null;
 let wodHistorySearch = "";
 let wodBuilderOpen = false;
 let builderFormat = null;
@@ -693,9 +693,9 @@ async function clearAllData() {
     storageOK = false;
   }
   selectedId = MOVEMENTS[0].id;
-  historyId = MOVEMENTS[0].id;
+  historyId = null;
   selectedWodId = WOD_LIBRARY[0].id;
-  wodHistoryId = WOD_LIBRARY[0].id;
+  wodHistoryId = null;
   bwWeight = 70;
   confirmClear = false;
   render();
@@ -924,7 +924,7 @@ const ICONS = {
   flame: '<svg width="15" height="15" viewBox="0 0 24 24" fill="var(--brass)" stroke="none"><path d="M12 2c3 4-2 5-2 9a4 4 0 0 0 8 0c0-2-1-3-1-3s2 1 2 5a7 7 0 1 1-14 0c0-5 4-7 7-11z"/></svg>',
   trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
   dumbbell: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="2" stroke-linecap="round"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg>',
-  chevron: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" style="transform:rotate(180deg)"><path d="M9 6l6 6-6 6"/></svg>',
+  chevron: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
   up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.2" stroke-linecap="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
   down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M3 7l6 6 4-4 8 8"/><path d="M14 17h7v-7"/></svg>',
   flat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>',
@@ -1080,7 +1080,7 @@ function renderHistoryListArea() {
     const row = `
       <button class="exercise-row ${historyId === m.id ? "active" : ""}" data-action="select-history" data-id="${m.id}" style="${historyId === m.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
         <div class="flex items-center gap-8">
-          ${ICONS.chevron}
+          <span style="display:inline-flex; transition:transform .2s; transform:rotate(${historyId === m.id ? "90deg" : "180deg"});">${ICONS.chevron}</span>
           <div class="dot" style="background:${CATEGORY_COLORS[m.category]}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
         </div>
@@ -1287,7 +1287,6 @@ function renderHistoryTab() {
       <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">סטים שנרשמו</div></div>
     </div>
 
-    ${renderBodyweightCard()}
     ${renderAllTimePRs()}
 
     ${activeExercises().length > 0 ? `
@@ -1297,6 +1296,8 @@ function renderHistoryTab() {
     </div>` : ""}
 
     <div id="historyListArea"></div>
+
+    ${renderBodyweightCard()}
   `;
 }
 
@@ -1580,7 +1581,7 @@ function renderWodHistoryListArea() {
     const row = `
       <button class="exercise-row ${wodHistoryId === w.id ? "active" : ""}" data-action="select-wod-history" data-id="${w.id}" style="${wodHistoryId === w.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
         <div class="flex items-center gap-8">
-          ${ICONS.chevron}
+          <span style="display:inline-flex; transition:transform .2s; transform:rotate(${wodHistoryId === w.id ? "90deg" : "180deg"});">${ICONS.chevron}</span>
           <div class="dot" style="background:${CATEGORY_COLORS[w.category]}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(w.name)}</span>
         </div>
@@ -1804,7 +1805,7 @@ document.addEventListener("click", (e) => {
   else if (action === "cal-prev") { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendarGrid(); }
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
   else if (action === "cal-select-day") { calSelectedDate = el.dataset.date; renderCalendarGrid(); }
-  else if (action === "select-history") { historyId = el.dataset.id; renderHistoryListArea(); }
+  else if (action === "select-history") { historyId = historyId === el.dataset.id ? null : el.dataset.id; renderHistoryListArea(); }
   else if (action === "export-data") { exportData(); }
   else if (action === "import-data") { triggerImport(); }
   else if (action === "ask-clear") { confirmClear = true; render(); }
@@ -1861,7 +1862,7 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "save-wod") { saveWod(); }
   else if (action === "delete-wod-entry") { deleteWodEntry(el.dataset.id); }
-  else if (action === "select-wod-history") { wodHistoryId = el.dataset.id; renderWodHistoryListArea(); }
+  else if (action === "select-wod-history") { wodHistoryId = wodHistoryId === el.dataset.id ? null : el.dataset.id; renderWodHistoryListArea(); }
 });
 document.getElementById("pickerSearch").addEventListener("input", (e) => renderPickerList(e.target.value));
 document.getElementById("pickerSearch").addEventListener("keydown", (e) => {
