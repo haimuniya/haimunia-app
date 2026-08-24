@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.3.1";
+const APP_VERSION = "2.3.2";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -552,6 +552,7 @@ async function addMovement(name, category) {
   render();
 }
 async function saveSet() {
+  if (!isFinite(weight) || !isFinite(reps) || !isFinite(sets)) return;
   const prevRepRecord = repRecordFor(selectedId, reps) || 0;
   const prevEst1RM = bestEst1RM(selectedId) || 0;
   const est = estimate1RM(weight, reps);
@@ -574,6 +575,7 @@ async function deleteEntry(id) {
 
 // ---------- Bodyweight ----------
 async function saveBodyweight() {
+  if (!isFinite(bwWeight)) return;
   const today = todayISO();
   const existing = bodyweightEntries.find((e) => e.date === today);
   const entry = existing
@@ -855,6 +857,7 @@ function createWodFromBuilder() {
 
 async function saveWod() {
   const w = wodById(selectedWodId);
+  if (!isFinite(wodMinutes) || !isFinite(wodSeconds) || !isFinite(wodRounds) || !isFinite(wodReps) || !isFinite(wodWeight) || !isFinite(wodScaledWeight)) return;
   const prevBest = bestWodScore(selectedWodId);
   const entry = {
     id: "wod-" + Date.now().toString() + Math.random().toString(36).slice(2),
