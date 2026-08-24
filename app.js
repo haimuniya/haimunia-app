@@ -95,8 +95,9 @@ const MOVEMENTS = [
 ];
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
-const BAR_KG = 20;
-const APP_VERSION = "2.10.1";
+const BAR_OPTIONS = [20, 15, 8];
+let barWeight = 20;
+const APP_VERSION = "2.11.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -277,7 +278,7 @@ const PLATE_DEFS = [
 ];
 
 function calcPlates(total) {
-  let perSide = Math.max(0, (total - BAR_KG) / 2);
+  let perSide = Math.max(0, (total - barWeight) / 2);
   const out = [];
   for (const p of PLATE_DEFS) {
     while (perSide + 1e-9 >= p.kg) { out.push(p); perSide -= p.kg; }
@@ -848,6 +849,23 @@ function saveUserName(name) {
   renderUserGreeting();
 }
 
+const BAR_WEIGHT_KEY = "haimunia:barWeight";
+async function loadBarWeight() {
+  try {
+    const stored = await dbGetSetting(BAR_WEIGHT_KEY);
+    if (BAR_OPTIONS.includes(stored)) barWeight = stored;
+  } catch (e) { /* keep the default */ }
+}
+function setBarWeight(kg) {
+  if (!BAR_OPTIONS.includes(kg)) return;
+  barWeight = kg;
+  dbSetSetting(BAR_WEIGHT_KEY, kg).catch(noteStorageError);
+  const bv = document.getElementById("barbellVisual");
+  if (bv) bv.innerHTML = renderBarbell(weight);
+  const barRow = document.getElementById("barWeightRow");
+  if (barRow) barRow.outerHTML = renderBarWeightRow();
+}
+
 const LAST_EXPORT_KEY = "boxlog:lastExportAt";
 let lastExportAt = null;
 async function loadLastExport() {
@@ -1032,6 +1050,7 @@ async function clearAllData() {
   selectedWodId = WOD_LIBRARY[0].id;
   wodHistoryId = null;
   bwWeight = 70;
+  barWeight = 20;
   logDate = todayISO();
   editingEntryId = null;
   wodLogDate = todayISO();
@@ -1306,6 +1325,14 @@ const ICONS = {
 };
 
 // ---------- Rendering ----------
+function renderBarWeightRow() {
+  return `<div id="barWeightRow">
+    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">משקל המוט</div>
+    <div class="flex gap-8" style="margin-bottom:12px;">
+      ${BAR_OPTIONS.map((kg) => `<button class="format-chip ${barWeight === kg ? "active" : ""}" data-action="set-bar-weight" data-kg="${kg}">${kg} ק"ג</button>`).join("")}
+    </div>
+  </div>`;
+}
 function renderBarbell(w) {
   const plates = calcPlates(w);
   const left = [...plates].reverse();
@@ -1322,7 +1349,7 @@ function renderBarbell(w) {
         <div class="sleeve"></div><div class="collar"></div>
         ${renderSide(right)}
       </div>
-      <span class="bar-caption">${w < BAR_KG ? "מתחת למשקל המוט (20 ק\"ג)" : `מוט אולימפי + ${plates.length} משקולות`}</span>
+      <span class="bar-caption">${w < barWeight ? `מתחת למשקל המוט (${barWeight} ק"ג)` : `מוט ${barWeight} ק"ג + ${plates.length} משקולות`}</span>
     </div>`;
 }
 
@@ -1392,6 +1419,8 @@ function renderLogTab() {
       ${est ? `<div class="stat-card"><div class="stat-label">1RM משוער</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
       ${last ? `<div class="stat-card"><div class="stat-label">אימון אחרון</div><div class="stat-value mono">${last.weight}×${last.reps}</div></div>` : ""}
     </div>` : ""}
+
+    ${renderBarWeightRow()}
 
     <div class="bar-wrap" id="barWrap">
       <div class="pr-flash" id="prFlash" style="display:none;">${ICONS.flame}<span>שיא חדש!</span></div>
@@ -2246,6 +2275,7 @@ document.addEventListener("click", (e) => {
     applyFieldValue(action, field, next);
   }
   else if (action === "save-set") { saveSet(); }
+  else if (action === "set-bar-weight") { setBarWeight(+el.dataset.kg); }
   else if (action === "delete-entry") { deleteEntry(el.dataset.id); }
   else if (action === "cal-prev") { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendarGrid(); }
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
@@ -2381,6 +2411,7 @@ async function init() {
   await reloadFromDb();
   await loadUserName();
   await loadLastExport();
+  await loadBarWeight();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   renderUserGreeting();
