@@ -96,7 +96,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.10.0";
+const APP_VERSION = "2.10.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1328,20 +1328,35 @@ function renderBarbell(w) {
 
 function renderChart(data) {
   if (!data.length) return `<div class="flex col items-center" style="padding:32px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">אין עדיין נתונים לתרגיל הזה</span></div>`;
-  const w = 300, h = 150, pad = 26;
-  const xs = data.map((d, i) => pad + i * ((w - 2 * pad) / Math.max(1, data.length - 1)));
+  const n = data.length;
+  // Every point gets its own date label now (rotated, to fit more before they
+  // overlap). Few points still render at the original full-width 300 viewBox;
+  // once labels would start crowding, the chart grows wide instead of
+  // cramming, and scrolls horizontally so every date stays readable.
+  const padTop = 20, padBottom = 44, plotH = 110, padX = 24, spacing = 44;
+  const h = padTop + plotH + padBottom;
+  const naturalW = padX * 2 + Math.max(0, n - 1) * spacing;
+  const wide = naturalW > 300;
+  const w = wide ? naturalW : 300;
+  const xs = data.map((d, i) => padX + i * ((w - 2 * padX) / Math.max(1, n - 1)));
   const ys = data.map((d) => d.est1RM);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const range = maxY - minY || 1;
-  const pts = data.map((d, i) => ({ x: xs[i], y: h - pad - ((d.est1RM - minY) / range) * (h - 2 * pad), isPR: d.isPR, v: d.est1RM }));
+  const pts = data.map((d, i) => ({
+    x: xs[i],
+    y: padTop + plotH - ((d.est1RM - minY) / range) * plotH,
+    isPR: d.isPR,
+    label: d.dateLabel,
+  }));
   const polyline = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
   const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isPR ? 5 : 2.5}" fill="${p.isPR ? "#E8B98A" : "#F2ECE1"}" ${p.isPR ? 'stroke="#1F3057" stroke-width="2"' : ""}/>`).join("");
-  const firstLabel = `<text x="${xs[0]}" y="${h - 6}" font-size="9" fill="#8891A6" text-anchor="start">${data[0].dateLabel}</text>`;
-  const lastLabel = `<text x="${xs[xs.length - 1]}" y="${h - 6}" font-size="9" fill="#8891A6" text-anchor="end">${data[data.length - 1].dateLabel}</text>`;
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:170px;">
+  const labelY = padTop + plotH + 12;
+  const labels = pts.map((p) => `<text x="${p.x.toFixed(1)}" y="${labelY}" font-size="9" fill="#8891A6" text-anchor="end" transform="rotate(-45 ${p.x.toFixed(1)} ${labelY})">${esc(p.label)}</text>`).join("");
+  const svg = `<svg viewBox="0 0 ${w} ${h}" style="${wide ? `width:${w}px;` : "width:100%;"} height:${h}px; display:block;">
     <polyline points="${polyline}" fill="none" stroke="#E8B98A" stroke-width="2"/>
-    ${dots}${firstLabel}${lastLabel}
+    ${dots}${labels}
   </svg>`;
+  return wide ? `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">${svg}</div>` : svg;
 }
 
 function renderLogTab() {
