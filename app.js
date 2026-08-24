@@ -30,14 +30,28 @@ const MOVEMENTS = [
   { id: "back-squat", name: "Back Squat", category: "Squat" },
   { id: "front-squat", name: "Front Squat", category: "Squat" },
   { id: "overhead-squat", name: "Overhead Squat", category: "Squat" },
+  { id: "box-squat", name: "Box Squat", category: "Squat" },
+  { id: "pause-squat", name: "Pause Squat", category: "Squat" },
+  { id: "zercher-squat", name: "Zercher Squat", category: "Squat" },
+  { id: "bulgarian-split-squat", name: "Bulgarian Split Squat", category: "Squat" },
   { id: "deadlift", name: "Deadlift", category: "Deadlift" },
   { id: "sumo-deadlift", name: "Sumo Deadlift", category: "Deadlift" },
   { id: "deficit-deadlift", name: "Deficit Deadlift", category: "Deadlift" },
+  { id: "romanian-deadlift", name: "Romanian Deadlift", category: "Deadlift" },
+  { id: "trap-bar-deadlift", name: "Trap Bar Deadlift", category: "Deadlift" },
+  { id: "stiff-leg-deadlift", name: "Stiff-Leg Deadlift", category: "Deadlift" },
+  { id: "snatch-grip-deadlift", name: "Snatch-Grip Deadlift", category: "Deadlift" },
   { id: "strict-press", name: "Strict Press", category: "Press" },
   { id: "push-press", name: "Push Press", category: "Press" },
   { id: "bench-press", name: "Bench Press", category: "Press" },
   { id: "push-jerk", name: "Push Jerk", category: "Press" },
   { id: "split-jerk", name: "Split Jerk", category: "Press" },
+  { id: "seated-press", name: "Seated Press", category: "Press" },
+  { id: "z-press", name: "Z-Press", category: "Press" },
+  { id: "single-arm-db-press", name: "Single-Arm DB Press", category: "Press" },
+  { id: "incline-bench-press", name: "Incline Bench Press", category: "Press" },
+  { id: "close-grip-bench-press", name: "Close-Grip Bench Press", category: "Press" },
+  { id: "landmine-press", name: "Landmine Press", category: "Press" },
   { id: "clean", name: "Clean (Squat Clean)", category: "Olympic" },
   { id: "power-clean", name: "Power Clean", category: "Olympic" },
   { id: "hang-clean", name: "Hang Clean", category: "Olympic" },
@@ -45,18 +59,43 @@ const MOVEMENTS = [
   { id: "snatch", name: "Snatch", category: "Olympic" },
   { id: "power-snatch", name: "Power Snatch", category: "Olympic" },
   { id: "hang-snatch", name: "Hang Snatch", category: "Olympic" },
+  { id: "muscle-snatch", name: "Muscle Snatch", category: "Olympic" },
+  { id: "muscle-clean", name: "Muscle Clean", category: "Olympic" },
+  { id: "snatch-pull", name: "Snatch Pull", category: "Olympic" },
+  { id: "clean-pull", name: "Clean Pull", category: "Olympic" },
+  { id: "snatch-balance", name: "Snatch Balance", category: "Olympic" },
+  { id: "pause-snatch", name: "Pause Snatch", category: "Olympic" },
+  { id: "pause-clean", name: "Pause Clean", category: "Olympic" },
   { id: "weighted-pullup", name: "Weighted Pull-Up", category: "Pull" },
   { id: "weighted-chinup", name: "Weighted Chin-Up", category: "Pull" },
   { id: "bent-over-row", name: "Bent-Over Row", category: "Pull" },
+  { id: "barbell-row", name: "Barbell Row", category: "Pull" },
+  { id: "pendlay-row", name: "Pendlay Row", category: "Pull" },
+  { id: "single-arm-db-row", name: "Single-Arm DB Row", category: "Pull" },
+  { id: "t-bar-row", name: "T-Bar Row", category: "Pull" },
+  { id: "face-pull", name: "Face Pull", category: "Pull" },
+  { id: "lat-pulldown", name: "Lat Pulldown", category: "Pull" },
   { id: "thruster", name: "Thruster", category: "Other" },
   { id: "front-rack-lunge", name: "Front Rack Lunge", category: "Other" },
   { id: "weighted-dip", name: "Weighted Dip", category: "Other" },
   { id: "turkish-getup", name: "Turkish Get-Up", category: "Other" },
+  { id: "good-mornings", name: "Good Mornings", category: "Other" },
+  { id: "hip-thrust", name: "Hip Thrust", category: "Other" },
+  { id: "barbell-lunge", name: "Barbell Lunge", category: "Other" },
+  { id: "weighted-step-up", name: "Weighted Step-Up", category: "Other" },
+  { id: "nordic-curl", name: "Nordic Curl", category: "Other" },
+  { id: "ghd-hip-extension", name: "GHD Hip Extension", category: "Other" },
+  { id: "weighted-plank", name: "Weighted Plank", category: "Other" },
+  { id: "ab-wheel-rollout", name: "Ab Wheel Rollout", category: "Other" },
+  { id: "leg-press", name: "Leg Press", category: "Other" },
+  { id: "leg-curl", name: "Leg Curl", category: "Other" },
+  { id: "leg-extension", name: "Leg Extension", category: "Other" },
+  { id: "calf-raise", name: "Calf Raise", category: "Other" },
 ];
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.2.1";
+const APP_VERSION = "2.3.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -84,6 +123,30 @@ const WOD_MOVEMENT_TAGS = [
   { name: "Double-Unders", category: "Gymnastics" },
   { name: "Single-Unders", category: "Gymnastics" },
   { name: "L-Sit", category: "Gymnastics" },
+  { name: "Pike Push-Ups", category: "Gymnastics" },
+  { name: "Deficit Push-Ups", category: "Gymnastics" },
+  { name: "Ring Rows", category: "Gymnastics" },
+  { name: "Australian Pull-Ups", category: "Gymnastics" },
+  { name: "Banded Pull-Ups", category: "Gymnastics" },
+  { name: "Kipping Pull-Ups", category: "Gymnastics" },
+  { name: "Ring Support Hold", category: "Gymnastics" },
+  { name: "Ring Push-Ups", category: "Gymnastics" },
+  { name: "Broad Jump", category: "Gymnastics" },
+  { name: "Tuck-Ups", category: "Gymnastics" },
+  { name: "V-Ups", category: "Gymnastics" },
+  { name: "Hollow Rocks", category: "Gymnastics" },
+  { name: "Superman Hold", category: "Gymnastics" },
+  { name: "Plank Hold", category: "Gymnastics" },
+  { name: "Side Plank", category: "Gymnastics" },
+  { name: "Bear Crawl", category: "Gymnastics" },
+  { name: "Crab Walk", category: "Gymnastics" },
+  { name: "Inchworm", category: "Gymnastics" },
+  { name: "Mountain Climbers", category: "Gymnastics" },
+  { name: "Jumping Lunges", category: "Gymnastics" },
+  { name: "Jump Squats", category: "Gymnastics" },
+  { name: "Star Jumps", category: "Gymnastics" },
+  { name: "Skater Jumps", category: "Gymnastics" },
+  { name: "Wall Sit", category: "Gymnastics" },
   // Weightlifting (barbell)
   { name: "Back Squat", category: "Weightlifting" },
   { name: "Front Squat", category: "Weightlifting" },
@@ -107,6 +170,18 @@ const WOD_MOVEMENT_TAGS = [
   { name: "Thruster", category: "Weightlifting" },
   { name: "Sumo Deadlift High Pull", category: "Weightlifting" },
   { name: "Good Mornings", category: "Weightlifting" },
+  { name: "Muscle Snatch", category: "Weightlifting" },
+  { name: "Muscle Clean", category: "Weightlifting" },
+  { name: "Snatch Balance", category: "Weightlifting" },
+  { name: "Snatch Pull", category: "Weightlifting" },
+  { name: "Clean Pull", category: "Weightlifting" },
+  { name: "Tall Clean", category: "Weightlifting" },
+  { name: "Tall Snatch", category: "Weightlifting" },
+  { name: "Front Rack Lunge", category: "Weightlifting" },
+  { name: "Overhead Lunge", category: "Weightlifting" },
+  { name: "Zercher Squat", category: "Weightlifting" },
+  { name: "Bulgarian Split Squat", category: "Weightlifting" },
+  { name: "Box Squat", category: "Weightlifting" },
   // Dumbbell
   { name: "DB Snatch", category: "Dumbbell" },
   { name: "DB Clean", category: "Dumbbell" },
@@ -120,6 +195,13 @@ const WOD_MOVEMENT_TAGS = [
   { name: "DB Man Makers", category: "Dumbbell" },
   { name: "Devil Press", category: "Dumbbell" },
   { name: "DB Box Step-Overs", category: "Dumbbell" },
+  { name: "DB Hang Clean", category: "Dumbbell" },
+  { name: "DB Hang Snatch", category: "Dumbbell" },
+  { name: "DB Renegade Row", category: "Dumbbell" },
+  { name: "DB Bench Press", category: "Dumbbell" },
+  { name: "DB Single-Arm Overhead Squat", category: "Dumbbell" },
+  { name: "DB Walking Lunge", category: "Dumbbell" },
+  { name: "DB Floor Press", category: "Dumbbell" },
   // Kettlebell
   { name: "KB Swings (Russian)", category: "Kettlebell" },
   { name: "KB Swings (American)", category: "Kettlebell" },
@@ -128,6 +210,11 @@ const WOD_MOVEMENT_TAGS = [
   { name: "KB Goblet Squat", category: "Kettlebell" },
   { name: "KB Overhead Squat", category: "Kettlebell" },
   { name: "Turkish Get-Up", category: "Kettlebell" },
+  { name: "KB Single-Arm Swing", category: "Kettlebell" },
+  { name: "KB Windmill", category: "Kettlebell" },
+  { name: "KB Lunge", category: "Kettlebell" },
+  { name: "KB Press", category: "Kettlebell" },
+  { name: "KB Thruster", category: "Kettlebell" },
   // Odd object / carries
   { name: "Wall Balls", category: "Odd Object" },
   { name: "Farmers Carry", category: "Odd Object" },
@@ -137,6 +224,12 @@ const WOD_MOVEMENT_TAGS = [
   { name: "Sled Pull", category: "Odd Object" },
   { name: "Yoke Carry", category: "Odd Object" },
   { name: "Atlas Stone to Shoulder", category: "Odd Object" },
+  { name: "Tire Flip", category: "Odd Object" },
+  { name: "Sledgehammer Swings", category: "Odd Object" },
+  { name: "Sandbag Over Shoulder", category: "Odd Object" },
+  { name: "Keg Carry", category: "Odd Object" },
+  { name: "D-Ball Cleans", category: "Odd Object" },
+  { name: "Zercher Carry", category: "Odd Object" },
   // Monostructural
   { name: "Run (Meters)", category: "Monostructural" },
   { name: "Row (Meters)", category: "Monostructural" },
@@ -145,8 +238,12 @@ const WOD_MOVEMENT_TAGS = [
   { name: "Assault Bike (Calories)", category: "Monostructural" },
   { name: "Ski Erg (Calories)", category: "Monostructural" },
   { name: "Swim (Meters)", category: "Monostructural" },
+  { name: "Echo Bike (Calories)", category: "Monostructural" },
+  { name: "Shuttle Runs (Meters)", category: "Monostructural" },
+  { name: "Sprint (Meters)", category: "Monostructural" },
 ];
 const WOD_MOVE_CATEGORIES_WITH_WEIGHT = new Set(["Weightlifting", "Dumbbell", "Kettlebell", "Odd Object"]);
+const WOD_MOVE_CATEGORIES = ["Gymnastics", "Weightlifting", "Dumbbell", "Kettlebell", "Odd Object", "Monostructural"];
 
 const WOD_LIBRARY = [
   { id: "fran", name: "Fran", category: "Girls", scoreType: "time", desc: "21-15-9 Thrusters & Pull-ups" },
@@ -697,13 +794,22 @@ function renderWodBuilderMovements(query) {
   if (typeof query === "string") builderMoveSearch = query;
   const q = builderMoveSearch.trim().toLowerCase();
   const filtered = WOD_MOVEMENT_TAGS.filter((m) => m.name.toLowerCase().includes(q));
+  const exactMatch = WOD_MOVEMENT_TAGS.some((m) => m.name.toLowerCase() === q);
   const byCategory = {};
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
+  const addRow = builderMoveSearch.trim() && !exactMatch
+    ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:10px;">
+         <div style="font-weight:700; font-size:13px; color:var(--brass); margin-bottom:8px;">הוספת "${esc(builderMoveSearch.trim())}" — לאיזו קטגוריה?</div>
+         <div class="flex wrap gap-8">
+           ${WOD_MOVE_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-builder-movement-tag" data-name="${esc(builderMoveSearch.trim())}" data-category="${cat}">${CATEGORY_LABELS[cat] || cat}</button>`).join("")}
+         </div>
+       </div>`
+    : "";
   if (Object.keys(byCategory).length === 0) {
-    el.innerHTML = `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(builderMoveSearch)}"</div>`;
+    el.innerHTML = addRow + (builderMoveSearch.trim() ? `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(builderMoveSearch)}"</div>` : "");
     return;
   }
-  el.innerHTML = Object.entries(byCategory).map(([cat, items]) => `
+  el.innerHTML = addRow + Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
       <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
       ${items.map((m) => {
@@ -1708,6 +1814,18 @@ document.addEventListener("click", (e) => {
     else builderMovements[name] = { reps: 10, weight: 0 };
     renderWodBuilderMovements();
   }
+  else if (action === "add-builder-movement-tag") {
+    const name = el.dataset.name, category = el.dataset.category;
+    if (!name) return;
+    if (!WOD_MOVEMENT_TAGS.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
+      WOD_MOVEMENT_TAGS.push({ name, category: WOD_MOVE_CATEGORIES.includes(category) ? category : "Gymnastics" });
+    }
+    builderMovements[name] = { reps: 10, weight: 0 };
+    builderMoveSearch = "";
+    const moveSearch = document.getElementById("wodBuilderMoveSearch");
+    if (moveSearch) moveSearch.value = "";
+    renderWodBuilderMovements("");
+  }
   else if (action === "create-wod") { createWodFromBuilder(); }
   else if (action === "save-bw") { saveBodyweight(); }
   else if (action === "set-rx") {
@@ -1731,9 +1849,13 @@ document.getElementById("pickerSearch").addEventListener("keydown", (e) => {
   if (!q) return;
   const exact = allMovements().find((m) => m.name.toLowerCase() === q.toLowerCase());
   if (exact) { selectedId = exact.id; closePicker(); render(); }
+  else e.target.blur();
 });
 document.getElementById("wodPickerSearch").addEventListener("input", (e) => renderWodPickerList(e.target.value));
 document.getElementById("wodBuilderMoveSearch").addEventListener("input", (e) => renderWodBuilderMovements(e.target.value));
+document.getElementById("wodBuilderMoveSearch").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") e.target.blur();
+});
 
 document.addEventListener("focusin", (e) => {
   if (e.target.classList && e.target.classList.contains("stepper-val")) e.target.value = "";
