@@ -12,11 +12,18 @@ document.addEventListener("touchend", (e) => {
 
 // ---------- Data ----------
 const CATEGORY_COLORS = {
-  Squat: "var(--blue)", Deadlift: "var(--red)", Press: "var(--yellow)",
+  Squat: "var(--teal)", Deadlift: "var(--red)", Press: "var(--yellow)",
   Olympic: "var(--green)", Pull: "var(--purple)", Other: "var(--steel)",
   Custom: "var(--brass)", Girls: "var(--purple)", Heroes: "var(--red)",
   Gymnastics: "var(--purple)", Weightlifting: "var(--blue)", Dumbbell: "var(--green)",
   Kettlebell: "var(--yellow)", "Odd Object": "var(--red)", Monostructural: "var(--steel)",
+};
+
+const CATEGORY_LABELS = {
+  Squat: "Squat", Deadlift: "Deadlift", Press: "Press", Olympic: "Olympic",
+  Pull: "Pull", Other: "Other", Custom: "Custom", Girls: "Girls", Heroes: "Heroes",
+  Gymnastics: "Gymnastics", Weightlifting: "Weightlifting", Dumbbell: "Dumbbell",
+  Kettlebell: "Kettlebell", "Odd Object": "Odd Object", Monostructural: "Monostructural",
 };
 
 const MOVEMENTS = [
@@ -49,7 +56,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "2.0.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -185,7 +192,7 @@ function estimate1RM(weight, reps) {
 }
 function fmtDate(iso) {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit" });
+  return d.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" });
 }
 function localISODate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -528,12 +535,12 @@ async function importDataFromFile(file) {
   try {
     data = JSON.parse(await file.text());
   } catch (e) {
-    setImportMessage("Import failed — not a valid backup file");
+    setImportMessage("הייבוא נכשל — הקובץ אינו קובץ גיבוי תקין");
     render();
     return;
   }
   if (!data || typeof data !== "object") {
-    setImportMessage("Import failed — not a valid backup file");
+    setImportMessage("הייבוא נכשל — הקובץ אינו קובץ גיבוי תקין");
     render();
     return;
   }
@@ -565,7 +572,7 @@ async function importDataFromFile(file) {
   } catch (e) {
     storageOK = false;
   }
-  setImportMessage(skipped ? `Imported ${ok} item${ok === 1 ? "" : "s"}, skipped ${skipped}` : `Imported ${ok} item${ok === 1 ? "" : "s"}`);
+  setImportMessage(skipped ? `יובאו ${ok} פריטים, דולגו ${skipped}` : `יובאו ${ok} פריטים`);
   render();
 }
 
@@ -678,7 +685,7 @@ function renderWodBuilderFormats() {
   });
   const hint = document.getElementById("wodBuilderFormatHint");
   if (hint) {
-    hint.textContent = "Required — pick one";
+    hint.textContent = "חובה לבחור אחד";
     hint.style.color = "var(--steel)";
   }
 }
@@ -691,12 +698,12 @@ function renderWodBuilderMovements(query) {
   const byCategory = {};
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
   if (Object.keys(byCategory).length === 0) {
-    el.innerHTML = `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">No movement matches "${esc(builderMoveSearch)}"</div>`;
+    el.innerHTML = `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(builderMoveSearch)}"</div>`;
     return;
   }
   el.innerHTML = Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
-      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${cat}</span></div>
+      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
       ${items.map((m) => {
         const checked = Object.prototype.hasOwnProperty.call(builderMovements, m.name);
         const data = builderMovements[m.name] || { reps: 10, weight: 0 };
@@ -708,11 +715,11 @@ function renderWodBuilderMovements(query) {
         </button>
         ${checked ? (hasWeight ? `
         <div class="flex" style="gap:8px; margin:-2px 0 10px; padding:0 2px;">
-          ${renderStepper(m.name, "REPS", data.reps, 1, 0, "builder-movement-reps")}
-          ${renderStepper(m.name, "KG", data.weight, 2.5, 0, "builder-movement-weight")}
+          ${renderStepper(m.name, "חזרות", data.reps, 1, 0, "builder-movement-reps")}
+          ${renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight")}
         </div>` : `
         <div style="width:50%; margin:-2px 0 10px; padding:0 2px;">
-          ${renderStepper(m.name, "REPS", data.reps, 1, 0, "builder-movement-reps")}
+          ${renderStepper(m.name, "חזרות", data.reps, 1, 0, "builder-movement-reps")}
         </div>`) : ""}`;
       }).join("")}
     </div>`).join("");
@@ -724,7 +731,7 @@ function createWodFromBuilder() {
   if (!builderFormat) {
     const hint = document.getElementById("wodBuilderFormatHint");
     if (hint) {
-      hint.textContent = "Pick a format above to continue";
+      hint.textContent = "יש לבחור פורמט למעלה כדי להמשיך";
       hint.style.color = "var(--red)";
     }
     document.querySelectorAll("#wodBuilderFormats .format-chip").forEach((btn) => {
@@ -808,6 +815,7 @@ const ICONS = {
   up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.2" stroke-linecap="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
   down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M3 7l6 6 4-4 8 8"/><path d="M14 17h7v-7"/></svg>',
   flat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>',
+  chevronsLeft: '<img src="./assets/icon-chevrons.png" alt="" width="11" height="10" style="transform:scaleX(-1); vertical-align:middle;" />',
 };
 
 // ---------- Rendering ----------
@@ -827,12 +835,12 @@ function renderBarbell(w) {
         <div class="sleeve"></div><div class="collar"></div>
         ${renderSide(right)}
       </div>
-      <span class="bar-caption">${w < BAR_KG ? "under bar weight (20 kg)" : `olympic bar + ${plates.length} plates`}</span>
+      <span class="bar-caption">${w < BAR_KG ? "מתחת למשקל המוט (20 ק\"ג)" : `מוט אולימפי + ${plates.length} משקולות`}</span>
     </div>`;
 }
 
 function renderChart(data) {
-  if (!data.length) return `<div class="flex col items-center" style="padding:32px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">No data for this movement yet</span></div>`;
+  if (!data.length) return `<div class="flex col items-center" style="padding:32px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">אין עדיין נתונים לתרגיל הזה</span></div>`;
   const w = 300, h = 150, pad = 26;
   const xs = data.map((d, i) => pad + i * ((w - 2 * pad) / Math.max(1, data.length - 1)));
   const ys = data.map((d) => d.est1RM);
@@ -861,39 +869,39 @@ function renderLogTab() {
         <div class="dot" style="background:${CATEGORY_COLORS[selected.category]}"></div>
         <span style="font-weight:800; font-size:16px;">${esc(selected.name)}</span>
       </div>
-      <span style="color:var(--steel); font-size:12px; font-weight:600;">change ›</span>
+      <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
     </button>
 
     ${(est || last) ? `
     <div class="stat-row">
-      ${est ? `<div class="stat-card"><div class="stat-label">Est. 1RM</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
-      ${last ? `<div class="stat-card"><div class="stat-label">Last session</div><div class="stat-value mono">${last.weight}×${last.reps}</div></div>` : ""}
+      ${est ? `<div class="stat-card"><div class="stat-label">1RM משוער</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
+      ${last ? `<div class="stat-card"><div class="stat-label">אימון אחרון</div><div class="stat-value mono">${last.weight}×${last.reps}</div></div>` : ""}
     </div>` : ""}
 
     <div class="bar-wrap" id="barWrap">
-      <div class="pr-flash" id="prFlash" style="display:none;">${ICONS.flame}<span>New PR!</span></div>
+      <div class="pr-flash" id="prFlash" style="display:none;">${ICONS.flame}<span>שיא חדש!</span></div>
       <div id="barbellVisual">${renderBarbell(weight)}</div>
     </div>
 
     <div class="steppers">
-      ${renderStepper("weight", "WEIGHT (KG)", weight, 2.5, 0)}
-      ${renderStepper("reps", "REPS", reps, 1, 1)}
-      ${renderStepper("sets", "SETS", sets, 1, 1)}
+      ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, 0)}
+      ${renderStepper("reps", "חזרות", reps, 1, 1)}
+      ${renderStepper("sets", "סטים", sets, 1, 1)}
     </div>
 
-    <div class="est-line">→ this set estimates a <b id="estLineValue">${estimate1RM(weight, reps)} kg</b> 1RM</div>
+    <div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>
 
     ${todaysEntries.length === 0 ? `
-    <div class="empty">No sets logged today yet. Load the bar.</div>` : `
+    <div class="empty">עדיין לא נרשמו סטים היום. קדימה למוט.</div>` : `
     <button class="exercise-row" data-action="view-today-calendar" style="margin-bottom:0;">
       <div class="flex items-center gap-8">
         ${todaysEntries[0].isPR ? ICONS.flame : ""}
-        <div style="text-align:left;">
-          <div style="font-weight:700; font-size:13px;">Last: ${esc(movementById(todaysEntries[0].exerciseId) ? movementById(todaysEntries[0].exerciseId).name : "?")} — ${todaysEntries[0].sets}×${todaysEntries[0].reps} @ ${todaysEntries[0].weight}</div>
-          <div style="color:var(--steel); font-size:11px;">${todaysEntries.length} set${todaysEntries.length === 1 ? "" : "s"} logged today</div>
+        <div style="text-align:right;">
+          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(movementById(todaysEntries[0].exerciseId) ? movementById(todaysEntries[0].exerciseId).name : "?")} — ${todaysEntries[0].sets}×${todaysEntries[0].reps} @ ${todaysEntries[0].weight}</div>
+          <div style="color:var(--steel); font-size:11px;">${todaysEntries.length} סט${todaysEntries.length === 1 ? "" : "ים"} נרשמו היום</div>
         </div>
       </div>
-      <span style="color:var(--steel); font-size:12px; font-weight:600;">view day ›</span>
+      <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">צפייה ביום${ICONS.chevronsLeft}</span>
     </button>`}
   `;
 }
@@ -930,7 +938,7 @@ function renderDetailCard(m) {
     <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
       <div class="flex items-center justify-between" style="margin-bottom:12px;">
         <span style="font-weight:800; font-size:15px;">${esc(m.name)}</span>
-        ${trend !== null ? `<span class="flex items-center gap-6" style="font-weight:700; font-size:12px;">${trend > 0 ? ICONS.up : trend < 0 ? ICONS.down : ICONS.flat}${trend > 0 ? "+" : ""}${trend} kg est. 1RM</span>` : ""}
+        ${trend !== null ? `<span class="flex items-center gap-6" style="font-weight:700; font-size:12px;">${trend > 0 ? ICONS.up : trend < 0 ? ICONS.down : ICONS.flat}<span class="mono">${trend > 0 ? "+" : ""}${trend} kg</span> 1RM משוער</span>` : ""}
       </div>
       ${renderChart(chartData)}
       <div class="rep-table">
@@ -948,11 +956,11 @@ function renderHistoryListArea() {
   const q = historySearch.trim().toLowerCase();
   const active = activeExercises().filter((m) => m.name.toLowerCase().includes(q));
   if (activeExercises().length === 0) {
-    area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">Log a set to start seeing progress</span></div>`;
+    area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">רשמו סט כדי להתחיל לראות התקדמות</span></div>`;
     return;
   }
   if (active.length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">No movement matches "${esc(historySearch)}"</div>`;
+    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(historySearch)}"</div>`;
     return;
   }
   area.innerHTML = active.map((m) => {
@@ -971,7 +979,7 @@ function renderHistoryListArea() {
 }
 
 // ---------- Calendar tab ----------
-const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTH_NAMES = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const REPORT_CATEGORIES = ["Squat","Deadlift","Press","Olympic","Pull","Other"];
 
 function isoDate(y, m, d) {
@@ -1012,10 +1020,10 @@ function renderCalDetail() {
   const dayEntries = entries.filter((e) => e.date === calSelectedDate).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const dayWods = wodEntries.filter((e) => e.date === calSelectedDate).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const d = new Date(calSelectedDate + "T00:00:00");
-  const label = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const label = d.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   el.innerHTML = `
     <div class="section-label" style="margin-top:4px;">${label.toUpperCase()}</div>
-    ${(dayEntries.length === 0 && dayWods.length === 0) ? `<div class="empty">Nothing logged this day.</div>` : `
+    ${(dayEntries.length === 0 && dayWods.length === 0) ? `<div class="empty">לא נרשם דבר ביום הזה.</div>` : `
     <div class="log-list">
       ${dayEntries.map((e) => `
         <div class="log-row">
@@ -1043,7 +1051,7 @@ function renderCalDetail() {
               <button data-action="delete-wod-entry" data-id="${e.id}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
             </div>
           </div>
-          ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-right:23px;">${esc(e.notes)}</div>` : ""}
+          ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-left:23px;">${esc(e.notes)}</div>` : ""}
         </div>`;
       }).join("")}
     </div>`}
@@ -1051,11 +1059,11 @@ function renderCalDetail() {
 }
 
 function daysAgoLabel(iso) {
-  if (!iso) return "never";
+  if (!iso) return "מעולם לא";
   const diff = Math.round((new Date(todayISO()) - new Date(iso)) / 86400000);
-  if (diff === 0) return "today";
-  if (diff === 1) return "1 day ago";
-  return `${diff} days ago`;
+  if (diff === 0) return "היום";
+  if (diff === 1) return "לפני יום";
+  return `לפני ${diff} ימים`;
 }
 
 function renderVolumeReport() {
@@ -1080,18 +1088,18 @@ function renderVolumeReport() {
       <div class="report-row">
         <div class="flex items-center gap-8">
           <div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div>
-          <span style="font-weight:700; font-size:14px;">${cat}</span>
+          <span style="font-weight:700; font-size:14px;">${CATEGORY_LABELS[cat] || cat}</span>
         </div>
         <div class="flex items-center gap-10">
-          <span class="mono" style="color:var(--steel); font-size:12px;">${setsWeek}w / ${setsMonth}m sets</span>
+          <span class="mono" style="color:var(--steel); font-size:12px;">${setsWeek}/${setsMonth} סטים</span>
           <span class="report-flag" style="color:${flagColor}; background:${flagBg};">${flagText}</span>
         </div>
       </div>`;
   }).join("");
 
   return `
-    <div class="section-label">VOLUME & FREQUENCY BY CATEGORY</div>
-    <div style="color:var(--steel); font-size:11px; margin-bottom:10px;">sets in the last 7 / 30 days, and time since last trained</div>
+    <div class="section-label">נפח ותדירות לפי קטגוריה</div>
+    <div style="color:var(--steel); font-size:11px; margin-bottom:10px;">סטים ב-7 / 30 הימים האחרונים, וזמן מאז האימון האחרון</div>
     ${rows}
   `;
 }
@@ -1107,7 +1115,7 @@ function renderCalendarTab() {
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
       </button>
     </div>
-    <div class="cal-weekdays">${["S","M","T","W","T","F","S"].map((d) => `<div class="cal-weekday">${d}</div>`).join("")}</div>
+    <div class="cal-weekdays">${["א","ב","ג","ד","ה","ו","ש"].map((d) => `<div class="cal-weekday">${d}</div>`).join("")}</div>
     <div class="cal-grid" id="calGrid"></div>
     <div id="calDetail" style="margin-bottom:20px;"></div>
     ${renderVolumeReport()}
@@ -1120,14 +1128,14 @@ function renderBodyweightCard() {
   return `
     <div class="chart-card" style="margin-bottom:16px;">
       <div class="flex items-center justify-between" style="margin-bottom:${chartData.length ? "12px" : "0"};">
-        <span style="font-weight:800; font-size:15px;">Bodyweight</span>
-        ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${last.weight} kg · ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">No check-ins yet</span>`}
+        <span style="font-weight:800; font-size:15px;">משקל גוף</span>
+        ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${last.weight} kg · ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
       </div>
       ${chartData.length ? renderChart(chartData) : ""}
       <div class="steppers" style="margin-top:14px; margin-bottom:0;">
-        ${renderStepper("bwWeight", "WEIGHT (KG)", bwWeight, 0.5, 0, "bw-step")}
+        ${renderStepper("bwWeight", "משקל (ק\"ג)", bwWeight, 0.5, 0, "bw-step")}
       </div>
-      <button data-action="save-bw" class="save-btn" style="max-width:none; margin-top:14px;">Log bodyweight — today</button>
+      <button data-action="save-bw" class="save-btn" style="max-width:none; margin-top:14px;">רישום משקל גוף — היום</button>
     </div>`;
 }
 
@@ -1137,10 +1145,10 @@ function renderAllTimePRs() {
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!rows.length) return "";
   return `
-    <div class="section-label">ALL-TIME PRS</div>
+    <div class="section-label">שיאים כלל-זמנים</div>
     <div class="log-list" style="margin-bottom:16px;">
       ${rows.map((r) => `
-        <button class="log-row" data-action="select-history" data-id="${r.id}" style="width:100%; text-align:left;">
+        <button class="log-row" data-action="select-history" data-id="${r.id}" style="width:100%; text-align:right;">
           <div class="flex items-center gap-8">
             <div class="dot" style="background:${CATEGORY_COLORS[r.category]}"></div>
             <span style="font-weight:700; font-size:13px;">${esc(r.name)}</span>
@@ -1161,9 +1169,9 @@ function renderHistoryTab() {
 
   return `
     <div class="stat-row">
-      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="color:var(--brass); font-size:20px;">${prCountThisMonth}</div><div class="stat-label">PRs this month</div></div>
-      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${sessionsThisWeek}</div><div class="stat-label">sessions this week</div></div>
-      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">sets logged</div></div>
+      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="color:var(--brass); font-size:20px;">${prCountThisMonth}</div><div class="stat-label">שיאים החודש</div></div>
+      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${sessionsThisWeek}</div><div class="stat-label">אימונים השבוע</div></div>
+      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">סטים שנרשמו</div></div>
     </div>
 
     ${renderBodyweightCard()}
@@ -1172,7 +1180,7 @@ function renderHistoryTab() {
     ${activeExercises().length > 0 ? `
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="historySearch" dir="auto" placeholder="Search your movements" value="${esc(historySearch)}" />
+      <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
     </div>` : ""}
 
     <div id="historyListArea"></div>
@@ -1182,26 +1190,26 @@ function renderHistoryTab() {
 function renderFooter() {
   return `
     <div class="footer">
-      <div class="footer-note">${storageOK ? "Saved on this device only, no server" : "Couldn't save — check available storage"}</div>
+      <div class="footer-note">${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : "שמירה נכשלה — בדקו את מקום האחסון"}</div>
       ${(() => {
         const hasData = entries.length || wodEntries.length || bodyweightEntries.length;
         if (!hasData) return "";
         const days = daysSinceLastExport();
         if (days !== null && days < 30) return "";
-        const msg = days === null ? "You haven't backed up yet" : `Last backup ${days} days ago`;
-        return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${msg} — export a backup below</div>`;
+        const msg = days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`;
+        return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${msg} — ייצוא גיבוי למטה</div>`;
       })()}
       <div class="flex items-center justify-center gap-10" style="margin-bottom:8px;">
-        <button class="link-btn" data-action="export-data">Export backup</button>
+        <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
         <span style="color:var(--border); font-size:11px;">·</span>
-        <button class="link-btn" data-action="import-data">Import backup</button>
+        <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
       </div>
       ${importMessage ? `<div class="footer-note" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
-      ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">Clear all data</button>` : `
+      ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">מחיקת כל הנתונים</button>` : `
         <div class="flex items-center justify-center gap-10">
-          <span style="color:var(--steel); font-size:11px;">Delete everything?</span>
-          <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">Yes, delete</button>
-          <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">Cancel</button>
+          <span style="color:var(--steel); font-size:11px;">למחוק הכל?</span>
+          <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">כן, מחיקה</button>
+          <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">ביטול</button>
         </div>`}
       <div class="footer-note" style="margin-top:10px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
     </div>`;
@@ -1227,7 +1235,7 @@ function render() {
     if (tab === "add") {
       const selected = movementById(selectedId);
       content = renderLogTab();
-      if (selected) document.getElementById("saveBtnLabel").textContent = "Log set — " + selected.name;
+      if (selected) document.getElementById("saveBtnLabel").textContent = "רישום סט — " + selected.name;
     } else if (tab === "history") {
       content = renderHistoryTab();
     } else if (tab === "calendar") {
@@ -1238,7 +1246,7 @@ function render() {
   } catch (err) {
     console.error("render error:", err);
     content = `<div style="padding:40px 16px; text-align:center;">
-      <div style="color:var(--red); font-weight:700; margin-bottom:8px;">Something went wrong showing this tab</div>
+      <div style="color:var(--red); font-weight:700; margin-bottom:8px;">משהו השתבש בהצגת הטאב הזה</div>
       <div style="color:var(--steel); font-size:12px;">${(err && err.message) ? err.message : String(err)}</div>
     </div>`;
   }
@@ -1272,17 +1280,17 @@ function renderWodLogSection() {
   let inputsHtml = "";
   if (w.scoreType === "time") {
     inputsHtml = `<div class="steppers">
-      ${renderStepper("wodMinutes", "MIN", wodMinutes, 1, 0, "wod-step")}
-      ${renderStepper("wodSeconds", "SEC", wodSeconds, 5, 0, "wod-step")}
+      ${renderStepper("wodMinutes", "דקות", wodMinutes, 1, 0, "wod-step")}
+      ${renderStepper("wodSeconds", "שניות", wodSeconds, 5, 0, "wod-step")}
     </div>`;
   } else if (w.scoreType === "amrap") {
     inputsHtml = `<div class="steppers">
-      ${renderStepper("wodRounds", "ROUNDS", wodRounds, 1, 0, "wod-step")}
-      ${renderStepper("wodReps", "+ REPS", wodReps, 1, 0, "wod-step")}
+      ${renderStepper("wodRounds", "סבבים", wodRounds, 1, 0, "wod-step")}
+      ${renderStepper("wodReps", "+ חזרות", wodReps, 1, 0, "wod-step")}
     </div>`;
   } else {
     inputsHtml = `<div class="steppers">
-      ${renderStepper("wodWeight", "WEIGHT (KG)", wodWeight, 2.5, 0, "wod-step")}
+      ${renderStepper("wodWeight", "משקל (ק\"ג)", wodWeight, 2.5, 0, "wod-step")}
     </div>`;
   }
 
@@ -1295,29 +1303,29 @@ function renderWodLogSection() {
           ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
         </div>
       </div>
-      <span style="color:var(--steel); font-size:12px; font-weight:600;">change ›</span>
+      <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
     </button>
 
     ${history.length > 0 ? `
     <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:14px; padding:12px 14px; margin-bottom:16px;">
-      <div style="color:var(--brass); font-weight:800; font-size:13px; margin-bottom:8px;">↺ You've done this ${history.length} time${history.length === 1 ? "" : "s"} before — compare below</div>
+      <div style="color:var(--brass); font-weight:800; font-size:13px; margin-bottom:8px;">↺ עשית את זה ${history.length} פעמים בעבר — השוואה למטה</div>
       <div class="flex items-center justify-between">
         <div>
-          <div class="stat-label">BEST</div>
+          <div class="stat-label">שיא</div>
           <div class="mono" style="color:var(--brass); font-weight:800; font-size:16px;">${best}</div>
         </div>
-        <div style="text-align:right;">
-          <div class="stat-label">LAST (${fmtDate(history[0].date)})</div>
+        <div style="text-align:left;">
+          <div class="stat-label">אחרון (${fmtDate(history[0].date)})</div>
           <div class="mono" style="font-weight:700; font-size:16px;">${formatWodEntry(history[0])} ${history[0].rx ? "" : "· Scaled"}</div>
         </div>
       </div>
     </div>` : `
     <div class="stat-row">
-      <div class="stat-card"><div class="stat-label">Best score</div><div class="stat-value mono" style="color:var(--brass);">${best}</div></div>
-      <div class="stat-card"><div class="stat-label">Score type</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : "Load"}</div></div>
+      <div class="stat-card"><div class="stat-label">שיא</div><div class="stat-value mono" style="color:var(--brass);">${best}</div></div>
+      <div class="stat-card"><div class="stat-label">סוג ניקוד</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : "Load"}</div></div>
     </div>`}
 
-    <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:var(--brass); font-weight:800; font-size:14px; background:rgba(232,185,138,.14); border:1px solid var(--brass); border-radius:14px; padding:10px 0; margin-bottom:16px;">${ICONS.flame}<span>New PR!</span></div>
+    <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:var(--brass); font-weight:800; font-size:14px; background:rgba(232,185,138,.14); border:1px solid var(--brass); border-radius:14px; padding:10px 0; margin-bottom:16px;">${ICONS.flame}<span>שיא חדש!</span></div>
 
     <div class="rx-toggle">
       <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1">Rx</button>
@@ -1326,31 +1334,31 @@ function renderWodLogSection() {
 
     ${!wodRx ? `
     <div class="steppers" style="margin-bottom:16px;">
-      ${renderStepper("wodScaledWeight", "SCALED WEIGHT (KG)", wodScaledWeight, 2.5, 0, "wod-step")}
+      ${renderStepper("wodScaledWeight", "משקל מותאם (ק\"ג)", wodScaledWeight, 2.5, 0, "wod-step")}
     </div>
-    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="Movement changes? (optional, e.g. banded pull-ups)" value="${esc(wodNotes)}" />
+    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="שינוי בתרגיל? (אופציונלי, לדוגמה מתח עם רצועה)" value="${esc(wodNotes)}" />
     <div class="flex items-center justify-between" style="margin-bottom:16px;">
-      ${lastScaled ? `<button data-action="copy-last-scaled" style="color:var(--steel); font-size:12px; text-align:left;">↺ Last time: ${lastScaled.notes ? esc(lastScaled.notes) + " — " : ""}${formatWodEntry(lastScaled)}</button>` : `<span style="color:var(--steel); font-size:12px;">First time scaling this one</span>`}
+      ${lastScaled ? `<button data-action="copy-last-scaled" style="color:var(--steel); font-size:12px; text-align:right;">↺ בפעם הקודמת: ${lastScaled.notes ? esc(lastScaled.notes) + " — " : ""}${formatWodEntry(lastScaled)}</button>` : `<span style="color:var(--steel); font-size:12px;">פעם ראשונה שמתאימים את זה</span>`}
     </div>` : ""}
 
     ${inputsHtml}
 
     <button data-action="save-wod" class="save-btn" style="max-width:none; margin:20px 0 24px;">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      Log WOD — ${esc(w.name)}
+      רישום אימון — ${esc(w.name)}
     </button>
 
     ${todaysWods.length === 0 ? `
-    <div class="empty">No WODs logged today yet.</div>` : `
+    <div class="empty">עדיין לא נרשמו אימונים היום.</div>` : `
     <button class="exercise-row" data-action="view-today-calendar" style="margin-bottom:0;">
       <div class="flex items-center gap-8">
         ${todaysWods[0].isPR ? ICONS.flame : ""}
-        <div style="text-align:left;">
-          <div style="font-weight:700; font-size:13px;">Last: ${esc(wodById(todaysWods[0].wodId) ? wodById(todaysWods[0].wodId).name : "?")} — ${formatWodEntry(todaysWods[0])} (${todaysWods[0].rx ? "Rx" : "Scaled"})</div>
-          <div style="color:var(--steel); font-size:11px;">${todaysWods.length} WOD${todaysWods.length === 1 ? "" : "s"} logged today</div>
+        <div style="text-align:right;">
+          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(wodById(todaysWods[0].wodId) ? wodById(todaysWods[0].wodId).name : "?")} — ${formatWodEntry(todaysWods[0])} (${todaysWods[0].rx ? "Rx" : "Scaled"})</div>
+          <div style="color:var(--steel); font-size:11px;">${todaysWods.length} אימון${todaysWods.length === 1 ? "" : "ים"} נרשמו היום</div>
         </div>
       </div>
-      <span style="color:var(--steel); font-size:12px; font-weight:600;">view day ›</span>
+      <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">צפייה ביום${ICONS.chevronsLeft}</span>
     </button>`}
   `;
 }
@@ -1371,7 +1379,7 @@ function renderWodDetailCard(w) {
     <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
       <div class="flex items-center justify-between" style="margin-bottom:12px;">
         <span style="font-weight:800; font-size:15px;">${esc(w.name)}</span>
-        <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">best ${formatWodBest(w.id)}</span>
+        <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">שיא: ${formatWodBest(w.id)}</span>
       </div>
       ${renderChart(chartData)}
       <div class="log-list" style="margin-top:12px;">
@@ -1397,11 +1405,11 @@ function renderWodHistoryListArea() {
   const q = wodHistorySearch.trim().toLowerCase();
   const active = activeWods().filter((w) => w.name.toLowerCase().includes(q));
   if (activeWods().length === 0) {
-    area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">Log a WOD to start seeing progress</span></div>`;
+    area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">רשמו אימון כדי להתחיל לראות התקדמות</span></div>`;
     return;
   }
   if (active.length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">No WOD matches "${esc(wodHistorySearch)}"</div>`;
+    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא אימון התואם ל-"${esc(wodHistorySearch)}"</div>`;
     return;
   }
   area.innerHTML = active.map((w) => {
@@ -1425,10 +1433,10 @@ function renderAllTimeWodPRs() {
     .sort((a, b) => a.name.localeCompare(b.name));
   if (!rows.length) return "";
   return `
-    <div class="section-label">ALL-TIME PRS</div>
+    <div class="section-label">שיאים כלל-זמנים</div>
     <div class="log-list" style="margin-bottom:16px;">
       ${rows.map((r) => `
-        <button class="log-row" data-action="select-wod-history" data-id="${r.id}" style="width:100%; text-align:left;">
+        <button class="log-row" data-action="select-wod-history" data-id="${r.id}" style="width:100%; text-align:right;">
           <div class="flex items-center gap-8">
             <div class="dot" style="background:${CATEGORY_COLORS[r.category]}"></div>
             <span style="font-weight:700; font-size:13px;">${esc(r.name)}</span>
@@ -1444,7 +1452,7 @@ function renderWodHistorySection() {
     ${activeWods().length > 0 ? `
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="wodHistorySearch" dir="auto" placeholder="Search your WODs" value="${esc(wodHistorySearch)}" />
+      <input id="wodHistorySearch" dir="auto" placeholder="חיפוש באימונים שלך" value="${esc(wodHistorySearch)}" />
     </div>` : ""}
     <div id="wodHistoryListArea"></div>
   `;
@@ -1453,8 +1461,8 @@ function renderWodHistorySection() {
 function renderWodTab() {
   return `
     <div class="subtabbar">
-      <button class="subtabbtn ${wodSubTab === "log" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="log">Log</button>
-      <button class="subtabbtn ${wodSubTab === "history" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="history">History</button>
+      <button class="subtabbtn ${wodSubTab === "log" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="log">רישום</button>
+      <button class="subtabbtn ${wodSubTab === "history" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="history">היסטוריה</button>
     </div>
     <div id="wodContent"></div>
   `;
@@ -1510,16 +1518,16 @@ function renderPickerList(query) {
   const list = document.getElementById("pickerList");
   const addRow = query.trim() && !exactMatch
     ? `<button class="movement-btn" data-action="add-movement" data-name="${esc(query.trim())}" style="border-color:var(--brass); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ Add "${esc(query.trim())}" as a new movement</span>
+         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת "${esc(query.trim())}" כתרגיל חדש</span>
        </button>`
     : "";
   if (Object.keys(byCategory).length === 0) {
-    list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">No movement found</div>`;
+    list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל</div>`;
     return;
   }
   list.innerHTML = addRow + Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
-      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${cat}</span></div>
+      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
       ${items.map((m) => `
         <button class="movement-btn ${selectedId === m.id ? "active" : ""}" data-action="pick-movement" data-id="${m.id}">
           <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
@@ -1568,20 +1576,20 @@ function renderWodPickerList(query) {
   const list = document.getElementById("wodPickerList");
   const addRow = query.trim() && !exactMatch
     ? `<button class="movement-btn" data-action="open-wod-builder" data-name="${esc(query.trim())}" style="border-color:var(--energy); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ Build "${esc(query.trim())}" as a new WOD</span>
+         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ בניית "${esc(query.trim())}" כאימון חדש</span>
        </button>`
     : `<button class="movement-btn" data-action="open-wod-builder" data-name="" style="border-color:var(--energy); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ Build a custom WOD</span>
+         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ בניית אימון מותאם אישית</span>
        </button>`;
   if (Object.keys(byCategory).length === 0) {
-    list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">No WOD found</div>`;
+    list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא אימון</div>`;
     return;
   }
   const order = ["Girls", "Heroes", "Custom"];
   const cats = Object.keys(byCategory).sort((a, b) => order.indexOf(a) - order.indexOf(b));
   list.innerHTML = addRow + `<div style="height:12px;"></div>` + cats.map((cat) => `
     <div class="cat-group">
-      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${cat}</span></div>
+      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
       ${byCategory[cat].map((w) => `
         <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${w.id}">
           <div>
@@ -1730,7 +1738,7 @@ document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
 
 // ---------- Init ----------
 async function init() {
-  document.getElementById("dateLabel").textContent = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  document.getElementById("dateLabel").textContent = new Date().toLocaleDateString("he-IL", { weekday: "short", day: "numeric", month: "short" });
   try {
     entries = await dbLoadAll();
     entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));

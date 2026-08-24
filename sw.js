@@ -1,4 +1,4 @@
-const CACHE = "box-log-v1.2.0"; // keep in sync with APP_VERSION in app.js
+const CACHE = "haimunia-v2.0.0"; // keep in sync with APP_VERSION in app.js
 const ASSETS = [
   "./",
   "./index.html",
@@ -6,6 +6,9 @@ const ASSETS = [
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
+  "./assets/mark.png",
+  "./assets/icon-barbell.png",
+  "./assets/icon-chevrons.png",
 ];
 
 self.addEventListener("install", (e) => {

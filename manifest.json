@@ -1,8 +1,10 @@
 {
   "id": "./",
-  "name": "Box Log",
-  "short_name": "Box Log",
-  "description": "Personal strength and WOD training log",
+  "name": "האימוניה",
+  "short_name": "האימוניה",
+  "description": "הבית שלך לאימונים",
+  "lang": "he",
+  "dir": "rtl",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -17,14 +19,14 @@
   ],
   "shortcuts": [
     {
-      "name": "Log a set",
-      "short_name": "Log set",
+      "name": "רישום סט",
+      "short_name": "רישום סט",
       "url": "./index.html?tab=add",
       "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "Log a WOD",
-      "short_name": "Log WOD",
+      "name": "רישום אימון",
+      "short_name": "רישום אימון",
       "url": "./index.html?tab=wod",
       "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
