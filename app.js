@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.4.1";
+const APP_VERSION = "2.4.2";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -821,8 +821,8 @@ function renderWodBuilderMovements(query) {
         const data = builderMovements[m.name] || { reps: 10, weight: 0 };
         const hasWeight = WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
         return `
-        <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${m.name}">
-          <span style="font-weight:600; font-size:14px;">${m.name}</span>
+        <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}">
+          <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
           <div class="movecheck-box">${checked ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>' : ""}</div>
         </button>
         ${checked ? (hasWeight ? `
@@ -961,7 +961,7 @@ function renderChart(data) {
   const range = maxY - minY || 1;
   const pts = data.map((d, i) => ({ x: xs[i], y: h - pad - ((d.est1RM - minY) / range) * (h - 2 * pad), isPR: d.isPR, v: d.est1RM }));
   const polyline = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isPR ? 5 : 2.5}" fill="${p.isPR ? "#E8B98A" : "#F2ECE1"}" ${p.isPR ? 'stroke="#101B30" stroke-width="2"' : ""}/>`).join("");
+  const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isPR ? 5 : 2.5}" fill="${p.isPR ? "#E8B98A" : "#F2ECE1"}" ${p.isPR ? 'stroke="#1F3057" stroke-width="2"' : ""}/>`).join("");
   const firstLabel = `<text x="${xs[0]}" y="${h - 6}" font-size="9" fill="#8891A6" text-anchor="start">${data[0].dateLabel}</text>`;
   const lastLabel = `<text x="${xs[xs.length - 1]}" y="${h - 6}" font-size="9" fill="#8891A6" text-anchor="end">${data[data.length - 1].dateLabel}</text>`;
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:170px;">
@@ -1822,7 +1822,6 @@ document.addEventListener("click", (e) => {
     closeWodPicker();
     renderWodContent();
   }
-  else if (action === "add-wod") { addCustomWod(el.dataset.name, el.dataset.scoretype || "time"); }
   else if (action === "open-wod-builder") { openWodBuilder(el.dataset.name || ""); }
   else if (action === "close-wod-builder") {
     if (el.id === "wodBuilderOverlay" && e.target !== el) return;
