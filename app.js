@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.6.0";
+const APP_VERSION = "2.6.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -507,6 +507,7 @@ let storageOK = true;
 // Bodyweight tab state
 let bodyweightEntries = [];
 let bwWeight = 70;
+let bodyweightExpanded = false;
 
 let importMessage = "";
 let importMsgTimeout = null;
@@ -1234,22 +1235,31 @@ function renderCalendarTab() {
     ${renderVolumeReport()}
   `;
 }
-function renderBodyweightCard() {
+function renderBodyweightArea() {
+  const el = document.getElementById("bodyweightArea");
+  if (!el) return;
   const sorted = bodyweightEntries.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
   const last = bodyweightEntries.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
   const chartData = sorted.map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.weight, isPR: false }));
-  return `
-    <div class="chart-card" style="margin-bottom:16px;">
-      <div class="flex items-center justify-between" style="margin-bottom:${chartData.length ? "12px" : "0"};">
-        <span style="font-weight:800; font-size:15px;">משקל גוף</span>
-        ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${last.weight} kg · ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
+  const header = `
+    <button class="exercise-row ${bodyweightExpanded ? "active" : ""}" data-action="toggle-bodyweight" style="${bodyweightExpanded ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
+      <div class="flex items-center gap-8">
+        <span style="display:inline-flex; transition:transform .2s; transform:rotate(${bodyweightExpanded ? "90deg" : "180deg"});">${ICONS.chevron}</span>
+        <span style="font-weight:700; font-size:14px;">משקל גוף</span>
       </div>
+      ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${last.weight} kg</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
+    </button>`;
+  const detail = bodyweightExpanded ? `
+    <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
+      ${last ? `<div style="color:var(--steel); font-size:12px; margin-bottom:${chartData.length ? "12px" : "0"};">עודכן לאחרונה: ${fmtDate(last.date)}</div>` : ""}
       ${chartData.length ? renderChart(chartData) : ""}
       <div class="steppers" style="margin-top:14px; margin-bottom:0;">
         ${renderStepper("bwWeight", "משקל (ק\"ג)", bwWeight, 0.5, 0, "bw-step")}
       </div>
       <button data-action="save-bw" class="save-btn" style="max-width:none; margin-top:14px;">רישום משקל גוף — היום</button>
-    </div>`;
+    </div>
+    <div style="height:8px;"></div>` : "";
+  el.innerHTML = header + detail;
 }
 
 function renderHistoryTab() {
@@ -1277,7 +1287,7 @@ function renderHistoryTab() {
 
     <div id="historyListArea"></div>
 
-    ${renderBodyweightCard()}
+    <div id="bodyweightArea"></div>
   `;
 }
 
@@ -1404,6 +1414,7 @@ function render() {
   try {
     if (tab === "history") {
       renderHistoryListArea();
+      renderBodyweightArea();
       const search = document.getElementById("historySearch");
       if (search) search.addEventListener("input", (e) => { historySearch = e.target.value; renderHistoryListArea(); });
     }
@@ -1811,6 +1822,7 @@ document.addEventListener("click", (e) => {
   else if (action === "focus-wod-builder-search") { document.getElementById("wodBuilderMoveSearch").focus(); }
   else if (action === "create-wod") { createWodFromBuilder(); }
   else if (action === "save-bw") { saveBodyweight(); }
+  else if (action === "toggle-bodyweight") { bodyweightExpanded = !bodyweightExpanded; renderBodyweightArea(); }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
     renderWodContent();
