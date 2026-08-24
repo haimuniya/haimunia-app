@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.4.0";
+const APP_VERSION = "2.4.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -806,7 +806,9 @@ function renderWodBuilderMovements(query) {
            ${WOD_MOVE_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-builder-movement-tag" data-name="${esc(builderMoveSearch.trim())}" data-category="${cat}">${CATEGORY_LABELS[cat] || cat}</button>`).join("")}
          </div>
        </div>`
-    : "";
+    : `<button class="movement-btn" data-action="focus-wod-builder-search" style="border-color:var(--brass); margin-bottom:10px;">
+         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת תרגיל/סקילס חדש</span>
+       </button>`;
   if (Object.keys(byCategory).length === 0) {
     el.innerHTML = addRow + (builderMoveSearch.trim() ? `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(builderMoveSearch)}"</div>` : "");
     return;
@@ -1685,7 +1687,9 @@ function renderPickerList(query) {
            ${MOVEMENT_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-movement" data-name="${esc(query.trim())}" data-category="${cat}">${cat}</button>`).join("")}
          </div>
        </div>`
-    : "";
+    : `<button class="movement-btn" data-action="focus-picker-search" style="border-color:var(--brass); margin-top:4px; margin-bottom:8px;">
+         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת תרגיל חדש</span>
+       </button>`;
   if (Object.keys(byCategory).length === 0) {
     list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל</div>`;
     return;
@@ -1788,6 +1792,7 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "pick-movement") { selectedId = el.dataset.id; closePicker(); render(); }
   else if (action === "add-movement") { addMovement(el.dataset.name, el.dataset.category); }
+  else if (action === "focus-picker-search") { document.getElementById("pickerSearch").focus(); }
   else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight") {
     const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
     const current = getFieldValue(action, field);
@@ -1842,6 +1847,7 @@ document.addEventListener("click", (e) => {
     if (moveSearch) moveSearch.value = "";
     renderWodBuilderMovements("");
   }
+  else if (action === "focus-wod-builder-search") { document.getElementById("wodBuilderMoveSearch").focus(); }
   else if (action === "create-wod") { createWodFromBuilder(); }
   else if (action === "save-bw") { saveBodyweight(); }
   else if (action === "set-rx") {
