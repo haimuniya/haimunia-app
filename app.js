@@ -1,8 +1,9 @@
-// ---------- Hard-block zoom (iOS Safari ignores user-scalable=no in the meta tag) ----------
-document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-document.addEventListener("gesturestart", (e) => e.preventDefault());
-document.addEventListener("gesturechange", (e) => e.preventDefault());
-document.addEventListener("gestureend", (e) => e.preventDefault());
+// ---------- Suppress accidental double-tap zoom ----------
+// Deliberate pinch-zoom is left working: blocking it (the previous
+// touchmove/gesturestart handlers plus user-scalable=no) is a WCAG 1.4.4
+// failure and makes the app unusable for low-vision users. Only the
+// double-tap-to-zoom gesture is suppressed, since it fires by accident when
+// tapping the +/- steppers quickly.
 let lastTouchEndTime = 0;
 document.addEventListener("touchend", (e) => {
   const now = Date.now();
@@ -95,7 +96,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.7.0";
+const APP_VERSION = "2.8.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -297,15 +298,154 @@ function localISODate(d) {
 function todayISO() { return localISODate(new Date()); }
 const ESC_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function esc(str) { return String(str ?? "").replace(/[&<>"']/g, (c) => ESC_MAP[c]); }
+
+// ---------- Safety helpers ----------
+// Escape a value for use inside a CSS attribute selector.
+function cssSel(v) {
+  if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(String(v ?? ""));
+  return String(v ?? "").replace(/["\\\]]/g, "\\$&");
+}
+// Prototype-safe lookup tables. A record whose category is "__proto__" (only
+// reachable through an imported backup) must never resolve to Object.prototype.
+function catColor(cat) {
+  return Object.prototype.hasOwnProperty.call(CATEGORY_COLORS, cat) ? CATEGORY_COLORS[cat] : "var(--steel)";
+}
+function catLabel(cat) {
+  return Object.prototype.hasOwnProperty.call(CATEGORY_LABELS, cat) ? CATEGORY_LABELS[cat] : String(cat ?? "");
+}
+// Accumulator objects keyed by untrusted strings must have no prototype.
+function bag() { return Object.create(null); }
+
+const WOD_SCORE_TYPES = ["time", "amrap", "load"];
+const LIMITS = {
+  nameLen: 80, notesLen: 300, idLen: 128, importItems: 20000,
+  weight: 1000, reps: 1000, sets: 100, minutes: 999, seconds: 59,
+  rounds: 9999, bodyweight: 500,
+};
+const FIELD_MAX = {
+  weight: LIMITS.weight, reps: LIMITS.reps, sets: LIMITS.sets,
+  wodMinutes: LIMITS.minutes, wodSeconds: LIMITS.seconds, wodRounds: LIMITS.rounds,
+  wodReps: LIMITS.reps, wodWeight: LIMITS.weight, wodScaledWeight: LIMITS.weight,
+  bwWeight: LIMITS.bodyweight,
+};
+function fieldMax(action, field) {
+  if (action === "bw-step") return LIMITS.bodyweight;
+  if (action === "builder-movement-reps") return LIMITS.reps;
+  if (action === "builder-movement-weight") return LIMITS.weight;
+  return Object.prototype.hasOwnProperty.call(FIELD_MAX, field) ? FIELD_MAX[field] : LIMITS.weight;
+}
+function cleanStr(v, max) {
+  if (typeof v !== "string") return "";
+  // strip control chars, collapse runaway whitespace, hard-cap length
+  return v.replace(/[\u0000-\u001F\u007F]/g, "").trim().slice(0, max);
+}
+function cleanNum(v, min, max, fallback) {
+  const n = typeof v === "number" ? v : parseFloat(v);
+  if (!isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n * 100) / 100));
+}
+function cleanId(v) {
+  const raw = typeof v === "string" ? v : "";
+  // opaque identifier: conservative charset, never reaches HTML as markup
+  const id = raw.replace(/[^A-Za-z0-9._:-]/g, "").slice(0, LIMITS.idLen);
+  return id || null;
+}
+function cleanISODate(v) {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(v + "T00:00:00");
+  return isNaN(d.getTime()) ? null : v;
+}
+function cleanTs(v) {
+  const n = Number(v);
+  if (!isFinite(n) || n <= 0 || n > 4102444800000) return Date.now(); // cap at year 2100
+  return Math.floor(n);
+}
+function uid(prefix) {
+  let r;
+  try { r = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null; } catch (e) { r = null; }
+  if (!r) {
+    try {
+      const a = new Uint8Array(16); self.crypto.getRandomValues(a);
+      r = Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
+    } catch (e) { r = Date.now().toString(36) + Math.random().toString(36).slice(2); }
+  }
+  return prefix + "-" + r;
+}
+// ---------- Record sanitizers ----------
+// Applied to every record that comes off disk or out of an imported file.
+// Nothing else in the app is allowed to trust these shapes.
+function sanitizeMovement(m) {
+  if (!m || typeof m !== "object") return null;
+  const id = cleanId(m.id), name = cleanStr(m.name, LIMITS.nameLen);
+  if (!id || !name) return null;
+  return { id, name, category: MOVEMENT_CATEGORIES.includes(m.category) ? m.category : "Other" };
+}
+function sanitizeCustomWod(w) {
+  if (!w || typeof w !== "object") return null;
+  const id = cleanId(w.id), name = cleanStr(w.name, LIMITS.nameLen);
+  if (!id || !name) return null;
+  return {
+    id, name, category: "Custom",
+    scoreType: WOD_SCORE_TYPES.includes(w.scoreType) ? w.scoreType : "time",
+    desc: cleanStr(w.desc, LIMITS.notesLen),
+  };
+}
+function sanitizeEntry(e) {
+  if (!e || typeof e !== "object") return null;
+  const id = cleanId(e.id), exerciseId = cleanId(e.exerciseId), date = cleanISODate(e.date);
+  if (!id || !exerciseId || !date) return null;
+  const weight = cleanNum(e.weight, 0, LIMITS.weight, null);
+  const reps = cleanNum(e.reps, 0, LIMITS.reps, null);
+  const sets = cleanNum(e.sets, 0, LIMITS.sets, null);
+  if (weight === null || reps === null || sets === null) return null;
+  return {
+    id, exerciseId, date, weight, reps, sets: Math.round(sets),
+    ts: cleanTs(e.ts), isPR: e.isPR === true,
+    est1RM: cleanNum(e.est1RM, 0, LIMITS.weight * 2, estimate1RM(weight, reps)),
+  };
+}
+function sanitizeWodEntry(e) {
+  if (!e || typeof e !== "object") return null;
+  const id = cleanId(e.id), wodId = cleanId(e.wodId), date = cleanISODate(e.date);
+  if (!id || !wodId || !date) return null;
+  const scoreType = WOD_SCORE_TYPES.includes(e.scoreType) ? e.scoreType : "time";
+  const out = { id, wodId, date, scoreType, ts: cleanTs(e.ts), rx: e.rx !== false, isPR: e.isPR === true };
+  if (scoreType === "time") out.timeSeconds = cleanNum(e.timeSeconds, 0, LIMITS.minutes * 60 + 59, 0);
+  else if (scoreType === "amrap") {
+    out.rounds = Math.round(cleanNum(e.rounds, 0, LIMITS.rounds, 0));
+    out.reps = Math.round(cleanNum(e.reps, 0, LIMITS.reps, 0));
+  } else out.weight = cleanNum(e.weight, 0, LIMITS.weight, 0);
+  if (!out.rx) {
+    const sw = cleanNum(e.scaledWeight, 0, LIMITS.weight, 0);
+    if (sw) out.scaledWeight = sw;
+    const notes = cleanStr(e.notes, LIMITS.notesLen);
+    out.notes = notes || null;
+  }
+  return out;
+}
+function sanitizeBodyweight(e) {
+  if (!e || typeof e !== "object") return null;
+  const id = cleanId(e.id), date = cleanISODate(e.date);
+  const weight = cleanNum(e.weight, 0, LIMITS.bodyweight, null);
+  if (!id || !date || weight === null) return null;
+  return { id, date, weight, ts: cleanTs(e.ts) };
+}
+function sanitizeList(list, fn) {
+  if (!Array.isArray(list)) return [];
+  return list.slice(0, LIMITS.importItems).map(fn).filter(Boolean);
+}
+
 let customMovements = [];
 function allMovements() { return MOVEMENTS.concat(customMovements); }
 function movementById(id) { return allMovements().find((m) => m.id === id); }
 
 // ---------- IndexedDB ----------
-const DB_NAME = "box-log-db", STORE = "entries", MOVSTORE = "movements", WODSTORE = "wodEntries", CUSTOMWODSTORE = "customWods", BWSTORE = "bodyweight";
+const DB_NAME = "box-log-db", STORE = "entries", MOVSTORE = "movements", WODSTORE = "wodEntries", CUSTOMWODSTORE = "customWods", BWSTORE = "bodyweight", SETTINGSTORE = "settings";
+let _dbPromise = null;
 function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 5);
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 6);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
@@ -313,9 +453,40 @@ function openDB() {
       if (!db.objectStoreNames.contains(WODSTORE)) db.createObjectStore(WODSTORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(CUSTOMWODSTORE)) db.createObjectStore(CUSTOMWODSTORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(BWSTORE)) db.createObjectStore(BWSTORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(SETTINGSTORE)) db.createObjectStore(SETTINGSTORE, { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
+    req.onerror = () => { _dbPromise = null; reject(req.error); };
+  });
+  return _dbPromise;
+}
+// Settings live in IndexedDB alongside everything else. userName is the only
+// PII in the app and previously sat in localStorage, which "clear all data"
+// never touched.
+async function dbGetSetting(key) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(SETTINGSTORE, "readonly").objectStore(SETTINGSTORE).get(key);
+    req.onsuccess = () => resolve(req.result ? req.result.value : null);
     req.onerror = () => reject(req.error);
+  });
+}
+async function dbSetSetting(key, value) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SETTINGSTORE, "readwrite");
+    tx.objectStore(SETTINGSTORE).put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbClearSettings() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SETTINGSTORE, "readwrite");
+    tx.objectStore(SETTINGSTORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 async function dbLoadMovements() {
@@ -499,10 +670,21 @@ let wodHistoryId = null;
 let wodHistorySearch = "";
 let wodBuilderOpen = false;
 let builderFormat = null;
-let builderMovements = {};
+let builderMovements = bag();
 let builderMoveSearch = "";
 let confirmClear = false;
 let storageOK = true;
+let storageErrMsg = "";
+// Surface write failures instead of swallowing them — a user whose saves are
+// silently failing otherwise believes the log is being kept.
+function noteStorageError(e) {
+  storageOK = false;
+  const quota = e && (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED");
+  storageErrMsg = quota
+    ? "אין מקום אחסון פנוי — ייצאו גיבוי ומחקו נתונים ישנים"
+    : "השמירה במכשיר נכשלה — הנתונים האחרונים אולי לא נשמרו";
+  console.error("storage write failed:", e);
+}
 
 // Bodyweight tab state
 let bodyweightEntries = [];
@@ -535,7 +717,7 @@ function activeExercises() {
 const MOVEMENT_CATEGORIES = ["Squat", "Deadlift", "Press", "Olympic", "Pull", "Other"];
 
 async function addMovement(name, category) {
-  const trimmed = name.trim();
+  const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
   const existing = allMovements().find((m) => m.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) {
@@ -544,10 +726,12 @@ async function addMovement(name, category) {
     render();
     return;
   }
-  const id = "custom-" + trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now().toString(36);
+  // Collision-free and charset-safe. The old slug scheme collapsed to a bare
+  // "custom--<ts>" for Hebrew names, since the regex stripped every character.
+  const id = uid("custom");
   const movement = { id, name: trimmed, category: MOVEMENT_CATEGORIES.includes(category) ? category : "Other" };
   customMovements.push(movement);
-  try { await dbAddMovement(movement); } catch (e) { storageOK = false; }
+  try { await dbAddMovement(movement); } catch (e) { noteStorageError(e); }
   selectedId = id;
   closePicker();
   render();
@@ -559,18 +743,18 @@ async function saveSet() {
   const est = estimate1RM(weight, reps);
   const isPR = weight > prevRepRecord || est > prevEst1RM;
   const entry = {
-    id: Date.now().toString() + Math.random().toString(36).slice(2),
+    id: uid("set"),
     ts: Date.now(),
     exerciseId: selectedId, weight, reps, sets, date: todayISO(), isPR, est1RM: est,
   };
   entries.unshift(entry);
-  try { await dbPut(entry); storageOK = true; } catch (e) { storageOK = false; }
+  try { await dbPut(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   if (isPR) flashPR();
   render();
 }
 async function deleteEntry(id) {
   entries = entries.filter((e) => e.id !== id);
-  try { await dbDelete(id); } catch (e) { storageOK = false; }
+  try { await dbDelete(id); } catch (e) { noteStorageError(e); }
   render();
 }
 
@@ -581,15 +765,28 @@ async function saveBodyweight() {
   const existing = bodyweightEntries.find((e) => e.date === today);
   const entry = existing
     ? { ...existing, weight: bwWeight, ts: Date.now() }
-    : { id: "bw-" + Date.now().toString() + Math.random().toString(36).slice(2), date: today, ts: Date.now(), weight: bwWeight };
+    : { id: uid("bw"), date: today, ts: Date.now(), weight: bwWeight };
   bodyweightEntries = bodyweightEntries.filter((e) => e.id !== entry.id);
   bodyweightEntries.unshift(entry);
-  try { await dbPutBodyweight(entry); storageOK = true; } catch (e) { storageOK = false; }
+  try { await dbPutBodyweight(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   render();
 }
 const USER_NAME_KEY = "haimunia:userName";
 let userName = null;
-try { userName = localStorage.getItem(USER_NAME_KEY); } catch (e) {}
+async function loadUserName() {
+  try {
+    const stored = await dbGetSetting(USER_NAME_KEY);
+    if (stored !== null && stored !== undefined) { userName = cleanStr(stored, LIMITS.nameLen); return; }
+  } catch (e) { /* fall through to migration */ }
+  // one-time migration off localStorage
+  let legacy = null;
+  try { legacy = localStorage.getItem(USER_NAME_KEY); } catch (e) {}
+  if (legacy !== null) {
+    userName = cleanStr(legacy, LIMITS.nameLen);
+    try { await dbSetSetting(USER_NAME_KEY, userName); } catch (e) {}
+    try { localStorage.removeItem(USER_NAME_KEY); } catch (e) {}
+  }
+}
 
 function renderUserGreeting() {
   const el = document.getElementById("userGreeting");
@@ -608,28 +805,44 @@ function closeWelcomeModal() {
   if (overlay) overlay.classList.remove("open");
 }
 function saveUserName(name) {
-  const trimmed = (name || "").trim();
+  const trimmed = cleanStr(name, LIMITS.nameLen);
   userName = trimmed;
-  try { localStorage.setItem(USER_NAME_KEY, trimmed); } catch (e) {}
+  dbSetSetting(USER_NAME_KEY, trimmed).catch(noteStorageError);
   closeWelcomeModal();
   renderUserGreeting();
 }
 
 const LAST_EXPORT_KEY = "boxlog:lastExportAt";
+let lastExportAt = null;
+async function loadLastExport() {
+  try {
+    const v = await dbGetSetting(LAST_EXPORT_KEY);
+    if (v) { lastExportAt = Number(v); return; }
+  } catch (e) {}
+  try {
+    const legacy = localStorage.getItem(LAST_EXPORT_KEY);
+    if (legacy) {
+      lastExportAt = Number(legacy);
+      await dbSetSetting(LAST_EXPORT_KEY, lastExportAt).catch(() => {});
+      localStorage.removeItem(LAST_EXPORT_KEY);
+    }
+  } catch (e) {}
+}
 function markExported() {
-  try { localStorage.setItem(LAST_EXPORT_KEY, String(Date.now())); } catch (e) {}
+  lastExportAt = Date.now();
+  dbSetSetting(LAST_EXPORT_KEY, lastExportAt).catch(() => {});
 }
 function daysSinceLastExport() {
-  try {
-    const v = localStorage.getItem(LAST_EXPORT_KEY);
-    if (!v) return null;
-    return Math.floor((Date.now() - Number(v)) / 86400000);
-  } catch (e) { return null; }
+  if (!lastExportAt || !isFinite(lastExportAt)) return null;
+  return Math.floor((Date.now() - lastExportAt) / 86400000);
 }
-function exportData() {
-  const payload = {
-    app: "box-log",
-    version: 1,
+const BACKUP_APP_ID = "box-log";
+const BACKUP_VERSION = 1;
+
+function buildBackupPayload() {
+  return {
+    app: BACKUP_APP_ID,
+    version: BACKUP_VERSION,
     exportedAt: new Date().toISOString(),
     entries,
     customMovements,
@@ -637,73 +850,125 @@ function exportData() {
     customWods,
     bodyweightEntries,
   };
+}
+
+function downloadBackup(payload, filename) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `box-log-backup-${todayISO()}.json`;
+  a.download = filename;
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  // Give the download a tick to start before tearing down the blob URL.
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function exportData() {
+  downloadBackup(buildBackupPayload(), `box-log-backup-${todayISO()}.json`);
   markExported();
   render();
 }
 
+const MAX_BACKUP_BYTES = 25 * 1024 * 1024;
+
 function triggerImport() {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = "application/json";
+  input.accept = "application/json,.json";
   input.addEventListener("change", () => {
     if (input.files && input.files[0]) importDataFromFile(input.files[0]);
   });
   input.click();
 }
 
+// A backup file is untrusted input — it may have been edited, corrupted, or
+// received from someone else. Every record is rebuilt field by field from a
+// whitelist; nothing from the file object is ever stored or rendered as-is.
 async function importDataFromFile(file) {
+  const bad = (msg) => { setImportMessage(msg || "הייבוא נכשל — הקובץ אינו קובץ גיבוי תקין"); render(); };
+
+  if (!file || file.size > MAX_BACKUP_BYTES) {
+    return bad("הייבוא נכשל — הקובץ גדול מדי (מעל 25MB)");
+  }
+
   let data;
   try {
     data = JSON.parse(await file.text());
-  } catch (e) {
-    setImportMessage("הייבוא נכשל — הקובץ אינו קובץ גיבוי תקין");
-    render();
-    return;
+  } catch (e) { return bad(); }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return bad();
+  if (data.app !== BACKUP_APP_ID) return bad("הייבוא נכשל — הקובץ אינו גיבוי של האימוניה");
+  if (Number(data.version) > BACKUP_VERSION) {
+    return bad("הייבוא נכשל — הגיבוי נוצר בגרסה חדשה יותר של האפליקציה");
   }
-  if (!data || typeof data !== "object") {
-    setImportMessage("הייבוא נכשל — הקובץ אינו קובץ גיבוי תקין");
-    render();
-    return;
-  }
-  const lists = {
-    customMovements: Array.isArray(data.customMovements) ? data.customMovements : [],
-    customWods: Array.isArray(data.customWods) ? data.customWods : [],
-    entries: Array.isArray(data.entries) ? data.entries : [],
-    wodEntries: Array.isArray(data.wodEntries) ? data.wodEntries : [],
-    bodyweightEntries: Array.isArray(data.bodyweightEntries) ? data.bodyweightEntries : [],
-  };
-  let ok = 0, skipped = 0;
-  for (const m of lists.customMovements) { try { if (!m.id) throw 0; await dbAddMovement(m); ok++; } catch (e) { skipped++; } }
-  for (const w of lists.customWods) { try { if (!w.id) throw 0; await dbAddCustomWod(w); ok++; } catch (e) { skipped++; } }
-  for (const e of lists.entries) { try { if (!e.id) throw 0; await dbPut(e); ok++; } catch (err) { skipped++; } }
-  for (const e of lists.wodEntries) { try { if (!e.id) throw 0; await dbPutWodEntry(e); ok++; } catch (err) { skipped++; } }
-  for (const e of lists.bodyweightEntries) { try { if (!e.id) throw 0; await dbPutBodyweight(e); ok++; } catch (err) { skipped++; } }
 
+  const clean = {
+    customMovements: sanitizeList(data.customMovements, sanitizeMovement),
+    customWods: sanitizeList(data.customWods, sanitizeCustomWod),
+    entries: sanitizeList(data.entries, sanitizeEntry),
+    wodEntries: sanitizeList(data.wodEntries, sanitizeWodEntry),
+    bodyweightEntries: sanitizeList(data.bodyweightEntries, sanitizeBodyweight),
+  };
+  const incoming = Object.values(clean).reduce((n, l) => n + l.length, 0);
+  const rawCount = ["customMovements", "customWods", "entries", "wodEntries", "bodyweightEntries"]
+    .reduce((n, k) => n + (Array.isArray(data[k]) ? data[k].length : 0), 0);
+  const rejected = Math.max(0, rawCount - incoming);
+
+  if (incoming === 0) return bad("הייבוא נכשל — לא נמצאו רשומות תקינות בקובץ");
+
+  // The import merges into existing data and cannot be undone from inside the
+  // app, so confirm first and drop a rollback backup on the way in.
+  const hasExisting = entries.length || wodEntries.length || bodyweightEntries.length || customMovements.length || customWods.length;
+  const question = hasExisting
+    ? `הייבוא יוסיף ${incoming} רשומות לנתונים הקיימים ולא ניתן לבטל אותו.\nלפני כן יורד גיבוי של המצב הנוכחי.\n\nלהמשיך?`
+    : `לייבא ${incoming} רשומות?`;
+  if (!window.confirm(question)) { setImportMessage("הייבוא בוטל"); render(); return; }
+
+  if (hasExisting) {
+    try { downloadBackup(buildBackupPayload(), `box-log-rollback-${todayISO()}.json`); } catch (e) {}
+  }
+
+  let ok = 0, failed = 0;
+  const write = async (list, fn) => {
+    for (const rec of list) {
+      try { await fn(rec); ok++; } catch (e) { failed++; if (failed === 1) noteStorageError(e); }
+    }
+  };
+  await write(clean.customMovements, dbAddMovement);
+  await write(clean.customWods, dbAddCustomWod);
+  await write(clean.entries, dbPut);
+  await write(clean.wodEntries, dbPutWodEntry);
+  await write(clean.bodyweightEntries, dbPutBodyweight);
+
+  await reloadFromDb();
+
+  const parts = [`יובאו ${ok} רשומות`];
+  if (rejected) parts.push(`${rejected} נפסלו`);
+  if (failed) parts.push(`${failed} נכשלו בשמירה`);
+  setImportMessage(parts.join(", "));
+  render();
+}
+
+// Single source of truth for pulling state out of IndexedDB. Everything is
+// re-sanitized on the way in, so records written by an older build of the app
+// cannot poison the render path either.
+async function reloadFromDb() {
   try {
-    entries = await dbLoadAll();
-    entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-    customMovements = await dbLoadMovements();
-    wodEntries = await dbLoadWodEntries();
-    wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-    customWods = await dbLoadCustomWods();
-    bodyweightEntries = await dbLoadBodyweight();
-    bodyweightEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    entries = sanitizeList(await dbLoadAll(), sanitizeEntry).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    customMovements = sanitizeList(await dbLoadMovements(), sanitizeMovement);
+    wodEntries = sanitizeList(await dbLoadWodEntries(), sanitizeWodEntry).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    customWods = sanitizeList(await dbLoadCustomWods(), sanitizeCustomWod);
+    bodyweightEntries = sanitizeList(await dbLoadBodyweight(), sanitizeBodyweight).sort((a, b) => (b.ts || 0) - (a.ts || 0));
     if (bodyweightEntries[0]) bwWeight = bodyweightEntries[0].weight;
     storageOK = true;
+    storageErrMsg = "";
+    return true;
   } catch (e) {
-    storageOK = false;
+    noteStorageError(e);
+    return false;
   }
-  setImportMessage(skipped ? `יובאו ${ok} פריטים, דולגו ${skipped}` : `יובאו ${ok} פריטים`);
-  render();
 }
 
 async function clearAllData() {
@@ -718,8 +983,13 @@ async function clearAllData() {
     await dbClearMovements();
     await dbClearCustomWods();
     await dbClearBodyweight();
+    // "delete everything" must also drop the stored name and export marker.
+    await dbClearSettings();
+    try { localStorage.removeItem(USER_NAME_KEY); localStorage.removeItem(LAST_EXPORT_KEY); } catch (e) {}
+    userName = null;
+    lastExportAt = null;
   } catch (e) {
-    storageOK = false;
+    noteStorageError(e);
   }
   selectedId = MOVEMENTS[0].id;
   historyId = null;
@@ -727,7 +997,9 @@ async function clearAllData() {
   wodHistoryId = null;
   bwWeight = 70;
   confirmClear = false;
+  renderUserGreeting();
   render();
+  if (userName === null) openWelcomeModal();
 }
 
 // ---------- WOD helpers & actions ----------
@@ -772,14 +1044,15 @@ function formatWodBest(id) {
 }
 
 async function addCustomWod(name, scoreType, desc) {
-  const trimmed = name.trim();
+  const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
+  if (!WOD_SCORE_TYPES.includes(scoreType)) return;
   const existing = allWods().find((w) => w.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) { selectedWodId = existing.id; closeWodPicker(); closeWodBuilder(); render(); return; }
-  const id = "customwod-" + trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now().toString(36);
-  const wod = { id, name: trimmed, category: "Custom", scoreType, desc: desc || "" };
+  const id = uid("customwod");
+  const wod = { id, name: trimmed, category: "Custom", scoreType, desc: cleanStr(desc, LIMITS.notesLen) };
   customWods.push(wod);
-  try { await dbAddCustomWod(wod); } catch (e) { storageOK = false; }
+  try { await dbAddCustomWod(wod); } catch (e) { noteStorageError(e); }
   selectedWodId = id;
   closeWodPicker();
   closeWodBuilder();
@@ -790,7 +1063,7 @@ async function addCustomWod(name, scoreType, desc) {
 function openWodBuilder(prefillName) {
   wodBuilderOpen = true;
   builderFormat = null;
-  builderMovements = {};
+  builderMovements = bag();
   builderMoveSearch = "";
   document.body.style.overflow = "hidden";
   const overlay = document.getElementById("wodBuilderOverlay");
@@ -826,13 +1099,13 @@ function renderWodBuilderMovements(query) {
   const q = builderMoveSearch.trim().toLowerCase();
   const filtered = WOD_MOVEMENT_TAGS.filter((m) => m.name.toLowerCase().includes(q));
   const exactMatch = WOD_MOVEMENT_TAGS.some((m) => m.name.toLowerCase() === q);
-  const byCategory = {};
+  const byCategory = bag();
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
   const addRow = builderMoveSearch.trim() && !exactMatch
     ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:10px;">
          <div style="font-weight:700; font-size:13px; color:var(--brass); margin-bottom:8px;">הוספת "${esc(builderMoveSearch.trim())}" — לאיזו קטגוריה?</div>
          <div class="flex wrap gap-8">
-           ${WOD_MOVE_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-builder-movement-tag" data-name="${esc(builderMoveSearch.trim())}" data-category="${cat}">${CATEGORY_LABELS[cat] || cat}</button>`).join("")}
+           ${WOD_MOVE_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-builder-movement-tag" data-name="${esc(builderMoveSearch.trim())}" data-category="${cat}">${esc(catLabel(cat))}</button>`).join("")}
          </div>
        </div>`
     : `<button class="movement-btn" data-action="focus-wod-builder-search" style="border-color:var(--brass); margin-bottom:10px;">
@@ -844,7 +1117,7 @@ function renderWodBuilderMovements(query) {
   }
   el.innerHTML = addRow + Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
-      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
+      <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${items.map((m) => {
         const checked = Object.prototype.hasOwnProperty.call(builderMovements, m.name);
         const data = builderMovements[m.name] || { reps: 10, weight: 0 };
@@ -867,7 +1140,7 @@ function renderWodBuilderMovements(query) {
 }
 function createWodFromBuilder() {
   const nameInput = document.getElementById("wodBuilderName");
-  const name = nameInput ? nameInput.value.trim() : "";
+  const name = nameInput ? cleanStr(nameInput.value, LIMITS.nameLen) : "";
   if (!name) { nameInput.focus(); return; }
   if (!builderFormat) {
     const hint = document.getElementById("wodBuilderFormatHint");
@@ -891,7 +1164,7 @@ async function saveWod() {
   if (!isFinite(wodMinutes) || !isFinite(wodSeconds) || !isFinite(wodRounds) || !isFinite(wodReps) || !isFinite(wodWeight) || !isFinite(wodScaledWeight)) return;
   const prevBest = bestWodScore(selectedWodId);
   const entry = {
-    id: "wod-" + Date.now().toString() + Math.random().toString(36).slice(2),
+    id: uid("wod"),
     ts: Date.now(),
     date: todayISO(),
     wodId: selectedWodId,
@@ -909,14 +1182,14 @@ async function saveWod() {
   entry.isPR = isPR;
 
   wodEntries.unshift(entry);
-  try { await dbPutWodEntry(entry); storageOK = true; } catch (e) { storageOK = false; }
+  try { await dbPutWodEntry(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   wodNotes = "";
   if (isPR) flashWodPR();
   render();
 }
 async function deleteWodEntry(id) {
   wodEntries = wodEntries.filter((e) => e.id !== id);
-  try { await dbDeleteWodEntry(id); } catch (e) { storageOK = false; }
+  try { await dbDeleteWodEntry(id); } catch (e) { noteStorageError(e); }
   render();
 }
 
@@ -1008,7 +1281,7 @@ function renderLogTab() {
   return `
     <button class="exercise-select" data-action="open-picker">
       <div class="flex items-center gap-8">
-        <div class="dot" style="background:${CATEGORY_COLORS[selected.category]}"></div>
+        <div class="dot" style="background:${esc(catColor(selected.category))}"></div>
         <span style="font-weight:800; font-size:16px;">${esc(selected.name)}</span>
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
@@ -1050,15 +1323,18 @@ function renderLogTab() {
 
 function renderStepper(field, label, value, step, min, action) {
   action = action || "step";
+  // Every attribute below is escaped: `field` can be a user-authored movement
+  // name coming from the WOD builder, and `value` can come off disk.
+  const f = esc(field), a = esc(action), st = esc(step), mn = esc(min), v = esc(value);
   return `
     <div class="stepper">
-      <span class="stepper-label">${label}</span>
+      <span class="stepper-label">${esc(label)}</span>
       <div class="stepper-box">
-        <button class="stepper-btn" data-action="${action}" data-field="${field}" data-dir="-1" data-step="${step}" data-min="${min}">
+        <button class="stepper-btn" data-action="${a}" data-field="${f}" data-dir="-1" data-step="${st}" data-min="${mn}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
         </button>
-        <input class="stepper-val mono" type="text" inputmode="decimal" data-action="${action}" data-field="${field}" data-min="${min}" value="${value}" />
-        <button class="stepper-btn" data-action="${action}" data-field="${field}" data-dir="1" data-step="${step}" data-min="${min}">
+        <input class="stepper-val mono" type="text" inputmode="decimal" data-action="${a}" data-field="${f}" data-min="${mn}" value="${v}" />
+        <button class="stepper-btn" data-action="${a}" data-field="${f}" data-dir="1" data-step="${st}" data-min="${mn}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
@@ -1107,10 +1383,10 @@ function renderHistoryListArea() {
   }
   area.innerHTML = active.map((m) => {
     const row = `
-      <button class="exercise-row ${historyId === m.id ? "active" : ""}" data-action="select-history" data-id="${m.id}" style="${historyId === m.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
+      <button class="exercise-row ${historyId === m.id ? "active" : ""}" data-action="select-history" data-id="${esc(m.id)}" style="${historyId === m.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
         <div class="flex items-center gap-8">
           <span style="display:inline-flex; transition:transform .2s; transform:rotate(${historyId === m.id ? "90deg" : "180deg"});">${ICONS.chevron}</span>
-          <div class="dot" style="background:${CATEGORY_COLORS[m.category]}"></div>
+          <div class="dot" style="background:${esc(catColor(m.category))}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
         </div>
         <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${bestEst1RM(m.id)} kg</span>
@@ -1147,7 +1423,7 @@ function renderCalendarGrid() {
     const cls = ["cal-cell"];
     if (iso === today) cls.push("today");
     if (iso === calSelectedDate) cls.push("selected");
-    cells += `<button class="${cls.join(" ")}" data-action="cal-select-day" data-date="${iso}">
+    cells += `<button class="${cls.join(" ")}" data-action="cal-select-day" data-date="${esc(iso)}">
       <span class="cal-daynum">${d}</span>
       ${hasData ? `<div class="cal-dot ${hasPR ? "pr" : ""}"></div>` : ""}
     </button>`;
@@ -1175,7 +1451,7 @@ function renderCalDetail() {
           </div>
           <div class="flex items-center gap-10">
             <span class="mono" style="color:var(--steel); font-size:13px;">${e.sets}×${e.reps} @ ${e.weight}</span>
-            <button data-action="delete-entry" data-id="${e.id}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+            <button data-action="delete-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
           </div>
         </div>`).join("")}
       ${dayWods.map((e) => {
@@ -1190,7 +1466,7 @@ function renderCalDetail() {
             </div>
             <div class="flex items-center gap-10">
               <span class="mono" style="color:var(--steel); font-size:13px;">${formatWodEntry(e)}</span>
-              <button data-action="delete-wod-entry" data-id="${e.id}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+              <button data-action="delete-wod-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
             </div>
           </div>
           ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-left:23px;">${esc(e.notes)}</div>` : ""}
@@ -1229,8 +1505,8 @@ function renderVolumeReport() {
     return `
       <div class="report-row">
         <div class="flex items-center gap-8">
-          <div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div>
-          <span style="font-weight:700; font-size:14px;">${CATEGORY_LABELS[cat] || cat}</span>
+          <div class="dot" style="background:${esc(catColor(cat))}"></div>
+          <span style="font-weight:700; font-size:14px;">${esc(catLabel(cat))}</span>
         </div>
         <div class="flex items-center gap-10">
           <span class="mono" style="color:var(--steel); font-size:12px;">${setsWeek}/${setsMonth} סטים</span>
@@ -1322,14 +1598,14 @@ function renderHistoryTab() {
 function renderFooter() {
   return `
     <div class="footer">
-      <div class="footer-note">${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : "שמירה נכשלה — בדקו את מקום האחסון"}</div>
+      <div class="footer-note"${storageOK ? "" : ' style="color:var(--red);"'}>${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
       ${(() => {
         const hasData = entries.length || wodEntries.length || bodyweightEntries.length;
         if (!hasData) return "";
         const days = daysSinceLastExport();
         if (days !== null && days < 30) return "";
         const msg = days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`;
-        return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${msg} — ייצוא גיבוי למטה</div>`;
+        return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${esc(msg)} — ייצוא גיבוי למטה</div>`;
       })()}
       <div class="flex items-center justify-center gap-10" style="margin-bottom:8px;">
         <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
@@ -1349,7 +1625,7 @@ function renderFooter() {
 
 function updateLogQuickUI(field) {
   const valMap = { weight, reps, sets };
-  const inp = document.querySelector(`.stepper-val[data-action="step"][data-field="${field}"]`);
+  const inp = document.querySelector(`.stepper-val[data-action="step"][data-field="${cssSel(field)}"]`);
   if (inp) inp.value = valMap[field];
   if (field === "weight") {
     const bv = document.getElementById("barbellVisual");
@@ -1357,6 +1633,15 @@ function updateLogQuickUI(field) {
   }
   const estEl = document.getElementById("estLineValue");
   if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+}
+
+// Bound every numeric field at both ends. Previously only a floor was applied,
+// so "1e12" typed into a weight box propagated straight through the app state.
+function clampField(action, field, value, min) {
+  const lo = isFinite(min) ? min : 0;
+  const hi = fieldMax(action, field);
+  if (typeof value !== "number" || !isFinite(value)) return lo;
+  return Math.min(hi, Math.max(lo, +value.toFixed(2)));
 }
 
 function getFieldValue(action, field) {
@@ -1402,7 +1687,7 @@ function applyFieldValue(action, field, value) {
     updateLogQuickUI(field);
   } else if (action === "wod-step") {
     const valMap = { wodMinutes, wodSeconds, wodRounds, wodReps, wodWeight, wodScaledWeight };
-    const inp = document.querySelector(`.stepper-val[data-action="wod-step"][data-field="${field}"]`);
+    const inp = document.querySelector(`.stepper-val[data-action="wod-step"][data-field="${cssSel(field)}"]`);
     if (inp) inp.value = valMap[field];
   } else if (action === "bw-step") {
     const inp = document.querySelector(`.stepper-val[data-action="bw-step"][data-field="bwWeight"]`);
@@ -1430,7 +1715,7 @@ function render() {
     console.error("render error:", err);
     content = `<div style="padding:40px 16px; text-align:center;">
       <div style="color:var(--red); font-weight:700; margin-bottom:8px;">משהו השתבש בהצגת הטאב הזה</div>
-      <div style="color:var(--steel); font-size:12px;">${(err && err.message) ? err.message : String(err)}</div>
+      <div style="color:var(--steel); font-size:12px;">${esc((err && err.message) ? err.message : String(err))}</div>
     </div>`;
   }
   document.getElementById("tabAddBtn").className = "tabbtn" + (tab === "add" ? " active" : "");
@@ -1444,7 +1729,7 @@ function render() {
       renderHistoryListArea();
       renderBodyweightArea();
       const search = document.getElementById("historySearch");
-      if (search) search.addEventListener("input", (e) => { historySearch = e.target.value; renderHistoryListArea(); });
+      if (search) search.addEventListener("input", (e) => { historySearch = cleanStr(e.target.value, LIMITS.nameLen); renderHistoryListArea(); });
     }
     if (tab === "calendar") renderCalendarGrid();
     if (tab === "wod") renderWodContent();
@@ -1481,7 +1766,7 @@ function renderWodLogSection() {
   return `
     <button class="exercise-select" data-action="open-wod-picker">
       <div class="flex items-center gap-8">
-        <div class="dot" style="background:${CATEGORY_COLORS[w.category]}"></div>
+        <div class="dot" style="background:${esc(catColor(w.category))}"></div>
         <div>
           <span style="font-weight:800; font-size:16px;">${esc(w.name)}</span>
           ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
@@ -1598,10 +1883,10 @@ function renderWodHistoryListArea() {
   }
   area.innerHTML = active.map((w) => {
     const row = `
-      <button class="exercise-row ${wodHistoryId === w.id ? "active" : ""}" data-action="select-wod-history" data-id="${w.id}" style="${wodHistoryId === w.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
+      <button class="exercise-row ${wodHistoryId === w.id ? "active" : ""}" data-action="select-wod-history" data-id="${esc(w.id)}" style="${wodHistoryId === w.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
         <div class="flex items-center gap-8">
           <span style="display:inline-flex; transition:transform .2s; transform:rotate(${wodHistoryId === w.id ? "90deg" : "180deg"});">${ICONS.chevron}</span>
-          <div class="dot" style="background:${CATEGORY_COLORS[w.category]}"></div>
+          <div class="dot" style="background:${esc(catColor(w.category))}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(w.name)}</span>
         </div>
         <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${formatWodBest(w.id)}</span>
@@ -1639,12 +1924,12 @@ function renderWodContent() {
   el.innerHTML = wodSubTab === "log" ? renderWodLogSection() : renderWodHistorySection();
   if (wodSubTab === "log") {
     const notesInput = document.getElementById("wodNotesInput");
-    if (notesInput) notesInput.addEventListener("input", (e) => { wodNotes = e.target.value; });
+    if (notesInput) notesInput.addEventListener("input", (e) => { wodNotes = cleanStr(e.target.value, LIMITS.notesLen); });
   }
   if (wodSubTab === "history") {
     renderWodHistoryListArea();
     const search = document.getElementById("wodHistorySearch");
-    if (search) search.addEventListener("input", (e) => { wodHistorySearch = e.target.value; renderWodHistoryListArea(); });
+    if (search) search.addEventListener("input", (e) => { wodHistorySearch = cleanStr(e.target.value, LIMITS.nameLen); renderWodHistoryListArea(); });
   }
 }
 
@@ -1678,7 +1963,7 @@ function renderPickerList(query) {
   const q = query.toLowerCase();
   const filtered = allMovements().filter((m) => m.name.toLowerCase().includes(q));
   const exactMatch = allMovements().some((m) => m.name.toLowerCase() === q);
-  const byCategory = {};
+  const byCategory = bag();
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
   const list = document.getElementById("pickerList");
   const addRow = query.trim() && !exactMatch
@@ -1697,9 +1982,9 @@ function renderPickerList(query) {
   }
   list.innerHTML = addRow + Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
-      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
+      <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${items.map((m) => `
-        <button class="movement-btn ${selectedId === m.id ? "active" : ""}" data-action="pick-movement" data-id="${m.id}">
+        <button class="movement-btn ${selectedId === m.id ? "active" : ""}" data-action="pick-movement" data-id="${esc(m.id)}">
           <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
           ${selectedId === m.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
         </button>`).join("")}
@@ -1741,7 +2026,7 @@ function renderWodPickerList(query) {
   const q = query.toLowerCase();
   const filtered = allWods().filter((w) => w.name.toLowerCase().includes(q));
   const exactMatch = allWods().some((w) => w.name.toLowerCase() === q);
-  const byCategory = {};
+  const byCategory = bag();
   filtered.forEach((w) => { (byCategory[w.category] = byCategory[w.category] || []).push(w); });
   const list = document.getElementById("wodPickerList");
   const addRow = query.trim() && !exactMatch
@@ -1759,9 +2044,9 @@ function renderWodPickerList(query) {
   const cats = Object.keys(byCategory).sort((a, b) => order.indexOf(a) - order.indexOf(b));
   list.innerHTML = addRow + `<div style="height:12px;"></div>` + cats.map((cat) => `
     <div class="cat-group">
-      <div class="cat-head"><div class="dot" style="background:${CATEGORY_COLORS[cat]}"></div><span class="cat-name">${CATEGORY_LABELS[cat] || cat}</span></div>
+      <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${byCategory[cat].map((w) => `
-        <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${w.id}">
+        <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${esc(w.id)}">
           <div>
             <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
             ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
@@ -1771,12 +2056,22 @@ function renderWodPickerList(query) {
     </div>`).join("");
 }
 
+// ---------- Service worker update handshake ----------
+let pendingWorker = null;
+function applyUpdate() {
+  // Ask the waiting worker to take over; controllerchange then reloads us.
+  if (pendingWorker) {
+    try { pendingWorker.postMessage({ type: "SKIP_WAITING" }); return; } catch (e) {}
+  }
+  location.reload();
+}
+
 // ---------- Event delegation ----------
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const action = el.dataset.action;
-  if (action === "reload-app") { location.reload(); }
+  if (action === "reload-app") { applyUpdate(); }
   else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
   else if (action === "view-today-calendar") {
     tab = "calendar";
@@ -1797,7 +2092,8 @@ document.addEventListener("click", (e) => {
   else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight") {
     const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
     const current = getFieldValue(action, field);
-    const next = Math.max(min, +(current + dir * step).toFixed(2));
+    const base = (typeof current === "number" && isFinite(current)) ? current : 0;
+    const next = clampField(action, field, +(base + dir * step).toFixed(2), min);
     applyFieldValue(action, field, next);
   }
   else if (action === "save-set") { saveSet(); }
@@ -1836,8 +2132,9 @@ document.addEventListener("click", (e) => {
     renderWodBuilderMovements();
   }
   else if (action === "add-builder-movement-tag") {
-    const name = el.dataset.name, category = el.dataset.category;
+    const name = cleanStr(el.dataset.name, LIMITS.nameLen), category = el.dataset.category;
     if (!name) return;
+    if (WOD_MOVEMENT_TAGS.length >= 500) return;
     if (!WOD_MOVEMENT_TAGS.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
       WOD_MOVEMENT_TAGS.push({ name, category: WOD_MOVE_CATEGORIES.includes(category) ? category : "Gymnastics" });
     }
@@ -1867,7 +2164,7 @@ document.addEventListener("click", (e) => {
   else if (action === "delete-wod-entry") { deleteWodEntry(el.dataset.id); }
   else if (action === "select-wod-history") { wodHistoryId = wodHistoryId === el.dataset.id ? null : el.dataset.id; renderWodHistoryListArea(); }
 });
-document.getElementById("pickerSearch").addEventListener("input", (e) => renderPickerList(e.target.value));
+document.getElementById("pickerSearch").addEventListener("input", (e) => renderPickerList(cleanStr(e.target.value, LIMITS.nameLen)));
 document.getElementById("pickerSearch").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   const q = e.target.value.trim();
@@ -1876,8 +2173,8 @@ document.getElementById("pickerSearch").addEventListener("keydown", (e) => {
   if (exact) { selectedId = exact.id; closePicker(); render(); }
   else e.target.blur();
 });
-document.getElementById("wodPickerSearch").addEventListener("input", (e) => renderWodPickerList(e.target.value));
-document.getElementById("wodBuilderMoveSearch").addEventListener("input", (e) => renderWodBuilderMovements(e.target.value));
+document.getElementById("wodPickerSearch").addEventListener("input", (e) => renderWodPickerList(cleanStr(e.target.value, LIMITS.nameLen)));
+document.getElementById("wodBuilderMoveSearch").addEventListener("input", (e) => renderWodBuilderMovements(cleanStr(e.target.value, LIMITS.nameLen)));
 document.getElementById("wodBuilderMoveSearch").addEventListener("keydown", (e) => {
   if (e.key === "Enter") e.target.blur();
 });
@@ -1902,7 +2199,7 @@ document.addEventListener("input", (e) => {
   const val = parseFloat(raw);
   if (!isFinite(val)) return;
   const action = el.dataset.action, field = el.dataset.field;
-  setFieldState(action, field, val);
+  setFieldState(action, field, clampField(action, field, val, +el.dataset.min));
   if (action === "step" && field === "weight") {
     const bv = document.getElementById("barbellVisual");
     if (bv) bv.innerHTML = renderBarbell(weight);
@@ -1918,8 +2215,7 @@ document.addEventListener("focusout", (e) => {
   const action = el.dataset.action, field = el.dataset.field, min = +el.dataset.min;
   const current = getFieldValue(action, field);
   const safe = (typeof current === "number" && isFinite(current)) ? current : 0;
-  const clamped = Math.max(isFinite(min) ? min : 0, +safe.toFixed(2));
-  applyFieldValue(action, field, clamped);
+  applyFieldValue(action, field, clampField(action, field, +safe.toFixed(2), min));
 });
 document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -1933,19 +2229,9 @@ document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
 // ---------- Init ----------
 async function init() {
   document.getElementById("dateLabel").textContent = new Date().toLocaleDateString("he-IL", { weekday: "short", day: "numeric", month: "short" });
-  try {
-    entries = await dbLoadAll();
-    entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-    customMovements = await dbLoadMovements();
-    wodEntries = await dbLoadWodEntries();
-    wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-    customWods = await dbLoadCustomWods();
-    bodyweightEntries = await dbLoadBodyweight();
-    bodyweightEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-    if (bodyweightEntries[0]) bwWeight = bodyweightEntries[0].weight;
-  } catch (e) {
-    storageOK = false;
-  }
+  await reloadFromDb();
+  await loadUserName();
+  await loadLastExport();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   renderUserGreeting();
@@ -1953,16 +2239,27 @@ async function init() {
   if (userName === null) openWelcomeModal();
 
   if ("serviceWorker" in navigator) {
+    // The SW no longer calls skipWaiting() on install, so a new version parks
+    // in "waiting" until the user taps the banner. That keeps the running page
+    // and its cached assets on the same version.
     navigator.serviceWorker.register("./sw.js").then((reg) => {
-      if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();
+      const offerUpdate = (worker) => { pendingWorker = worker; showUpdateBanner(); };
+      if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
       reg.addEventListener("updatefound", () => {
         const nw = reg.installing;
         if (!nw) return;
         nw.addEventListener("statechange", () => {
-          if (nw.state === "installed" && navigator.serviceWorker.controller) showUpdateBanner();
+          if (nw.state === "installed" && navigator.serviceWorker.controller) offerUpdate(nw);
         });
       });
-    }).catch(() => {});
+    }).catch((e) => console.warn("sw registration failed:", e));
+
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
   }
 }
 init();

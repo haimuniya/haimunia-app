@@ -2,16 +2,57 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, minimum-scale=1, user-scalable=no" />
+
+<!--
+  Content Security Policy. Defence in depth: even if a string escape is ever
+  missed, an injected <script> or a remote beacon has nowhere to go.
+  'unsafe-inline' appears in style-src only, for the inline style="" attributes
+  used throughout the markup — there is no inline <script> anywhere.
+
+  If you self-host the fonts (recommended — see the note by the font <link>),
+  drop the two fonts.* entries and tighten to:
+      font-src 'self'; style-src 'self' 'unsafe-inline';
+  frame-ancestors / X-Frame-Options are ignored in <meta>; set them as real
+  response headers on the host if you can.
+-->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data: blob:;
+  connect-src 'self';
+  manifest-src 'self';
+  worker-src 'self';
+  object-src 'none';
+  base-uri 'none';
+  form-action 'none';
+  frame-ancestors 'none'" />
+<meta name="referrer" content="no-referrer" />
+
+<!-- Pinch-zoom is deliberately NOT blocked: user-scalable=no fails WCAG 1.4.4
+     and modern iOS ignores it anyway. Accidental double-tap zoom is suppressed
+     in app.js instead, which leaves intentional zoom working. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>האימוניה</title>
 <meta name="theme-color" content="#152342" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="האימוניה" />
 <link rel="manifest" href="./manifest.json" />
 <link rel="apple-touch-icon" href="./icon-192.png" />
 <link rel="icon" href="./icon-192.png" />
+<!--
+  This is the app's only third-party dependency. It is a request to Google on
+  every cold load, it cannot carry SRI (the CSS is user-agent dependent), and
+  it is not in the service worker precache, so typography degrades offline.
+  Recommended: download the Rubik / JetBrains Mono / Anton woff2 files into
+  ./assets/fonts/, replace this <link> with a local @font-face block, add the
+  files to ASSETS in sw.js, and tighten the CSP as noted above.
+-->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700&family=Anton&display=swap" rel="stylesheet" />
 <style>
   :root{
@@ -182,7 +223,7 @@
     </div>
     <div class="search-box">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="pickerSearch" dir="auto" placeholder="חיפוש תרגיל" />
+      <input id="pickerSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש תרגיל" />
     </div>
     <div class="modal-list" id="pickerList"></div>
   </div>
@@ -198,7 +239,7 @@
     </div>
     <div class="search-box">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="wodPickerSearch" dir="auto" placeholder="חיפוש אימון" />
+      <input id="wodPickerSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש אימון" />
     </div>
     <div class="modal-list" id="wodPickerList"></div>
   </div>
@@ -214,7 +255,7 @@
     </div>
     <div class="modal-list" style="padding:0 16px calc(env(safe-area-inset-bottom, 0px) + 24px);">
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">שם</div>
-      <input id="wodBuilderName" class="text-input" dir="auto" style="margin-bottom:16px;" placeholder="לדוגמה: אימון יום שני" />
+      <input id="wodBuilderName" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="לדוגמה: אימון יום שני" style="margin-bottom:16px;" />
 
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">פורמט</div>
       <div class="flex" style="gap:8px; margin-bottom:4px;" id="wodBuilderFormats">
@@ -229,7 +270,7 @@
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">תרגילים (אופציונלי)</div>
       <div class="search-box" style="margin:0 0 12px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-        <input id="wodBuilderMoveSearch" dir="auto" placeholder="חיפוש תרגילים" />
+        <input id="wodBuilderMoveSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש תרגילים" />
       </div>
       <div id="wodBuilderMovements" style="margin-bottom:16px;"></div>
     </div>
@@ -242,7 +283,7 @@
       <img src="./assets/mark.png" alt="" width="36" height="41" style="margin-bottom:14px; opacity:.9;" />
       <div style="color:var(--chalk); font-weight:800; font-size:19px; margin-bottom:6px;">ברוכים הבאים!</div>
       <div style="color:var(--steel); font-size:13px; margin-bottom:18px;">איך נקרא לך?</div>
-      <input id="welcomeNameInput" class="text-input" dir="auto" style="margin-bottom:16px; text-align:center;" placeholder="השם שלך" />
+      <input id="welcomeNameInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="השם שלך" style="margin-bottom:16px; text-align:center;" />
       <button data-action="save-user-name" class="save-btn" style="max-width:none; margin-bottom:10px;">בואו נתחיל</button>
       <button data-action="skip-user-name" class="link-btn">דלג</button>
     </div>
