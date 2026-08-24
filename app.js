@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.3.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1344,12 +1344,12 @@ function getFieldValue(action, field) {
   return 0;
 }
 
-function applyFieldValue(action, field, value) {
+// Pure state write, no DOM side effects — safe to call on every keystroke.
+function setFieldState(action, field, value) {
   if (action === "step") {
     if (field === "weight") weight = value;
     else if (field === "reps") reps = value;
     else if (field === "sets") sets = value;
-    updateLogQuickUI(field);
   } else if (action === "wod-step") {
     if (field === "wodMinutes") wodMinutes = value;
     else if (field === "wodSeconds") wodSeconds = value;
@@ -1357,20 +1357,33 @@ function applyFieldValue(action, field, value) {
     else if (field === "wodReps") wodReps = value;
     else if (field === "wodWeight") wodWeight = value;
     else if (field === "wodScaledWeight") wodScaledWeight = value;
+  } else if (action === "bw-step") {
+    bwWeight = value;
+  } else if (action === "builder-movement-reps") {
+    if (builderMovements[field]) builderMovements[field].reps = value;
+  } else if (action === "builder-movement-weight") {
+    if (builderMovements[field]) builderMovements[field].weight = value;
+  }
+}
+
+// Full commit: validates, writes state, and resyncs every dependent display
+// (including the field's own text) — used by +/- buttons and on blur.
+function applyFieldValue(action, field, value) {
+  if (typeof value !== "number" || !isFinite(value)) {
+    value = getFieldValue(action, field);
+    if (typeof value !== "number" || !isFinite(value)) value = 0;
+  }
+  setFieldState(action, field, value);
+  if (action === "step") {
+    updateLogQuickUI(field);
+  } else if (action === "wod-step") {
     const valMap = { wodMinutes, wodSeconds, wodRounds, wodReps, wodWeight, wodScaledWeight };
     const inp = document.querySelector(`.stepper-val[data-action="wod-step"][data-field="${field}"]`);
     if (inp) inp.value = valMap[field];
   } else if (action === "bw-step") {
-    bwWeight = value;
     const inp = document.querySelector(`.stepper-val[data-action="bw-step"][data-field="bwWeight"]`);
     if (inp) inp.value = bwWeight;
-  } else if (action === "builder-movement-reps") {
-    if (!builderMovements[field]) return;
-    builderMovements[field].reps = value;
-    renderWodBuilderMovements();
-  } else if (action === "builder-movement-weight") {
-    if (!builderMovements[field]) return;
-    builderMovements[field].weight = value;
+  } else if (action === "builder-movement-reps" || action === "builder-movement-weight") {
     renderWodBuilderMovements();
   }
 }
@@ -1866,15 +1879,32 @@ document.addEventListener("keydown", (e) => {
     e.target.blur();
   }
 });
-document.addEventListener("change", (e) => {
+document.addEventListener("input", (e) => {
   const el = e.target;
   if (!el.classList || !el.classList.contains("stepper-val")) return;
-  const field = el.dataset.field, action = el.dataset.action, min = +el.dataset.min;
-  let val = parseFloat(String(el.value).replace(",", "."));
-  if (isNaN(val)) val = getFieldValue(action, field);
-  val = Math.max(min, +val.toFixed(2));
-  applyFieldValue(action, field, val);
-  el.value = val;
+  const raw = String(el.value).trim().replace(",", ".");
+  if (raw === "" || raw === "-" || raw === ".") return;
+  const val = parseFloat(raw);
+  if (!isFinite(val)) return;
+  const action = el.dataset.action, field = el.dataset.field;
+  setFieldState(action, field, val);
+  if (action === "step" && field === "weight") {
+    const bv = document.getElementById("barbellVisual");
+    if (bv) bv.innerHTML = renderBarbell(weight);
+  }
+  if (action === "step") {
+    const estEl = document.getElementById("estLineValue");
+    if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+  }
+});
+document.addEventListener("focusout", (e) => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains("stepper-val")) return;
+  const action = el.dataset.action, field = el.dataset.field, min = +el.dataset.min;
+  const current = getFieldValue(action, field);
+  const safe = (typeof current === "number" && isFinite(current)) ? current : 0;
+  const clamped = Math.max(isFinite(min) ? min : 0, +safe.toFixed(2));
+  applyFieldValue(action, field, clamped);
 });
 document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
