@@ -56,7 +56,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.0.1";
+const APP_VERSION = "2.1.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1325,7 +1325,7 @@ function renderWodLogSection() {
       <div class="stat-card"><div class="stat-label">סוג ניקוד</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : "Load"}</div></div>
     </div>`}
 
-    <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:var(--brass); font-weight:800; font-size:14px; background:rgba(232,185,138,.14); border:1px solid var(--brass); border-radius:14px; padding:10px 0; margin-bottom:16px;">${ICONS.flame}<span>שיא חדש!</span></div>
+    <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:#fff; font-weight:800; font-size:14px; background-image:var(--stripe); border-radius:14px; padding:10px 0; margin-bottom:16px; text-shadow:0 1px 3px rgba(0,0,0,.5);">${ICONS.flame}<span>שיא חדש!</span></div>
 
     <div class="rx-toggle">
       <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1">Rx</button>
