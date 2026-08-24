@@ -96,7 +96,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.8.0";
+const APP_VERSION = "2.9.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -650,6 +650,15 @@ const urlTab = new URLSearchParams(location.search).get("tab");
 let tab = VALID_TABS.includes(urlTab) ? urlTab : "add";
 let selectedId = MOVEMENTS[0].id;
 let weight = 20, reps = 5, sets = 1;
+let logDate = todayISO();
+let editingEntryId = null;
+// Never allow a future-dated set, even if a user bypasses the date input's
+// max attribute (e.g. via devtools) or the device clock is off.
+function clampLogDate(v) {
+  const clean = cleanISODate(v);
+  if (!clean) return todayISO();
+  return clean > todayISO() ? todayISO() : clean;
+}
 let historyId = null;
 let historySearch = "";
 const now0 = new Date();
@@ -700,13 +709,13 @@ function setImportMessage(msg) {
 }
 
 // ---------- Derived helpers ----------
-function entriesFor(id) { return entries.filter((e) => e.exerciseId === id); }
-function bestEst1RM(id) {
-  const list = entriesFor(id);
+function entriesFor(id, excludeId) { return entries.filter((e) => e.exerciseId === id && e.id !== excludeId); }
+function bestEst1RM(id, excludeId) {
+  const list = entriesFor(id, excludeId);
   return list.length ? Math.max(...list.map((e) => e.est1RM)) : null;
 }
-function repRecordFor(id, repCount) {
-  const list = entriesFor(id).filter((e) => e.reps === repCount);
+function repRecordFor(id, repCount, excludeId) {
+  const list = entriesFor(id, excludeId).filter((e) => e.reps === repCount);
   return list.length ? Math.max(...list.map((e) => e.weight)) : null;
 }
 function activeExercises() {
@@ -738,22 +747,47 @@ async function addMovement(name, category) {
 }
 async function saveSet() {
   if (!isFinite(weight) || !isFinite(reps) || !isFinite(sets)) return;
-  const prevRepRecord = repRecordFor(selectedId, reps) || 0;
-  const prevEst1RM = bestEst1RM(selectedId) || 0;
+  const date = clampLogDate(logDate);
+  const editId = editingEntryId;
+  const prevRepRecord = repRecordFor(selectedId, reps, editId) || 0;
+  const prevEst1RM = bestEst1RM(selectedId, editId) || 0;
   const est = estimate1RM(weight, reps);
   const isPR = weight > prevRepRecord || est > prevEst1RM;
+  const existing = editId ? entries.find((e) => e.id === editId) : null;
   const entry = {
-    id: uid("set"),
-    ts: Date.now(),
-    exerciseId: selectedId, weight, reps, sets, date: todayISO(), isPR, est1RM: est,
+    id: existing ? existing.id : uid("set"),
+    ts: existing ? existing.ts : Date.now(),
+    exerciseId: selectedId, weight, reps, sets, date, isPR, est1RM: est,
   };
+  entries = entries.filter((e) => e.id !== entry.id);
   entries.unshift(entry);
+  entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   try { await dbPut(entry); storageOK = true; } catch (e) { noteStorageError(e); }
+  editingEntryId = null;
+  logDate = todayISO();
   if (isPR) flashPR();
+  render();
+}
+function startEditEntry(id) {
+  const entry = entries.find((e) => e.id === id);
+  if (!entry) return;
+  selectedId = entry.exerciseId;
+  weight = entry.weight;
+  reps = entry.reps;
+  sets = entry.sets;
+  logDate = entry.date;
+  editingEntryId = entry.id;
+  tab = "add";
+  render();
+}
+function cancelEditEntry() {
+  editingEntryId = null;
+  logDate = todayISO();
   render();
 }
 async function deleteEntry(id) {
   entries = entries.filter((e) => e.id !== id);
+  if (editingEntryId === id) { editingEntryId = null; logDate = todayISO(); }
   try { await dbDelete(id); } catch (e) { noteStorageError(e); }
   render();
 }
@@ -996,6 +1030,8 @@ async function clearAllData() {
   selectedWodId = WOD_LIBRARY[0].id;
   wodHistoryId = null;
   bwWeight = 70;
+  logDate = todayISO();
+  editingEntryId = null;
   confirmClear = false;
   renderUserGreeting();
   render();
@@ -1225,6 +1261,7 @@ function showUpdateBanner() {
 const ICONS = {
   flame: '<svg width="15" height="15" viewBox="0 0 24 24" fill="var(--brass)" stroke="none"><path d="M12 2c3 4-2 5-2 9a4 4 0 0 0 8 0c0-2-1-3-1-3s2 1 2 5a7 7 0 1 1-14 0c0-5 4-7 7-11z"/></svg>',
   trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>',
+  edit: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   dumbbell: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="2" stroke-linecap="round"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg>',
   chevron: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>',
   up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.2" stroke-linecap="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
@@ -1276,9 +1313,17 @@ function renderLogTab() {
   const selected = movementById(selectedId);
   const est = bestEst1RM(selectedId);
   const last = entriesFor(selectedId)[0];
-  const todaysEntries = entries.filter((e) => e.date === todayISO());
+  const isToday = logDate === todayISO();
+  const dayEntries = entries.filter((e) => e.date === logDate);
+  const dayLabel = isToday ? "היום" : fmtDate(logDate);
 
   return `
+    ${editingEntryId ? `
+    <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:12px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
+      <span style="color:var(--brass); font-weight:700; font-size:13px;">עריכת סט קיים</span>
+      <button data-action="cancel-edit-entry" style="color:var(--steel); font-size:12px; text-decoration:underline;">ביטול</button>
+    </div>` : ""}
+
     <button class="exercise-select" data-action="open-picker">
       <div class="flex items-center gap-8">
         <div class="dot" style="background:${esc(catColor(selected.category))}"></div>
@@ -1286,6 +1331,11 @@ function renderLogTab() {
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
     </button>
+
+    <div class="flex items-center gap-8" style="margin-bottom:12px;">
+      <input type="date" id="logDateInput" value="${esc(logDate)}" max="${todayISO()}" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
+      ${logDate !== todayISO() ? `<button data-action="reset-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
+    </div>
 
     ${(est || last) ? `
     <div class="stat-row">
@@ -1306,14 +1356,14 @@ function renderLogTab() {
 
     <div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>
 
-    ${todaysEntries.length === 0 ? `
-    <div class="empty">עדיין לא נרשמו סטים היום. קדימה למוט.</div>` : `
-    <button class="exercise-row" data-action="view-today-calendar" style="margin-bottom:0;">
+    ${dayEntries.length === 0 ? `
+    <div class="empty">${isToday ? "עדיין לא נרשמו סטים היום. קדימה למוט." : `עדיין לא נרשמו סטים ב-${esc(dayLabel)}.`}</div>` : `
+    <button class="exercise-row" data-action="view-log-date-calendar" style="margin-bottom:0;">
       <div class="flex items-center gap-8">
-        ${todaysEntries[0].isPR ? ICONS.flame : ""}
+        ${dayEntries[0].isPR ? ICONS.flame : ""}
         <div style="text-align:right;">
-          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(movementById(todaysEntries[0].exerciseId) ? movementById(todaysEntries[0].exerciseId).name : "?")} — ${todaysEntries[0].sets}×${todaysEntries[0].reps} @ ${todaysEntries[0].weight}</div>
-          <div style="color:var(--steel); font-size:11px;">${todaysEntries.length} סט${todaysEntries.length === 1 ? "" : "ים"} נרשמו היום</div>
+          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(movementById(dayEntries[0].exerciseId) ? movementById(dayEntries[0].exerciseId).name : "?")} — ${dayEntries[0].sets}×${dayEntries[0].reps} @ ${dayEntries[0].weight}</div>
+          <div style="color:var(--steel); font-size:11px;">${dayEntries.length} סט${dayEntries.length === 1 ? "" : "ים"} נרשמו ${isToday ? "היום" : `ב-${esc(dayLabel)}`}</div>
         </div>
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">צפייה ביום${ICONS.chevronsLeft}</span>
@@ -1451,6 +1501,7 @@ function renderCalDetail() {
           </div>
           <div class="flex items-center gap-10">
             <span class="mono" style="color:var(--steel); font-size:13px;">${e.sets}×${e.reps} @ ${e.weight}</span>
+            <button data-action="edit-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
             <button data-action="delete-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
           </div>
         </div>`).join("")}
@@ -1703,7 +1754,7 @@ function render() {
     if (tab === "add") {
       const selected = movementById(selectedId);
       content = renderLogTab();
-      if (selected) document.getElementById("saveBtnLabel").textContent = "רישום סט — " + selected.name;
+      if (selected) document.getElementById("saveBtnLabel").textContent = (editingEntryId ? "עדכון סט — " : "רישום סט — ") + selected.name;
     } else if (tab === "history") {
       content = renderHistoryTab();
     } else if (tab === "calendar") {
@@ -1725,6 +1776,13 @@ function render() {
   document.getElementById("bottomBar").style.display = tab === "add" ? "flex" : "none";
   document.getElementById("content").innerHTML = content + renderFooter();
   try {
+    if (tab === "add") {
+      const dateInput = document.getElementById("logDateInput");
+      if (dateInput) dateInput.addEventListener("change", (e) => {
+        logDate = clampLogDate(e.target.value);
+        render();
+      });
+    }
     if (tab === "history") {
       renderHistoryListArea();
       renderBodyweightArea();
@@ -2081,6 +2139,17 @@ document.addEventListener("click", (e) => {
     calSelectedDate = todayISO();
     render();
   }
+  else if (action === "view-log-date-calendar") {
+    tab = "calendar";
+    const d = new Date(logDate + "T00:00:00");
+    calYear = d.getFullYear();
+    calMonth = d.getMonth();
+    calSelectedDate = logDate;
+    render();
+  }
+  else if (action === "reset-log-date") { logDate = todayISO(); render(); }
+  else if (action === "cancel-edit-entry") { cancelEditEntry(); }
+  else if (action === "edit-entry") { startEditEntry(el.dataset.id); }
   else if (action === "open-picker") { openPicker(); }
   else if (action === "close-picker") {
     if (el.id === "pickerOverlay" && e.target !== el) return;

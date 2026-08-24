@@ -1,7 +1,7 @@
 // Service worker for האימוניה.
 // Version is the single source of truth for the cache name — bumping
 // APP_VERSION in app.js and SW_VERSION here is what ships an update.
-const SW_VERSION = "2.8.0"; // keep in sync with APP_VERSION in app.js
+const SW_VERSION = "2.9.0"; // keep in sync with APP_VERSION in app.js
 const CACHE = `haimunia-v${SW_VERSION}`;
 
 // Everything the app shell needs to boot with no network.
