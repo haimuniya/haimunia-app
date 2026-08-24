@@ -56,7 +56,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.2.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1736,7 +1736,7 @@ document.getElementById("wodPickerSearch").addEventListener("input", (e) => rend
 document.getElementById("wodBuilderMoveSearch").addEventListener("input", (e) => renderWodBuilderMovements(e.target.value));
 
 document.addEventListener("focusin", (e) => {
-  if (e.target.classList && e.target.classList.contains("stepper-val")) e.target.select();
+  if (e.target.classList && e.target.classList.contains("stepper-val")) e.target.value = "";
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.classList && e.target.classList.contains("stepper-val") && e.key === "Enter") {
