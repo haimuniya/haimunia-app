@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.6.1";
+const APP_VERSION = "2.7.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -587,6 +587,34 @@ async function saveBodyweight() {
   try { await dbPutBodyweight(entry); storageOK = true; } catch (e) { storageOK = false; }
   render();
 }
+const USER_NAME_KEY = "haimunia:userName";
+let userName = null;
+try { userName = localStorage.getItem(USER_NAME_KEY); } catch (e) {}
+
+function renderUserGreeting() {
+  const el = document.getElementById("userGreeting");
+  if (el) el.textContent = userName ? `שלום ${userName}` : "";
+}
+function openWelcomeModal() {
+  document.body.style.overflow = "hidden";
+  const overlay = document.getElementById("welcomeOverlay");
+  if (overlay) overlay.classList.add("open");
+  const input = document.getElementById("welcomeNameInput");
+  if (input) setTimeout(() => input.focus(), 50);
+}
+function closeWelcomeModal() {
+  document.body.style.overflow = "";
+  const overlay = document.getElementById("welcomeOverlay");
+  if (overlay) overlay.classList.remove("open");
+}
+function saveUserName(name) {
+  const trimmed = (name || "").trim();
+  userName = trimmed;
+  try { localStorage.setItem(USER_NAME_KEY, trimmed); } catch (e) {}
+  closeWelcomeModal();
+  renderUserGreeting();
+}
+
 const LAST_EXPORT_KEY = "boxlog:lastExportAt";
 function markExported() {
   try { localStorage.setItem(LAST_EXPORT_KEY, String(Date.now())); } catch (e) {}
@@ -1823,6 +1851,8 @@ document.addEventListener("click", (e) => {
   else if (action === "create-wod") { createWodFromBuilder(); }
   else if (action === "save-bw") { saveBodyweight(); }
   else if (action === "toggle-bodyweight") { bodyweightExpanded = !bodyweightExpanded; renderBodyweightArea(); }
+  else if (action === "save-user-name") { saveUserName(document.getElementById("welcomeNameInput").value); }
+  else if (action === "skip-user-name") { saveUserName(""); }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
     renderWodContent();
@@ -1850,6 +1880,9 @@ document.getElementById("wodPickerSearch").addEventListener("input", (e) => rend
 document.getElementById("wodBuilderMoveSearch").addEventListener("input", (e) => renderWodBuilderMovements(e.target.value));
 document.getElementById("wodBuilderMoveSearch").addEventListener("keydown", (e) => {
   if (e.key === "Enter") e.target.blur();
+});
+document.getElementById("welcomeNameInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); saveUserName(e.target.value); }
 });
 
 document.addEventListener("focusin", (e) => {
@@ -1915,7 +1948,9 @@ async function init() {
   }
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
+  renderUserGreeting();
   render();
+  if (userName === null) openWelcomeModal();
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").then((reg) => {
