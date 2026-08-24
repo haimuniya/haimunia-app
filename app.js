@@ -95,7 +95,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.6.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1067,7 +1067,7 @@ function renderHistoryListArea() {
   const area = document.getElementById("historyListArea");
   if (!area) return;
   const q = historySearch.trim().toLowerCase();
-  const active = activeExercises().filter((m) => m.name.toLowerCase().includes(q));
+  const active = activeExercises().filter((m) => m.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
   if (activeExercises().length === 0) {
     area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">רשמו סט כדי להתחיל לראות התקדמות</span></div>`;
     return;
@@ -1252,25 +1252,6 @@ function renderBodyweightCard() {
     </div>`;
 }
 
-function renderAllTimePRs() {
-  const rows = activeExercises()
-    .map((m) => ({ id: m.id, name: m.name, category: m.category, value: `${bestEst1RM(m.id)} kg` }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!rows.length) return "";
-  return `
-    <div class="section-label">שיאים כלל-זמנים</div>
-    <div class="log-list" style="margin-bottom:16px;">
-      ${rows.map((r) => `
-        <button class="log-row" data-action="select-history" data-id="${r.id}" style="width:100%; text-align:right;">
-          <div class="flex items-center gap-8">
-            <div class="dot" style="background:${CATEGORY_COLORS[r.category]}"></div>
-            <span style="font-weight:700; font-size:13px;">${esc(r.name)}</span>
-          </div>
-          <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${r.value}</span>
-        </button>`).join("")}
-    </div>`;
-}
-
 function renderHistoryTab() {
   const now = new Date();
   const monthPrefix = localISODate(now).slice(0, 7);
@@ -1287,9 +1268,8 @@ function renderHistoryTab() {
       <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">סטים שנרשמו</div></div>
     </div>
 
-    ${renderAllTimePRs()}
-
     ${activeExercises().length > 0 ? `
+    <div class="section-label">שיאים כלל-זמנים</div>
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
@@ -1568,7 +1548,7 @@ function renderWodHistoryListArea() {
   const area = document.getElementById("wodHistoryListArea");
   if (!area) return;
   const q = wodHistorySearch.trim().toLowerCase();
-  const active = activeWods().filter((w) => w.name.toLowerCase().includes(q));
+  const active = activeWods().filter((w) => w.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
   if (activeWods().length === 0) {
     area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">רשמו אימון כדי להתחיל לראות התקדמות</span></div>`;
     return;
@@ -1592,29 +1572,10 @@ function renderWodHistoryListArea() {
   }).join("");
 }
 
-function renderAllTimeWodPRs() {
-  const rows = activeWods()
-    .map((w) => ({ id: w.id, name: w.name, category: w.category, value: formatWodBest(w.id) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  if (!rows.length) return "";
-  return `
-    <div class="section-label">שיאים כלל-זמנים</div>
-    <div class="log-list" style="margin-bottom:16px;">
-      ${rows.map((r) => `
-        <button class="log-row" data-action="select-wod-history" data-id="${r.id}" style="width:100%; text-align:right;">
-          <div class="flex items-center gap-8">
-            <div class="dot" style="background:${CATEGORY_COLORS[r.category]}"></div>
-            <span style="font-weight:700; font-size:13px;">${esc(r.name)}</span>
-          </div>
-          <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">${r.value}</span>
-        </button>`).join("")}
-    </div>`;
-}
-
 function renderWodHistorySection() {
   return `
-    ${renderAllTimeWodPRs()}
     ${activeWods().length > 0 ? `
+    <div class="section-label">שיאים כלל-זמנים</div>
     <div class="search-box" style="margin:0 0 12px;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="wodHistorySearch" dir="auto" placeholder="חיפוש באימונים שלך" value="${esc(wodHistorySearch)}" />

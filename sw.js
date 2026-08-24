@@ -1,4 +1,4 @@
-const CACHE = "haimunia-v2.5.0"; // keep in sync with APP_VERSION in app.js
+const CACHE = "haimunia-v2.6.0"; // keep in sync with APP_VERSION in app.js
 const ASSETS = [
   "./",
   "./index.html",
