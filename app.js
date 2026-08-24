@@ -56,7 +56,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.2.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -434,7 +434,9 @@ function activeExercises() {
   return ids.map(movementById).filter(Boolean);
 }
 
-async function addMovement(name) {
+const MOVEMENT_CATEGORIES = ["Squat", "Deadlift", "Press", "Olympic", "Pull", "Other"];
+
+async function addMovement(name, category) {
   const trimmed = name.trim();
   if (!trimmed) return;
   const existing = allMovements().find((m) => m.name.toLowerCase() === trimmed.toLowerCase());
@@ -445,7 +447,7 @@ async function addMovement(name) {
     return;
   }
   const id = "custom-" + trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") + "-" + Date.now().toString(36);
-  const movement = { id, name: trimmed, category: "Custom" };
+  const movement = { id, name: trimmed, category: MOVEMENT_CATEGORIES.includes(category) ? category : "Other" };
   customMovements.push(movement);
   try { await dbAddMovement(movement); } catch (e) { storageOK = false; }
   selectedId = id;
@@ -915,7 +917,7 @@ function renderStepper(field, label, value, step, min, action) {
         <button class="stepper-btn" data-action="${action}" data-field="${field}" data-dir="-1" data-step="${step}" data-min="${min}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
         </button>
-        <span class="stepper-val mono">${value}</span>
+        <input class="stepper-val mono" type="text" inputmode="decimal" data-action="${action}" data-field="${field}" data-min="${min}" value="${value}" />
         <button class="stepper-btn" data-action="${action}" data-field="${field}" data-dir="1" data-step="${step}" data-min="${min}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
         </button>
@@ -1217,16 +1219,54 @@ function renderFooter() {
 
 function updateLogQuickUI(field) {
   const valMap = { weight, reps, sets };
-  document.querySelectorAll(`.stepper-btn[data-field="${field}"]`).forEach((btn) => {
-    const valSpan = btn.parentElement.querySelector(".stepper-val");
-    if (valSpan) valSpan.textContent = valMap[field];
-  });
+  const inp = document.querySelector(`.stepper-val[data-action="step"][data-field="${field}"]`);
+  if (inp) inp.value = valMap[field];
   if (field === "weight") {
     const bv = document.getElementById("barbellVisual");
     if (bv) bv.innerHTML = renderBarbell(weight);
   }
   const estEl = document.getElementById("estLineValue");
   if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+}
+
+function getFieldValue(action, field) {
+  if (action === "step") return { weight, reps, sets }[field];
+  if (action === "wod-step") return { wodMinutes, wodSeconds, wodRounds, wodReps, wodWeight, wodScaledWeight }[field];
+  if (action === "bw-step") return bwWeight;
+  if (action === "builder-movement-reps") return builderMovements[field] ? builderMovements[field].reps : 0;
+  if (action === "builder-movement-weight") return builderMovements[field] ? builderMovements[field].weight : 0;
+  return 0;
+}
+
+function applyFieldValue(action, field, value) {
+  if (action === "step") {
+    if (field === "weight") weight = value;
+    else if (field === "reps") reps = value;
+    else if (field === "sets") sets = value;
+    updateLogQuickUI(field);
+  } else if (action === "wod-step") {
+    if (field === "wodMinutes") wodMinutes = value;
+    else if (field === "wodSeconds") wodSeconds = value;
+    else if (field === "wodRounds") wodRounds = value;
+    else if (field === "wodReps") wodReps = value;
+    else if (field === "wodWeight") wodWeight = value;
+    else if (field === "wodScaledWeight") wodScaledWeight = value;
+    const valMap = { wodMinutes, wodSeconds, wodRounds, wodReps, wodWeight, wodScaledWeight };
+    const inp = document.querySelector(`.stepper-val[data-action="wod-step"][data-field="${field}"]`);
+    if (inp) inp.value = valMap[field];
+  } else if (action === "bw-step") {
+    bwWeight = value;
+    const inp = document.querySelector(`.stepper-val[data-action="bw-step"][data-field="bwWeight"]`);
+    if (inp) inp.value = bwWeight;
+  } else if (action === "builder-movement-reps") {
+    if (!builderMovements[field]) return;
+    builderMovements[field].reps = value;
+    renderWodBuilderMovements();
+  } else if (action === "builder-movement-weight") {
+    if (!builderMovements[field]) return;
+    builderMovements[field].weight = value;
+    renderWodBuilderMovements();
+  }
 }
 
 function render() {
@@ -1517,9 +1557,12 @@ function renderPickerList(query) {
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
   const list = document.getElementById("pickerList");
   const addRow = query.trim() && !exactMatch
-    ? `<button class="movement-btn" data-action="add-movement" data-name="${esc(query.trim())}" style="border-color:var(--brass); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת "${esc(query.trim())}" כתרגיל חדש</span>
-       </button>`
+    ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-top:4px; margin-bottom:8px;">
+         <div style="font-weight:700; font-size:13px; color:var(--brass); margin-bottom:8px;">הוספת "${esc(query.trim())}" — לאיזו קטגוריה?</div>
+         <div class="flex wrap gap-8">
+           ${MOVEMENT_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-movement" data-name="${esc(query.trim())}" data-category="${cat}">${cat}</button>`).join("")}
+         </div>
+       </div>`
     : "";
   if (Object.keys(byCategory).length === 0) {
     list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל</div>`;
@@ -1622,13 +1665,12 @@ document.addEventListener("click", (e) => {
     closePicker();
   }
   else if (action === "pick-movement") { selectedId = el.dataset.id; closePicker(); render(); }
-  else if (action === "add-movement") { addMovement(el.dataset.name); }
-  else if (action === "step") {
+  else if (action === "add-movement") { addMovement(el.dataset.name, el.dataset.category); }
+  else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight") {
     const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
-    if (field === "weight") weight = Math.max(min, +(weight + dir * step).toFixed(2));
-    if (field === "reps") reps = Math.max(min, reps + dir * step);
-    if (field === "sets") sets = Math.max(min, sets + dir * step);
-    updateLogQuickUI(field);
+    const current = getFieldValue(action, field);
+    const next = Math.max(min, +(current + dir * step).toFixed(2));
+    applyFieldValue(action, field, next);
   }
   else if (action === "save-set") { saveSet(); }
   else if (action === "delete-entry") { deleteEntry(el.dataset.id); }
@@ -1666,41 +1708,7 @@ document.addEventListener("click", (e) => {
     else builderMovements[name] = { reps: 10, weight: 0 };
     renderWodBuilderMovements();
   }
-  else if (action === "builder-movement-reps") {
-    const name = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
-    if (!builderMovements[name]) return;
-    builderMovements[name].reps = Math.max(min, builderMovements[name].reps + dir * step);
-    renderWodBuilderMovements();
-  }
-  else if (action === "builder-movement-weight") {
-    const name = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
-    if (!builderMovements[name]) return;
-    builderMovements[name].weight = Math.max(min, +(builderMovements[name].weight + dir * step).toFixed(2));
-    renderWodBuilderMovements();
-  }
   else if (action === "create-wod") { createWodFromBuilder(); }
-  else if (action === "wod-step") {
-    const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
-    if (field === "wodMinutes") wodMinutes = Math.max(min, wodMinutes + dir * step);
-    if (field === "wodSeconds") wodSeconds = Math.max(min, wodSeconds + dir * step);
-    if (field === "wodRounds") wodRounds = Math.max(min, wodRounds + dir * step);
-    if (field === "wodReps") wodReps = Math.max(min, wodReps + dir * step);
-    if (field === "wodWeight") wodWeight = Math.max(min, +(wodWeight + dir * step).toFixed(2));
-    if (field === "wodScaledWeight") wodScaledWeight = Math.max(min, +(wodScaledWeight + dir * step).toFixed(2));
-    const valMap = { wodMinutes, wodSeconds, wodRounds, wodReps, wodWeight, wodScaledWeight };
-    document.querySelectorAll(`.stepper-btn[data-field="${field}"]`).forEach((btn) => {
-      const valSpan = btn.parentElement.querySelector(".stepper-val");
-      if (valSpan) valSpan.textContent = valMap[field];
-    });
-  }
-  else if (action === "bw-step") {
-    const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
-    if (field === "bwWeight") bwWeight = Math.max(min, +(bwWeight + dir * step).toFixed(2));
-    document.querySelectorAll(`.stepper-btn[data-field="${field}"]`).forEach((btn) => {
-      const valSpan = btn.parentElement.querySelector(".stepper-val");
-      if (valSpan) valSpan.textContent = bwWeight;
-    });
-  }
   else if (action === "save-bw") { saveBodyweight(); }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
@@ -1723,10 +1731,29 @@ document.getElementById("pickerSearch").addEventListener("keydown", (e) => {
   if (!q) return;
   const exact = allMovements().find((m) => m.name.toLowerCase() === q.toLowerCase());
   if (exact) { selectedId = exact.id; closePicker(); render(); }
-  else addMovement(q);
 });
 document.getElementById("wodPickerSearch").addEventListener("input", (e) => renderWodPickerList(e.target.value));
 document.getElementById("wodBuilderMoveSearch").addEventListener("input", (e) => renderWodBuilderMovements(e.target.value));
+
+document.addEventListener("focusin", (e) => {
+  if (e.target.classList && e.target.classList.contains("stepper-val")) e.target.select();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.classList && e.target.classList.contains("stepper-val") && e.key === "Enter") {
+    e.preventDefault();
+    e.target.blur();
+  }
+});
+document.addEventListener("change", (e) => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains("stepper-val")) return;
+  const field = el.dataset.field, action = el.dataset.action, min = +el.dataset.min;
+  let val = parseFloat(String(el.value).replace(",", "."));
+  if (isNaN(val)) val = getFieldValue(action, field);
+  val = Math.max(min, +val.toFixed(2));
+  applyFieldValue(action, field, val);
+  el.value = val;
+});
 document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
   const q = e.target.value.trim();
