@@ -96,7 +96,7 @@ const MOVEMENTS = [
 
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_KG = 20;
-const APP_VERSION = "2.9.0";
+const APP_VERSION = "2.10.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -675,6 +675,8 @@ let wodMinutes = 3, wodSeconds = 0, wodRounds = 5, wodReps = 0, wodWeight = 20;
 let wodRx = true;
 let wodScaledWeight = 20;
 let wodNotes = "";
+let wodLogDate = todayISO();
+let editingWodEntryId = null;
 let wodHistoryId = null;
 let wodHistorySearch = "";
 let wodBuilderOpen = false;
@@ -1032,6 +1034,8 @@ async function clearAllData() {
   bwWeight = 70;
   logDate = todayISO();
   editingEntryId = null;
+  wodLogDate = todayISO();
+  editingWodEntryId = null;
   confirmClear = false;
   renderUserGreeting();
   render();
@@ -1041,7 +1045,7 @@ async function clearAllData() {
 // ---------- WOD helpers & actions ----------
 function allWods() { return WOD_LIBRARY.concat(customWods); }
 function wodById(id) { return allWods().find((w) => w.id === id); }
-function wodEntriesFor(id) { return wodEntries.filter((e) => e.wodId === id); }
+function wodEntriesFor(id, excludeId) { return wodEntries.filter((e) => e.wodId === id && e.id !== excludeId); }
 function activeWods() {
   const ids = [...new Set(wodEntries.map((e) => e.wodId))];
   return ids.map(wodById).filter(Boolean);
@@ -1055,9 +1059,9 @@ function scoreValue(e) {
   if (e.scoreType === "amrap") return e.rounds * 1000 + e.reps;
   return e.weight;
 }
-function bestWodScore(id) {
+function bestWodScore(id, excludeId) {
   const w = wodById(id);
-  const list = wodEntriesFor(id);
+  const list = wodEntriesFor(id, excludeId);
   if (!list.length) return null;
   if (w.scoreType === "time") return Math.min(...list.map(scoreValue));
   return Math.max(...list.map(scoreValue));
@@ -1198,11 +1202,13 @@ function createWodFromBuilder() {
 async function saveWod() {
   const w = wodById(selectedWodId);
   if (!isFinite(wodMinutes) || !isFinite(wodSeconds) || !isFinite(wodRounds) || !isFinite(wodReps) || !isFinite(wodWeight) || !isFinite(wodScaledWeight)) return;
-  const prevBest = bestWodScore(selectedWodId);
+  const editId = editingWodEntryId;
+  const existing = editId ? wodEntries.find((e) => e.id === editId) : null;
+  const prevBest = bestWodScore(selectedWodId, editId);
   const entry = {
-    id: uid("wod"),
-    ts: Date.now(),
-    date: todayISO(),
+    id: existing ? existing.id : uid("wod"),
+    ts: existing ? existing.ts : Date.now(),
+    date: clampLogDate(wodLogDate),
     wodId: selectedWodId,
     scoreType: w.scoreType,
     rx: wodRx,
@@ -1217,14 +1223,43 @@ async function saveWod() {
   const isPR = prevBest === null || (w.scoreType === "time" ? val < prevBest : val > prevBest);
   entry.isPR = isPR;
 
+  wodEntries = wodEntries.filter((e) => e.id !== entry.id);
   wodEntries.unshift(entry);
+  wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   try { await dbPutWodEntry(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   wodNotes = "";
+  editingWodEntryId = null;
+  wodLogDate = todayISO();
   if (isPR) flashWodPR();
+  render();
+}
+function startEditWodEntry(id) {
+  const entry = wodEntries.find((e) => e.id === id);
+  if (!entry) return;
+  const w = wodById(entry.wodId);
+  if (!w) return;
+  selectedWodId = entry.wodId;
+  wodRx = entry.rx;
+  wodNotes = entry.notes || "";
+  wodScaledWeight = entry.scaledWeight || 20;
+  if (entry.scoreType === "time") { wodMinutes = Math.floor((entry.timeSeconds || 0) / 60); wodSeconds = (entry.timeSeconds || 0) % 60; }
+  else if (entry.scoreType === "amrap") { wodRounds = entry.rounds || 0; wodReps = entry.reps || 0; }
+  else wodWeight = entry.weight || 0;
+  wodLogDate = entry.date;
+  editingWodEntryId = entry.id;
+  tab = "wod";
+  wodSubTab = "log";
+  render();
+}
+function cancelEditWodEntry() {
+  editingWodEntryId = null;
+  wodLogDate = todayISO();
+  wodNotes = "";
   render();
 }
 async function deleteWodEntry(id) {
   wodEntries = wodEntries.filter((e) => e.id !== id);
+  if (editingWodEntryId === id) { editingWodEntryId = null; wodLogDate = todayISO(); }
   try { await dbDeleteWodEntry(id); } catch (e) { noteStorageError(e); }
   render();
 }
@@ -1517,6 +1552,7 @@ function renderCalDetail() {
             </div>
             <div class="flex items-center gap-10">
               <span class="mono" style="color:var(--steel); font-size:13px;">${formatWodEntry(e)}</span>
+              <button data-action="edit-wod-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
               <button data-action="delete-wod-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
             </div>
           </div>
@@ -1800,7 +1836,9 @@ function render() {
 function renderWodLogSection() {
   const w = wodById(selectedWodId);
   const best = formatWodBest(selectedWodId);
-  const todaysWods = wodEntries.filter((e) => e.date === todayISO());
+  const isToday = wodLogDate === todayISO();
+  const dayWods = wodEntries.filter((e) => e.date === wodLogDate);
+  const dayLabel = isToday ? "היום" : fmtDate(wodLogDate);
   const lastScaled = lastScaledAttempt(selectedWodId);
   const history = wodEntriesFor(selectedWodId).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
 
@@ -1822,6 +1860,12 @@ function renderWodLogSection() {
   }
 
   return `
+    ${editingWodEntryId ? `
+    <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:12px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
+      <span style="color:var(--brass); font-weight:700; font-size:13px;">עריכת אימון קיים</span>
+      <button data-action="cancel-edit-wod-entry" style="color:var(--steel); font-size:12px; text-decoration:underline;">ביטול</button>
+    </div>` : ""}
+
     <button class="exercise-select" data-action="open-wod-picker">
       <div class="flex items-center gap-8">
         <div class="dot" style="background:${esc(catColor(w.category))}"></div>
@@ -1832,6 +1876,11 @@ function renderWodLogSection() {
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
     </button>
+
+    <div class="flex items-center gap-8" style="margin-bottom:12px;">
+      <input type="date" id="wodLogDateInput" value="${esc(wodLogDate)}" max="${todayISO()}" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
+      ${wodLogDate !== todayISO() ? `<button data-action="reset-wod-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
+    </div>
 
     ${history.length > 0 ? `
     <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:14px; padding:12px 14px; margin-bottom:16px;">
@@ -1872,17 +1921,17 @@ function renderWodLogSection() {
 
     <button data-action="save-wod" class="save-btn" style="max-width:none; margin:20px 0 24px;">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-      רישום אימון — ${esc(w.name)}
+      ${editingWodEntryId ? "עדכון" : "רישום"} אימון — ${esc(w.name)}
     </button>
 
-    ${todaysWods.length === 0 ? `
-    <div class="empty">עדיין לא נרשמו אימונים היום.</div>` : `
-    <button class="exercise-row" data-action="view-today-calendar" style="margin-bottom:0;">
+    ${dayWods.length === 0 ? `
+    <div class="empty">${isToday ? "עדיין לא נרשמו אימונים היום." : `עדיין לא נרשמו אימונים ב-${esc(dayLabel)}.`}</div>` : `
+    <button class="exercise-row" data-action="view-log-wod-date-calendar" style="margin-bottom:0;">
       <div class="flex items-center gap-8">
-        ${todaysWods[0].isPR ? ICONS.flame : ""}
+        ${dayWods[0].isPR ? ICONS.flame : ""}
         <div style="text-align:right;">
-          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(wodById(todaysWods[0].wodId) ? wodById(todaysWods[0].wodId).name : "?")} — ${formatWodEntry(todaysWods[0])} (${todaysWods[0].rx ? "Rx" : "Scaled"})</div>
-          <div style="color:var(--steel); font-size:11px;">${todaysWods.length} אימון${todaysWods.length === 1 ? "" : "ים"} נרשמו היום</div>
+          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(wodById(dayWods[0].wodId) ? wodById(dayWods[0].wodId).name : "?")} — ${formatWodEntry(dayWods[0])} (${dayWods[0].rx ? "Rx" : "Scaled"})</div>
+          <div style="color:var(--steel); font-size:11px;">${dayWods.length} אימון${dayWods.length === 1 ? "" : "ים"} נרשמו ${isToday ? "היום" : `ב-${esc(dayLabel)}`}</div>
         </div>
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">צפייה ביום${ICONS.chevronsLeft}</span>
@@ -1983,6 +2032,11 @@ function renderWodContent() {
   if (wodSubTab === "log") {
     const notesInput = document.getElementById("wodNotesInput");
     if (notesInput) notesInput.addEventListener("input", (e) => { wodNotes = cleanStr(e.target.value, LIMITS.notesLen); });
+    const dateInput = document.getElementById("wodLogDateInput");
+    if (dateInput) dateInput.addEventListener("change", (e) => {
+      wodLogDate = clampLogDate(e.target.value);
+      renderWodContent();
+    });
   }
   if (wodSubTab === "history") {
     renderWodHistoryListArea();
@@ -2150,6 +2204,17 @@ document.addEventListener("click", (e) => {
   else if (action === "reset-log-date") { logDate = todayISO(); render(); }
   else if (action === "cancel-edit-entry") { cancelEditEntry(); }
   else if (action === "edit-entry") { startEditEntry(el.dataset.id); }
+  else if (action === "view-log-wod-date-calendar") {
+    tab = "calendar";
+    const d = new Date(wodLogDate + "T00:00:00");
+    calYear = d.getFullYear();
+    calMonth = d.getMonth();
+    calSelectedDate = wodLogDate;
+    render();
+  }
+  else if (action === "reset-wod-log-date") { wodLogDate = todayISO(); renderWodContent(); }
+  else if (action === "cancel-edit-wod-entry") { cancelEditWodEntry(); }
+  else if (action === "edit-wod-entry") { startEditWodEntry(el.dataset.id); }
   else if (action === "open-picker") { openPicker(); }
   else if (action === "close-picker") {
     if (el.id === "pickerOverlay" && e.target !== el) return;
