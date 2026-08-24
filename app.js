@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.11.0";
+const APP_VERSION = "2.12.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -321,7 +321,7 @@ const WOD_SCORE_TYPES = ["time", "amrap", "load"];
 const LIMITS = {
   nameLen: 80, notesLen: 300, idLen: 128, importItems: 20000,
   weight: 1000, reps: 1000, sets: 100, minutes: 999, seconds: 59,
-  rounds: 9999, bodyweight: 500,
+  rounds: 9999, bodyweight: 500, measurement: 300,
 };
 const FIELD_MAX = {
   weight: LIMITS.weight, reps: LIMITS.reps, sets: LIMITS.sets,
@@ -333,6 +333,7 @@ function fieldMax(action, field) {
   if (action === "bw-step") return LIMITS.bodyweight;
   if (action === "builder-movement-reps") return LIMITS.reps;
   if (action === "builder-movement-weight") return LIMITS.weight;
+  if (action === "measure-step") return LIMITS.measurement;
   return Object.prototype.hasOwnProperty.call(FIELD_MAX, field) ? FIELD_MAX[field] : LIMITS.weight;
 }
 function cleanStr(v, max) {
@@ -431,6 +432,19 @@ function sanitizeBodyweight(e) {
   if (!id || !date || weight === null) return null;
   return { id, date, weight, ts: cleanTs(e.ts) };
 }
+function sanitizeMeasureType(t) {
+  if (!t || typeof t !== "object") return null;
+  const id = cleanId(t.id), name = cleanStr(t.name, LIMITS.nameLen);
+  if (!id || !name) return null;
+  return { id, name };
+}
+function sanitizeMeasurement(e) {
+  if (!e || typeof e !== "object") return null;
+  const id = cleanId(e.id), typeId = cleanId(e.typeId), date = cleanISODate(e.date);
+  const value = cleanNum(e.value, 0, LIMITS.measurement, null);
+  if (!id || !typeId || !date || value === null) return null;
+  return { id, typeId, date, value, ts: cleanTs(e.ts) };
+}
 function sanitizeList(list, fn) {
   if (!Array.isArray(list)) return [];
   return list.slice(0, LIMITS.importItems).map(fn).filter(Boolean);
@@ -441,12 +455,12 @@ function allMovements() { return MOVEMENTS.concat(customMovements); }
 function movementById(id) { return allMovements().find((m) => m.id === id); }
 
 // ---------- IndexedDB ----------
-const DB_NAME = "box-log-db", STORE = "entries", MOVSTORE = "movements", WODSTORE = "wodEntries", CUSTOMWODSTORE = "customWods", BWSTORE = "bodyweight", SETTINGSTORE = "settings";
+const DB_NAME = "box-log-db", STORE = "entries", MOVSTORE = "movements", WODSTORE = "wodEntries", CUSTOMWODSTORE = "customWods", BWSTORE = "bodyweight", SETTINGSTORE = "settings", MEASTYPESTORE = "measureTypes", MEASSTORE = "measurements";
 let _dbPromise = null;
 function openDB() {
   if (_dbPromise) return _dbPromise;
   _dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 6);
+    const req = indexedDB.open(DB_NAME, 7);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
@@ -455,6 +469,8 @@ function openDB() {
       if (!db.objectStoreNames.contains(CUSTOMWODSTORE)) db.createObjectStore(CUSTOMWODSTORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(BWSTORE)) db.createObjectStore(BWSTORE, { keyPath: "id" });
       if (!db.objectStoreNames.contains(SETTINGSTORE)) db.createObjectStore(SETTINGSTORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(MEASTYPESTORE)) db.createObjectStore(MEASTYPESTORE, { keyPath: "id" });
+      if (!db.objectStoreNames.contains(MEASSTORE)) db.createObjectStore(MEASSTORE, { keyPath: "id" });
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => { _dbPromise = null; reject(req.error); };
@@ -607,6 +623,76 @@ async function dbClearBodyweight() {
     tx.onerror = () => reject(tx.error);
   });
 }
+async function dbLoadMeasureTypes() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(MEASTYPESTORE, "readonly").objectStore(MEASTYPESTORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function dbAddMeasureType(t) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MEASTYPESTORE, "readwrite");
+    tx.objectStore(MEASTYPESTORE).put(t);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbDeleteMeasureType(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MEASTYPESTORE, "readwrite");
+    tx.objectStore(MEASTYPESTORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbClearMeasureTypes() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MEASTYPESTORE, "readwrite");
+    tx.objectStore(MEASTYPESTORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbLoadMeasurements() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(MEASSTORE, "readonly").objectStore(MEASSTORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function dbPutMeasurement(m) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MEASSTORE, "readwrite");
+    tx.objectStore(MEASSTORE).put(m);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbDeleteMeasurement(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MEASSTORE, "readwrite");
+    tx.objectStore(MEASSTORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbClearMeasurements() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(MEASSTORE, "readwrite");
+    tx.objectStore(MEASSTORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 async function dbLoadAll() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -702,6 +788,13 @@ function noteStorageError(e) {
 let bodyweightEntries = [];
 let bwWeight = 70;
 let bodyweightExpanded = false;
+
+// Body measurements (custom types the user defines, e.g. waist/chest — cm)
+let measureTypes = [];
+let measureEntries = [];
+let measureExpandedId = null;
+let measureAddOpen = false;
+let measureValues = bag(); // per-type stepper input value, keyed by typeId
 
 let importMessage = "";
 let importMsgTimeout = null;
@@ -808,6 +901,62 @@ async function saveBodyweight() {
   try { await dbPutBodyweight(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   render();
 }
+
+// ---------- Body measurements (custom, user-named, cm) ----------
+function measureTypesSorted() { return measureTypes.slice().sort((a, b) => a.name.localeCompare(b.name)); }
+function measureEntriesFor(typeId) { return measureEntries.filter((e) => e.typeId === typeId); }
+function latestMeasurement(typeId) {
+  const list = measureEntriesFor(typeId).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return list.length ? list[0] : null;
+}
+async function addMeasureType(name) {
+  const trimmed = cleanStr(name, LIMITS.nameLen);
+  if (!trimmed) return;
+  const existing = measureTypes.find((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+  if (existing) {
+    measureExpandedId = existing.id;
+    measureAddOpen = false;
+    renderMeasureArea();
+    return;
+  }
+  const type = { id: uid("meas-type"), name: trimmed };
+  measureTypes.push(type);
+  try { await dbAddMeasureType(type); } catch (e) { noteStorageError(e); }
+  measureValues[type.id] = 0;
+  measureExpandedId = type.id;
+  measureAddOpen = false;
+  renderMeasureArea();
+}
+async function deleteMeasureType(id) {
+  measureTypes = measureTypes.filter((t) => t.id !== id);
+  const toDelete = measureEntriesFor(id).map((e) => e.id);
+  measureEntries = measureEntries.filter((e) => e.typeId !== id);
+  if (measureExpandedId === id) measureExpandedId = null;
+  try {
+    await dbDeleteMeasureType(id);
+    for (const eid of toDelete) await dbDeleteMeasurement(eid);
+  } catch (e) { noteStorageError(e); }
+  renderMeasureArea();
+}
+async function saveMeasurement(typeId) {
+  const value = measureValues[typeId];
+  if (typeof value !== "number" || !isFinite(value) || value <= 0) return;
+  const today = todayISO();
+  const existing = measureEntries.find((e) => e.typeId === typeId && e.date === today);
+  const entry = existing
+    ? { ...existing, value, ts: Date.now() }
+    : { id: uid("meas"), typeId, date: today, value, ts: Date.now() };
+  measureEntries = measureEntries.filter((e) => e.id !== entry.id);
+  measureEntries.unshift(entry);
+  try { await dbPutMeasurement(entry); storageOK = true; } catch (e) { noteStorageError(e); }
+  renderMeasureArea();
+}
+async function deleteMeasurementEntry(id) {
+  measureEntries = measureEntries.filter((e) => e.id !== id);
+  try { await dbDeleteMeasurement(id); } catch (e) { noteStorageError(e); }
+  renderMeasureArea();
+}
+
 const USER_NAME_KEY = "haimunia:userName";
 let userName = null;
 async function loadUserName() {
@@ -860,8 +1009,10 @@ function setBarWeight(kg) {
   if (!BAR_OPTIONS.includes(kg)) return;
   barWeight = kg;
   dbSetSetting(BAR_WEIGHT_KEY, kg).catch(noteStorageError);
-  const bv = document.getElementById("barbellVisual");
-  if (bv) bv.innerHTML = renderBarbell(weight);
+  // Total can never be less than the bar itself - bump it up if needed so the
+  // barbell visual actually changes even if the user never touches "weight".
+  if (weight < barWeight) weight = barWeight;
+  updateLogQuickUI("weight");
   const barRow = document.getElementById("barWeightRow");
   if (barRow) barRow.outerHTML = renderBarWeightRow();
 }
@@ -903,6 +1054,8 @@ function buildBackupPayload() {
     wodEntries,
     customWods,
     bodyweightEntries,
+    measureTypes,
+    measureEntries,
   };
 }
 
@@ -964,9 +1117,11 @@ async function importDataFromFile(file) {
     entries: sanitizeList(data.entries, sanitizeEntry),
     wodEntries: sanitizeList(data.wodEntries, sanitizeWodEntry),
     bodyweightEntries: sanitizeList(data.bodyweightEntries, sanitizeBodyweight),
+    measureTypes: sanitizeList(data.measureTypes, sanitizeMeasureType),
+    measureEntries: sanitizeList(data.measureEntries, sanitizeMeasurement),
   };
   const incoming = Object.values(clean).reduce((n, l) => n + l.length, 0);
-  const rawCount = ["customMovements", "customWods", "entries", "wodEntries", "bodyweightEntries"]
+  const rawCount = ["customMovements", "customWods", "entries", "wodEntries", "bodyweightEntries", "measureTypes", "measureEntries"]
     .reduce((n, k) => n + (Array.isArray(data[k]) ? data[k].length : 0), 0);
   const rejected = Math.max(0, rawCount - incoming);
 
@@ -974,7 +1129,7 @@ async function importDataFromFile(file) {
 
   // The import merges into existing data and cannot be undone from inside the
   // app, so confirm first and drop a rollback backup on the way in.
-  const hasExisting = entries.length || wodEntries.length || bodyweightEntries.length || customMovements.length || customWods.length;
+  const hasExisting = entries.length || wodEntries.length || bodyweightEntries.length || customMovements.length || customWods.length || measureTypes.length;
   const question = hasExisting
     ? `הייבוא יוסיף ${incoming} רשומות לנתונים הקיימים ולא ניתן לבטל אותו.\nלפני כן יורד גיבוי של המצב הנוכחי.\n\nלהמשיך?`
     : `לייבא ${incoming} רשומות?`;
@@ -995,6 +1150,8 @@ async function importDataFromFile(file) {
   await write(clean.entries, dbPut);
   await write(clean.wodEntries, dbPutWodEntry);
   await write(clean.bodyweightEntries, dbPutBodyweight);
+  await write(clean.measureTypes, dbAddMeasureType);
+  await write(clean.measureEntries, dbPutMeasurement);
 
   await reloadFromDb();
 
@@ -1016,6 +1173,8 @@ async function reloadFromDb() {
     customWods = sanitizeList(await dbLoadCustomWods(), sanitizeCustomWod);
     bodyweightEntries = sanitizeList(await dbLoadBodyweight(), sanitizeBodyweight).sort((a, b) => (b.ts || 0) - (a.ts || 0));
     if (bodyweightEntries[0]) bwWeight = bodyweightEntries[0].weight;
+    measureTypes = sanitizeList(await dbLoadMeasureTypes(), sanitizeMeasureType);
+    measureEntries = sanitizeList(await dbLoadMeasurements(), sanitizeMeasurement);
     storageOK = true;
     storageErrMsg = "";
     return true;
@@ -1031,12 +1190,17 @@ async function clearAllData() {
   customMovements = [];
   customWods = [];
   bodyweightEntries = [];
+  measureTypes = [];
+  measureEntries = [];
+  measureValues = bag();
   try {
     await dbClear();
     await dbClearWodEntries();
     await dbClearMovements();
     await dbClearCustomWods();
     await dbClearBodyweight();
+    await dbClearMeasureTypes();
+    await dbClearMeasurements();
     // "delete everything" must also drop the stored name and export marker.
     await dbClearSettings();
     try { localStorage.removeItem(USER_NAME_KEY); localStorage.removeItem(LAST_EXPORT_KEY); } catch (e) {}
@@ -1051,6 +1215,8 @@ async function clearAllData() {
   wodHistoryId = null;
   bwWeight = 70;
   barWeight = 20;
+  measureExpandedId = null;
+  measureAddOpen = false;
   logDate = todayISO();
   editingEntryId = null;
   wodLogDate = todayISO();
@@ -1428,7 +1594,7 @@ function renderLogTab() {
     </div>
 
     <div class="steppers">
-      ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, 0)}
+      ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, barWeight)}
       ${renderStepper("reps", "חזרות", reps, 1, 1)}
       ${renderStepper("sets", "סטים", sets, 1, 1)}
     </div>
@@ -1697,6 +1863,83 @@ function renderBodyweightArea() {
   el.innerHTML = header + detail;
 }
 
+function renderMeasureArea() {
+  const el = document.getElementById("measureArea");
+  if (!el) return;
+  const types = measureTypesSorted();
+
+  const addRow = measureAddOpen
+    ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:8px;">
+         <input id="measureTypeInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="לדוגמה: היקף מותן" style="margin-bottom:8px;" />
+         <div class="flex gap-8">
+           <button data-action="confirm-add-measure-type" class="save-btn" style="max-width:none; flex:1;">הוספה</button>
+           <button data-action="cancel-add-measure-type" style="color:var(--steel); font-size:13px; padding:0 10px;">ביטול</button>
+         </div>
+       </div>`
+    : `<button class="movement-btn" data-action="open-add-measure-type" style="border-color:var(--brass); margin-bottom:${types.length ? "8px" : "0"};">
+         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת מדד חדש</span>
+       </button>`;
+
+  const rows = types.map((t) => {
+    const expanded = measureExpandedId === t.id;
+    const last = latestMeasurement(t.id);
+    const header = `
+      <button class="exercise-row ${expanded ? "active" : ""}" data-action="toggle-measure-type" data-id="${esc(t.id)}" style="${expanded ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
+        <div class="flex items-center gap-8">
+          <span style="display:inline-flex; transition:transform .2s; transform:rotate(${expanded ? "90deg" : "180deg"});">${ICONS.chevron}</span>
+          <span style="font-weight:700; font-size:14px;">${esc(t.name)}</span>
+        </div>
+        ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${last.value} ס"מ</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
+      </button>`;
+    if (!expanded) return header;
+
+    if (typeof measureValues[t.id] !== "number") measureValues[t.id] = last ? last.value : 0;
+    const sorted = measureEntriesFor(t.id).slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
+    const chartData = sorted.map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.value, isPR: false }));
+    const recent = measureEntriesFor(t.id).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 8);
+    const detail = `
+      <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
+        <div class="flex items-center justify-between" style="margin-bottom:${chartData.length ? "12px" : "0"};">
+          ${last ? `<span style="color:var(--steel); font-size:12px;">עודכן לאחרונה: ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
+          <button data-action="delete-measure-type" data-id="${esc(t.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+        </div>
+        ${chartData.length ? renderChart(chartData) : ""}
+        <div class="steppers" style="margin-top:14px; margin-bottom:0;">
+          ${renderStepper(t.id, 'ס"מ', measureValues[t.id], 0.5, 0, "measure-step")}
+        </div>
+        <button data-action="save-measurement" data-id="${esc(t.id)}" class="save-btn" style="max-width:none; margin-top:14px;">רישום מדידה — היום</button>
+        ${recent.length ? `
+        <div class="log-list" style="margin-top:14px;">
+          ${recent.map((e) => `
+            <div class="log-row">
+              <span style="color:var(--steel); font-size:12px;">${fmtDate(e.date)}</span>
+              <div class="flex items-center gap-10">
+                <span class="mono" style="font-size:13px;">${e.value} ס"מ</span>
+                <button data-action="delete-measurement-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+              </div>
+            </div>`).join("")}
+        </div>` : ""}
+      </div>
+      <div style="height:8px;"></div>`;
+    return header + detail;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="section-label" style="margin-top:4px;">מדדי גוף</div>
+    ${addRow}
+    ${rows}
+  `;
+  if (measureAddOpen) {
+    const input = document.getElementById("measureTypeInput");
+    if (input) {
+      setTimeout(() => input.focus(), 50);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); addMeasureType(e.target.value); }
+      });
+    }
+  }
+}
+
 function renderHistoryTab() {
   const now = new Date();
   const monthPrefix = localISODate(now).slice(0, 7);
@@ -1723,6 +1966,8 @@ function renderHistoryTab() {
     <div id="historyListArea"></div>
 
     <div id="bodyweightArea"></div>
+
+    <div id="measureArea"></div>
   `;
 }
 
@@ -1731,7 +1976,7 @@ function renderFooter() {
     <div class="footer">
       <div class="footer-note"${storageOK ? "" : ' style="color:var(--red);"'}>${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
       ${(() => {
-        const hasData = entries.length || wodEntries.length || bodyweightEntries.length;
+        const hasData = entries.length || wodEntries.length || bodyweightEntries.length || measureTypes.length;
         if (!hasData) return "";
         const days = daysSinceLastExport();
         if (days !== null && days < 30) return "";
@@ -1761,6 +2006,9 @@ function updateLogQuickUI(field) {
   if (field === "weight") {
     const bv = document.getElementById("barbellVisual");
     if (bv) bv.innerHTML = renderBarbell(weight);
+    // The weight stepper's floor tracks barWeight (total can't be less than
+    // the empty bar) - keep every element carrying data-min in sync with it.
+    document.querySelectorAll('[data-action="step"][data-field="weight"]').forEach((elm) => { elm.dataset.min = barWeight; });
   }
   const estEl = document.getElementById("estLineValue");
   if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
@@ -1781,6 +2029,7 @@ function getFieldValue(action, field) {
   if (action === "bw-step") return bwWeight;
   if (action === "builder-movement-reps") return builderMovements[field] ? builderMovements[field].reps : 0;
   if (action === "builder-movement-weight") return builderMovements[field] ? builderMovements[field].weight : 0;
+  if (action === "measure-step") return typeof measureValues[field] === "number" ? measureValues[field] : 0;
   return 0;
 }
 
@@ -1803,6 +2052,8 @@ function setFieldState(action, field, value) {
     if (builderMovements[field]) builderMovements[field].reps = value;
   } else if (action === "builder-movement-weight") {
     if (builderMovements[field]) builderMovements[field].weight = value;
+  } else if (action === "measure-step") {
+    measureValues[field] = value;
   }
 }
 
@@ -1825,6 +2076,9 @@ function applyFieldValue(action, field, value) {
     if (inp) inp.value = bwWeight;
   } else if (action === "builder-movement-reps" || action === "builder-movement-weight") {
     renderWodBuilderMovements();
+  } else if (action === "measure-step") {
+    const inp = document.querySelector(`.stepper-val[data-action="measure-step"][data-field="${cssSel(field)}"]`);
+    if (inp) inp.value = value;
   }
 }
 
@@ -1866,6 +2120,7 @@ function render() {
     if (tab === "history") {
       renderHistoryListArea();
       renderBodyweightArea();
+      renderMeasureArea();
       const search = document.getElementById("historySearch");
       if (search) search.addEventListener("input", (e) => { historySearch = cleanStr(e.target.value, LIMITS.nameLen); renderHistoryListArea(); });
     }
@@ -2267,7 +2522,7 @@ document.addEventListener("click", (e) => {
   else if (action === "pick-movement") { selectedId = el.dataset.id; closePicker(); render(); }
   else if (action === "add-movement") { addMovement(el.dataset.name, el.dataset.category); }
   else if (action === "focus-picker-search") { document.getElementById("pickerSearch").focus(); }
-  else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight") {
+  else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight" || action === "measure-step") {
     const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
     const current = getFieldValue(action, field);
     const base = (typeof current === "number" && isFinite(current)) ? current : 0;
@@ -2327,6 +2582,19 @@ document.addEventListener("click", (e) => {
   else if (action === "create-wod") { createWodFromBuilder(); }
   else if (action === "save-bw") { saveBodyweight(); }
   else if (action === "toggle-bodyweight") { bodyweightExpanded = !bodyweightExpanded; renderBodyweightArea(); }
+  else if (action === "open-add-measure-type") { measureAddOpen = true; renderMeasureArea(); }
+  else if (action === "cancel-add-measure-type") { measureAddOpen = false; renderMeasureArea(); }
+  else if (action === "confirm-add-measure-type") {
+    const input = document.getElementById("measureTypeInput");
+    addMeasureType(input ? input.value : "");
+  }
+  else if (action === "toggle-measure-type") {
+    measureExpandedId = measureExpandedId === el.dataset.id ? null : el.dataset.id;
+    renderMeasureArea();
+  }
+  else if (action === "delete-measure-type") { deleteMeasureType(el.dataset.id); }
+  else if (action === "save-measurement") { saveMeasurement(el.dataset.id); }
+  else if (action === "delete-measurement-entry") { deleteMeasurementEntry(el.dataset.id); }
   else if (action === "save-user-name") { saveUserName(document.getElementById("welcomeNameInput").value); }
   else if (action === "skip-user-name") { saveUserName(""); }
   else if (action === "set-rx") {
