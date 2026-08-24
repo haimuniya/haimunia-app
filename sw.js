@@ -1,4 +1,4 @@
-const CACHE = "haimunia-v2.0.0"; // keep in sync with APP_VERSION in app.js
+const CACHE = "haimunia-v2.0.1"; // keep in sync with APP_VERSION in app.js
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,6 +9,7 @@ const ASSETS = [
   "./assets/mark.png",
   "./assets/icon-barbell.png",
   "./assets/icon-chevrons.png",
+  "./assets/logo-full.png",
 ];
 
 self.addEventListener("install", (e) => {

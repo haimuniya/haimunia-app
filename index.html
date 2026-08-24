@@ -39,6 +39,7 @@
   .wrap{ flex-wrap:wrap; }
   #app{ max-width:480px; margin:0 auto; padding: calc(env(safe-area-inset-top,0px) + 20px) 16px calc(env(safe-area-inset-bottom,0px) + 100px); overflow-x:hidden; }
   .header{ display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; }
+  .header-logo{ height:46px; width:auto; display:block; }
   .eyebrow{ color:var(--energy); font-size:12px; font-weight:800; letter-spacing:1px; }
   .h1{ color:var(--chalk); font-family:'Anton',sans-serif; font-weight:400; font-size:32px; letter-spacing:0.5px; line-height:0.95; text-shadow:0 0 24px rgba(62,111,217,.35); }
   .tabbar{ display:flex; background:var(--surface); border-radius:14px; padding:4px; margin-bottom:20px; border:1px solid var(--border); gap:2px; }
@@ -146,10 +147,7 @@
 
 <div id="app" style="display:none;">
   <div class="header">
-    <div>
-      <div class="eyebrow">יומן כוח</div>
-      <div class="h1">האימוניה</div>
-    </div>
+    <img src="./assets/logo-full.png" alt="האימוניה" class="header-logo" />
     <div id="dateLabel" style="color:var(--steel); font-size:13px; font-weight:600;"></div>
   </div>
 
