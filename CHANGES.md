@@ -1,3 +1,34 @@
+# Ladder UX pass — 2026-08-25
+
+The ladder toggle worked but was easy to miss (a small text link) and gave
+no feedback on what it actually did — no indication of which set you were
+on, the save button never changed to reflect it, and finishing without
+switching tabs first left stale state on screen (a real bug: `endLadder()`
+via the explicit toggle never called `render()`, so the UI kept showing
+"finish ladder" and the old round list until something else happened to
+re-render).
+
+- Toggle is now a full-width bordered button (matching the app's existing
+  "+ add new" prompt pattern) with a ladder icon and a plain-language
+  subtitle when off. While active, it shows live progress inline — "5 סטים
+  נרשמו · הבא: 6" — instead of requiring a scroll down to the chip list to
+  know where you are.
+- The Save button's own label now changes too: "הוספת סט 6 לסולם — Strict
+  Press" instead of the generic "רישום סט", so it's explicit that tapping
+  it adds another rung rather than finishing anything.
+- Fixed: tapping "סיום" now re-renders immediately (previously required
+  switching tabs to see the toggle/list actually clear) and shows a brief
+  confirmation ("הסולם נשמר — 5 סטים") reusing the existing footer message
+  mechanism.
+- Fixed a copy bug: the empty-ladder hint referenced "the blue button" —
+  the save button is actually the brand's orange/energy color, never blue.
+
+Files changed: `app.js`. Verified with the full test suite plus a real
+Chromium session driving the exact flow (toggle on, 5 different-weight
+rounds, finish without switching tabs, confirm the render and message).
+
+---
+
 # Service worker: stop self-reloading on first install, apply updates without reopening — 2026-08-25
 
 Two bugs in the update-delivery path, found while chasing a report that the

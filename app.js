@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.19.0";
+const APP_VERSION = "2.20.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1207,7 +1207,13 @@ async function saveSet() {
 // off (here or via endLadder()) only stops future saves from joining it,
 // rounds already saved keep their tag.
 function toggleLadderMode() {
-  if (ladderMode) { endLadder(); return; }
+  if (ladderMode) {
+    const count = currentLadderRounds().length;
+    endLadder();
+    if (count > 0) setImportMessage(count === 1 ? "הסולם נשמר — סט אחד" : `הסולם נשמר — ${count} סטים`);
+    render();
+    return;
+  }
   ladderMode = true;
   ladderGroupId = uid("ladder");
   render();
@@ -1945,6 +1951,7 @@ const ICONS = {
   down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M3 7l6 6 4-4 8 8"/><path d="M14 17h7v-7"/></svg>',
   flat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>',
   chevronsLeft: '<img src="./assets/icon-chevrons.png" alt="" width="11" height="10" style="transform:scaleX(-1); vertical-align:middle;" />',
+  ladder: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v18M18 3v18M6 8h12M6 13h12M6 18h12"/></svg>',
 };
 
 // ---------- Rendering ----------
@@ -2058,16 +2065,22 @@ function renderLogTab() {
 
     <div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>
 
-    <div class="flex items-center justify-between" style="margin:8px 0 12px;">
-      <button data-action="toggle-ladder-mode" class="link-btn" aria-pressed="${ladderMode}" style="${ladderMode ? "color:var(--brass); font-weight:700; text-decoration:none;" : ""}">
-        ${ladderMode ? "סיום סולם" : "רישום סולם (כמה סטים, משקלים שונים)"}
-      </button>
-    </div>
-    ${ladderMode ? (() => {
-      const rounds = currentLadderRounds();
+    ${(() => {
+      const rounds = ladderMode ? currentLadderRounds() : [];
+      const nextNum = rounds.length + 1;
       return `
-      <div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:12px;">
-        <div style="color:var(--brass); font-weight:700; font-size:12px; margin-bottom:${rounds.length ? "8px" : "0"};">הסולם הנוכחי${rounds.length ? ` — ${rounds.length} סטים` : ""}</div>
+      <button data-action="toggle-ladder-mode" class="movement-btn ${ladderMode ? "active" : ""}" aria-pressed="${ladderMode}" style="margin-bottom:${ladderMode ? "0" : "12px"};">
+        <div class="flex items-center gap-8">
+          <span style="display:inline-flex; color:var(--brass); flex-shrink:0;">${ICONS.ladder}</span>
+          <div style="text-align:right;">
+            <div style="font-weight:700; font-size:14px; color:${ladderMode ? "var(--brass)" : "var(--chalk)"};">${ladderMode ? (rounds.length ? `סולם פעיל — ${rounds.length} סטים נרשמו · הבא: ${nextNum}` : "סולם פעיל — קבעו את הסט הראשון למטה") : "רישום סולם"}</div>
+            ${!ladderMode ? `<div style="color:var(--steel); font-size:11.5px; margin-top:2px;">כמה סטים ברצף, כל אחד במשקל וחזרות משלו — למשל עולים במשקל וחוזרים ל־3 חזרות</div>` : ""}
+          </div>
+        </div>
+        ${ladderMode ? `<span style="color:var(--brass); font-size:12px; font-weight:700; flex-shrink:0;">סיום</span>` : ""}
+      </button>
+      ${ladderMode ? `
+      <div style="border:1px solid var(--brass); border-top:none; border-radius:0 0 12px 12px; padding:10px 12px; margin-bottom:12px; margin-top:-1px;">
         ${rounds.length ? `<div class="flex wrap gap-8">
           ${rounds.map((r, i) => `
             <span class="flex items-center gap-6 mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:13px; font-weight:700;">
@@ -2076,9 +2089,9 @@ function renderLogTab() {
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
             </span>`).join("")}
-        </div>` : `<div style="color:var(--steel); font-size:12px;">קבעו משקל וחזרות למטה ולחצו על הכפתור הכחול בכל פעם שמסיימים סט</div>`}
-      </div>`;
-    })() : ""}
+        </div>` : `<div style="color:var(--steel); font-size:12px;">אפשר לשנות משקל וחזרות לכל סט בנפרד — לחצו על כפתור השמירה בכל פעם שסט מוכן</div>`}
+      </div>` : ""}`;
+    })()}
 
     ${dayEntries.length === 0 ? `
     <div class="empty">${isToday ? "עדיין לא נרשמו סטים היום. קדימה למוט." : `עדיין לא נרשמו סטים ב-${esc(dayLabel)}.`}</div>` : `
@@ -2618,7 +2631,10 @@ function render() {
     if (tab === "add") {
       const selected = movementById(selectedId);
       content = renderLogTab();
-      if (selected) document.getElementById("saveBtnLabel").textContent = (editingEntryId ? "עדכון סט — " : "רישום סט — ") + selected.name;
+      if (selected) {
+        const prefix = editingEntryId ? "עדכון סט — " : ladderMode ? `הוספת סט ${currentLadderRounds().length + 1} לסולם — ` : "רישום סט — ";
+        document.getElementById("saveBtnLabel").textContent = prefix + selected.name;
+      }
     } else if (tab === "history") {
       content = renderHistoryTab();
     } else if (tab === "calendar") {
