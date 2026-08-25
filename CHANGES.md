@@ -1,3 +1,31 @@
+# Gap-hunting pass — 2026-08-25
+
+Went back through the app looking for rough edges, focused on the ladder
+feature since it's newest. Found and fixed one real interaction bug, plus
+an accessibility gap.
+
+- **Bug: editing an unrelated entry mid-ladder didn't end it.**
+  `startEditEntry()` (the pencil icon on any set in history/calendar)
+  switches the selected exercise and log date, exactly like picking a new
+  movement or changing the date already did — but unlike those two, it
+  never called `endLadder()`. Editing an old set from a different exercise
+  while a ladder was running left the toggle still advertising an active
+  ladder for the wrong context. Fixed — with one deliberate exception:
+  editing one of the *active ladder's own* rounds (fixing a typo in set 3)
+  does **not** end it, so correcting a mistake mid-session doesn't strand
+  you from adding set 6 afterward.
+- **Accessibility:** the ladder progress text ("5 סטים נרשמו · הבא: 6")
+  now carries `aria-live="polite"`, matching the pattern already used for
+  the storage-error and import-result messages.
+
+Files changed: `app.js`. Two new regression tests in `test/app-flow.test.mjs`
+cover both the "unrelated edit ends it" and "own-round edit doesn't" cases;
+the fix was verified in a real Chromium session too — my own test script
+had exercised this exact path without realizing the tested behavior was
+wrong until this pass looked closer.
+
+---
+
 # Ladder UX pass — 2026-08-25
 
 The ladder toggle worked but was easy to miss (a small text link) and gave

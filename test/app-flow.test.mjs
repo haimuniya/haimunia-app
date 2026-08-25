@@ -162,3 +162,50 @@ test("switching exercise mid-ladder ends it, so the next save doesn't silently j
   const squatSets = window.entriesFor(squat.id);
   assert.equal(squatSets[0].groupId, groupId, "the squat set already saved keeps its original groupId");
 });
+
+test("editing an unrelated entry mid-ladder ends it; editing the ladder's own round does not", async () => {
+  const window = await bootApp();
+
+  // A pre-existing, unrelated set — logged before any ladder starts, so
+  // later editing it isn't itself the thing that would end the ladder
+  // (addMovement()/pick-movement already end it; this test isolates what
+  // startEditEntry() alone does).
+  await window.addMovement("Test Unrelated Deadlift", "Deadlift");
+  window.applyFieldValue("step", "weight", 120);
+  window.applyFieldValue("step", "reps", 3);
+  await window.saveSet();
+  const [unrelatedEntry] = window.entriesFor(window.allMovements().find((m) => m.name === "Test Unrelated Deadlift").id);
+
+  await window.addMovement("Test Ladder Bench Press", "Press");
+  const bench = window.allMovements().find((m) => m.name === "Test Ladder Bench Press");
+  window.toggleLadderMode();
+  window.applyFieldValue("step", "weight", 60);
+  window.applyFieldValue("step", "reps", 8);
+  await window.saveSet();
+  const [ladderRound] = window.currentLadderRounds();
+  assert.equal(window.currentLadderRounds().length, 1);
+
+  const isOn = () => window.document.querySelector("[data-action='toggle-ladder-mode']").textContent.includes("סולם פעיל");
+
+  // Fixing a typo in the ladder's own round (same session) must NOT end it —
+  // otherwise a quick correction would strand anyone about to log set 2+.
+  window.startEditEntry(ladderRound.id);
+  assert.equal(isOn(), true, "editing the active ladder's own round should not end it");
+  window.applyFieldValue("step", "weight", 62.5);
+  await window.saveSet();
+  assert.equal(window.currentLadderRounds().length, 1, "still one round, corrected weight, same session");
+  assert.equal(window.currentLadderRounds()[0].weight, 62.5);
+
+  // Editing a genuinely unrelated entry, by contrast, should end it.
+  window.startEditEntry(unrelatedEntry.id);
+  assert.equal(isOn(), false, "editing an unrelated entry should end the ladder, same as switching exercise does");
+  window.applyFieldValue("step", "weight", 125);
+  await window.saveSet();
+  const editedEntries = window.entriesFor(unrelatedEntry.exerciseId);
+  assert.equal(editedEntries.length, 1, "editing should still overwrite in place");
+  assert.equal(editedEntries[0].groupId, null, "the edited row must keep its own (null) groupId, not join the ladder it interrupted");
+
+  const benchSets = window.entriesFor(bench.id);
+  assert.equal(benchSets.length, 1, "the ladder's own round is untouched by editing the unrelated entry");
+  assert.equal(benchSets[0].weight, 62.5);
+});

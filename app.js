@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.20.0";
+const APP_VERSION = "2.20.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1237,6 +1237,13 @@ function startEditEntry(id) {
   logDate = entry.date;
   editingEntryId = entry.id;
   tab = "add";
+  // Editing an entry can switch exercise and date out from under an active
+  // ladder the same way pick-movement/reset-log-date do — without this, the
+  // toggle would keep advertising a ladder for a now-unrelated exercise/date.
+  // Exception: fixing a typo in one of the active ladder's own rounds should
+  // NOT end it — selectedId/logDate already match, and doing so would strand
+  // anyone who just wants to correct set 3 and keep adding set 6 afterward.
+  if (!ladderGroupId || entry.groupId !== ladderGroupId) endLadder();
   render();
 }
 function cancelEditEntry() {
@@ -2073,7 +2080,7 @@ function renderLogTab() {
         <div class="flex items-center gap-8">
           <span style="display:inline-flex; color:var(--brass); flex-shrink:0;">${ICONS.ladder}</span>
           <div style="text-align:right;">
-            <div style="font-weight:700; font-size:14px; color:${ladderMode ? "var(--brass)" : "var(--chalk)"};">${ladderMode ? (rounds.length ? `סולם פעיל — ${rounds.length} סטים נרשמו · הבא: ${nextNum}` : "סולם פעיל — קבעו את הסט הראשון למטה") : "רישום סולם"}</div>
+            <div aria-live="polite" style="font-weight:700; font-size:14px; color:${ladderMode ? "var(--brass)" : "var(--chalk)"};">${ladderMode ? (rounds.length ? `סולם פעיל — ${rounds.length} סטים נרשמו · הבא: ${nextNum}` : "סולם פעיל — קבעו את הסט הראשון למטה") : "רישום סולם"}</div>
             ${!ladderMode ? `<div style="color:var(--steel); font-size:11.5px; margin-top:2px;">כמה סטים ברצף, כל אחד במשקל וחזרות משלו — למשל עולים במשקל וחוזרים ל־3 חזרות</div>` : ""}
           </div>
         </div>
