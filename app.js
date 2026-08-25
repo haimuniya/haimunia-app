@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.16.3";
+const APP_VERSION = "2.17.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1072,6 +1072,43 @@ function closeAchievements() {
   document.getElementById("achievementsOverlay").classList.remove("open");
 }
 
+// Which badges the athlete has already been shown a celebration for, so a
+// save only pops the modal for what's genuinely new this time.
+const SEEN_ACHIEVEMENTS_KEY = "haimunia:seenAchievements";
+let seenAchievementIds = new Set();
+async function loadSeenAchievements() {
+  try {
+    const v = await dbGetSetting(SEEN_ACHIEVEMENTS_KEY);
+    if (Array.isArray(v)) { seenAchievementIds = new Set(v); return; }
+  } catch (e) { /* fall through to baseline */ }
+  // First time this ships: baseline whatever's already earned silently, so
+  // existing progress doesn't trigger a flood of celebrations on next open.
+  seenAchievementIds = new Set(ACHIEVEMENTS.filter((a) => a.earned()).map((a) => a.id));
+  dbSetSetting(SEEN_ACHIEVEMENTS_KEY, [...seenAchievementIds]).catch(() => {});
+}
+function checkForNewAchievements() {
+  const newlyEarned = [];
+  for (const a of ACHIEVEMENTS) {
+    if (a.earned() && !seenAchievementIds.has(a.id)) newlyEarned.push(a);
+  }
+  if (!newlyEarned.length) return;
+  for (const a of newlyEarned) seenAchievementIds.add(a.id);
+  dbSetSetting(SEEN_ACHIEVEMENTS_KEY, [...seenAchievementIds]).catch(noteStorageError);
+  showAchievementCelebration(newlyEarned);
+}
+function showAchievementCelebration(list) {
+  const medalsEl = document.getElementById("celebrationMedals");
+  if (medalsEl) medalsEl.innerHTML = list.map((a) => renderMedal(a, true)).join("");
+  const sub = document.getElementById("celebrationSub");
+  if (sub) sub.textContent = list.length > 1 ? `${list.length} עיטורים חדשים נפתחו — תמשיכו ככה!` : "עיטור חדש נפתח — תמשיכו ככה!";
+  document.body.style.overflow = "hidden";
+  document.getElementById("celebrationOverlay").classList.add("open");
+}
+function closeCelebration() {
+  document.body.style.overflow = "";
+  document.getElementById("celebrationOverlay").classList.remove("open");
+}
+
 async function addMovement(name, category) {
   const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
@@ -1114,6 +1151,7 @@ async function saveSet() {
   logDate = todayISO();
   if (isPR) flashPR();
   render();
+  checkForNewAchievements();
 }
 function startEditEntry(id) {
   const entry = entries.find((e) => e.id === id);
@@ -1294,6 +1332,10 @@ function saveWelcomeForm(name) {
   const boxInput = document.getElementById("welcomeBoxStartInput");
   saveBoxStartDate(boxInput ? boxInput.value : "");
   saveUserName(name);
+  // After the modal has closed, in case a box-start-date typed in for the
+  // first time (member since before they ever opened this app) instantly
+  // qualifies for tenure badges.
+  checkForNewAchievements();
 }
 
 const BAR_WEIGHT_KEY = "haimunia:barWeight";
@@ -1544,6 +1586,7 @@ async function clearAllData() {
     try { localStorage.removeItem(USER_NAME_KEY); localStorage.removeItem(LAST_EXPORT_KEY); } catch (e) {}
     userName = null;
     boxStartDate = null;
+    seenAchievementIds = new Set();
     lastExportAt = null;
   } catch (e) {
     noteStorageError(e);
@@ -1756,6 +1799,7 @@ async function saveWod() {
   wodLogDate = todayISO();
   if (isPR) flashWodPR();
   render();
+  checkForNewAchievements();
 }
 function startEditWodEntry(id) {
   const entry = wodEntries.find((e) => e.id === id);
@@ -2944,6 +2988,10 @@ document.addEventListener("click", (e) => {
   else if (action === "cancel-welcome-name") { closeWelcomeModal(); }
   else if (action === "edit-user-name") { openWelcomeModal(true); }
   else if (action === "open-profile-from-achievements") { closeAchievements(); openWelcomeModal(true); }
+  else if (action === "close-celebration") {
+    if (el.id === "celebrationOverlay" && e.target !== el) return;
+    closeCelebration();
+  }
   else if (action === "open-achievements") { openAchievements(); }
   else if (action === "close-achievements") {
     if (el.id === "achievementsOverlay" && e.target !== el) return;
@@ -3040,6 +3088,7 @@ async function init() {
   await loadLastExport();
   await loadBarWeight();
   await loadBoxStartDate();
+  await loadSeenAchievements();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   renderUserGreeting();
