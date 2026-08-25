@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.15.0";
+const APP_VERSION = "2.16.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -827,7 +827,14 @@ const MOVEMENT_CATEGORIES = ["Squat", "Deadlift", "Press", "Olympic", "Pull", "O
 // never absolute kg, so a bronze/silver/gold badge means the same effort
 // regardless of who's training.
 const ACHIEVEMENT_PR_CATEGORIES = ["Squat", "Deadlift", "Press", "Olympic", "Pull"];
-const PR_TIERS = [{ tier: "bronze", need: 1 }, { tier: "silver", need: 5 }, { tier: "gold", need: 15 }];
+// Same ladder shape everywhere a tier repeats a behavior at a rising bar:
+// an accessible first step, then a clean x5 climb - so "gold" always means
+// a comparable order of magnitude more effort than "bronze", not an
+// arbitrary per-category number.
+const PR_TIERS = [{ tier: "bronze", need: 1 }, { tier: "silver", need: 5 }, { tier: "gold", need: 25 }];
+// Streaks stay on a calendar ladder instead (month / quarter / half-year) -
+// weeks don't take well to a x5 climb, but a shared unit everyone recognizes
+// is its own kind of "connected."
 const STREAK_TIERS = [{ tier: "bronze", need: 4 }, { tier: "silver", need: 12 }, { tier: "gold", need: 26 }];
 const SESSION_MILESTONES = [10, 50, 100, 365];
 const TENURE_MILESTONES = [
@@ -836,6 +843,35 @@ const TENURE_MILESTONES = [
   { id: "year1", days: 365, label: "שנה בבוקס" },
 ];
 const TIER_LABELS = { bronze: "ברונזה", silver: "כסף", gold: "זהב" };
+
+// Point values follow the same non-linear curve trophy/badge systems (PSN,
+// Peloton) use so a tier's weight matches its real rarity instead of every
+// badge counting the same: bronze≈2.5x, gold≈7.5x. Every family feeds the
+// same score, which is the actual "connect everything" move here - a PR
+// badge and an Rx badge both move the same number.
+const TIER_POINTS = { bronze: 10, silver: 25, gold: 75 };
+const MILESTONE_POINTS = 25;
+const RX_POINTS = 15;
+const CAPSTONE_POINTS = 200;
+// Named like the box's own progression, not borrowed esports tiers - and
+// deliberately a different vocabulary than bronze/silver/gold so "you're
+// Gold level" (badge tier) and "you're at מתקדם" (overall level) never read
+// as the same claim. Thresholds step up non-linearly (Peloton: 0-99 / 100-
+// 1999 / 2000-14999), scaled to this app's much smaller point pool.
+const ATHLETE_LEVELS = [
+  { min: 0, name: "מתחיל" },
+  { min: 50, name: "מתמיד" },
+  { min: 200, name: "מנוסה" },
+  { min: 500, name: "מתקדם" },
+  { min: 900, name: "אלוף האימוניה" },
+];
+function athleteLevel(score) {
+  let level = ATHLETE_LEVELS[0];
+  for (const l of ATHLETE_LEVELS) { if (score >= l.min) level = l; }
+  const idx = ATHLETE_LEVELS.indexOf(level);
+  const next = ATHLETE_LEVELS[idx + 1] || null;
+  return { name: level.name, min: level.min, next };
+}
 
 function categoryPRCounts() {
   const counts = bag();
@@ -880,59 +916,87 @@ function isWellRounded() {
   return ACHIEVEMENT_PR_CATEGORIES.every((c) => cats.has(c));
 }
 
+function allGoldPRsEarned() { return ACHIEVEMENT_PR_CATEGORIES.every((cat) => (categoryPRCounts()[cat] || 0) >= 25); }
+function allTenureEarned() {
+  const d = daysSinceBoxStart();
+  return d !== null && TENURE_MILESTONES.every((m) => d >= m.days);
+}
+// Mirrors how a PlayStation Platinum trophy works: one capstone that unlocks
+// only once every other top-shelf badge is in, rather than its own separate
+// bar to clear. It's the one badge that ties every family together.
+function capstoneEarned() {
+  return allGoldPRsEarned() && longestWeekStreak() >= 26 && isWellRounded() && allTenureEarned();
+}
+
 const ACHIEVEMENTS = [
+  {
+    id: "capstone", group: "capstone", glyph: "home",
+    name: "אלוף האימוניה",
+    rule: "זהב בכל קבוצות השיאים + רצף זהב + אתלט שלם + כל עיטורי הוותק",
+    earned: capstoneEarned,
+    points: CAPSTONE_POINTS,
+  },
   ...ACHIEVEMENT_PR_CATEGORIES.flatMap((cat) => PR_TIERS.map((t) => ({
     id: `pr-${cat}-${t.tier}`, group: "pr", tier: t.tier, cat, glyph: "bar",
     name: `${CATEGORY_LABELS[cat]} — ${TIER_LABELS[t.tier]}`,
     rule: `${t.need} ${t.need === 1 ? "שיא אישי" : "שיאים אישיים"} בקבוצת ${CATEGORY_LABELS[cat]}`,
     earned: () => (categoryPRCounts()[cat] || 0) >= t.need,
+    points: TIER_POINTS[t.tier],
   }))),
   ...STREAK_TIERS.map((t) => ({
     id: `streak-${t.tier}`, group: "streak", tier: t.tier, glyph: "chevrons",
     name: `רצף — ${TIER_LABELS[t.tier]}`,
     rule: `רצף של ${t.need} שבועות עם רישום`,
     earned: () => longestWeekStreak() >= t.need,
+    points: TIER_POINTS[t.tier],
   })),
   ...SESSION_MILESTONES.map((n) => ({
     id: `sessions-${n}`, group: "milestone", glyph: "home",
     name: `${n} אימונים`,
     rule: `${n} ימי אימון מתועדים`,
     earned: () => totalSessions() >= n,
+    points: MILESTONE_POINTS,
   })),
   ...TENURE_MILESTONES.map((m) => ({
     id: `tenure-${m.id}`, group: "milestone", glyph: "flame",
     name: m.label,
     rule: `${m.label} מתאריך ההתחלה בבוקס`,
     earned: () => { const d = daysSinceBoxStart(); return d !== null && d >= m.days; },
+    points: MILESTONE_POINTS,
   })),
   {
     id: "well-rounded", group: "milestone", glyph: "chevrons",
     name: "אתלט שלם",
     rule: "תרגיל אחד לפחות מכל קבוצה (סקוואט/דדליפט/לחיצה/אולימפי/משיכה)",
     earned: () => isWellRounded(),
+    points: MILESTONE_POINTS,
   },
   ...WOD_LIBRARY.map((w) => ({
     id: `rx-${w.id}`, group: "rx", glyph: "bar",
     name: `Rx — ${w.name}`,
     rule: `רישום ראשון של ${w.name} כ-Rx`,
     earned: () => earnedRxWodIds().has(w.id),
+    points: RX_POINTS,
   })),
 ];
 
 function renderMedal(ach, earned) {
   const shape = ach.group === "pr" || ach.group === "streak" ? "shield" : "circle";
   const glowMap = { bronze: "rgba(214,152,78,.65)", silver: "rgba(200,206,214,.7)", gold: "rgba(255,206,90,.75)" };
-  const glow = ach.tier ? glowMap[ach.tier] : (ach.group === "rx" ? "rgba(62,111,217,.6)" : "rgba(232,93,61,.6)");
-  const tierClass = ach.tier ? `tier-${ach.tier}` : (ach.group === "rx" ? "medal-rx" : "medal-milestone");
+  const glow = ach.group === "capstone" ? "rgba(255,180,60,.85)"
+    : ach.tier ? glowMap[ach.tier]
+    : (ach.group === "rx" ? "rgba(62,111,217,.6)" : "rgba(232,93,61,.6)");
+  const tierClass = ach.group === "capstone" ? "medal-capstone" : ach.tier ? `tier-${ach.tier}` : (ach.group === "rx" ? "medal-rx" : "medal-milestone");
+  const glyphId = ach.glyph === "home" ? "Home" : ach.glyph === "chevrons" ? "Chevrons" : ach.glyph === "bar" ? "Bar" : "Flame";
   const glyphUse = shape === "shield"
-    ? `<use href="#glyph${ach.glyph === "home" ? "Home" : ach.glyph === "chevrons" ? "Chevrons" : ach.glyph === "bar" ? "Bar" : "Flame"}" transform="translate(19,16) scale(0.62)"/>`
-    : `<use href="#glyph${ach.glyph === "home" ? "Home" : ach.glyph === "chevrons" ? "Chevrons" : ach.glyph === "bar" ? "Bar" : "Flame"}" transform="translate(15,15) scale(0.7)"/>`;
+    ? `<use href="#glyph${glyphId}" transform="translate(19,16) scale(0.62)"/>`
+    : `<use href="#glyph${glyphId}" transform="translate(15,15) scale(0.7)"/>`;
   const symbol = shape === "shield"
     ? `<svg class="medal-shape ${tierClass}" viewBox="0 0 100 112"><use href="#medalShield"/>${glyphUse}</svg>`
     : `<svg class="medal-shape shape-circle ${tierClass}" viewBox="0 0 100 100"><use href="#medalCircle"/>${glyphUse}</svg>`;
   // title is a nice-to-have for desktop; it never shows on a touch screen,
   // so locked badges also print the rule as a visible caption.
-  return `<div class="medal-badge ${earned ? "earned" : "locked"}" style="--glow-color:${glow};" title="${esc(ach.rule)}">
+  return `<div class="medal-badge ${ach.group === "capstone" ? "capstone-badge" : ""} ${earned ? "earned" : "locked"}" style="--glow-color:${glow};" title="${esc(ach.rule)}">
     ${symbol}
     <div class="medal-name">${esc(ach.name)}</div>
     ${earned ? "" : `<div class="medal-rule">${esc(ach.rule)}</div>`}
@@ -942,6 +1006,14 @@ function renderAchievementsContent() {
   const earnedMap = bag();
   for (const a of ACHIEVEMENTS) earnedMap[a.id] = a.earned();
   const earnedCount = ACHIEVEMENTS.filter((a) => earnedMap[a.id]).length;
+  const score = ACHIEVEMENTS.reduce((s, a) => s + (earnedMap[a.id] ? a.points : 0), 0);
+  const level = athleteLevel(score);
+
+  const capstoneAch = ACHIEVEMENTS.find((a) => a.group === "capstone");
+  const capstoneSection = `
+    <div class="ach-section" style="text-align:center;">
+      ${renderMedal(capstoneAch, earnedMap[capstoneAch.id])}
+    </div>`;
 
   const prSections = ACHIEVEMENT_PR_CATEGORIES.map((cat) => `
     <div class="ach-section">
@@ -974,11 +1046,19 @@ function renderAchievementsContent() {
       <div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.group === "rx").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
     </div>`;
 
+  const progressToNext = level.next
+    ? `<div class="ach-level-bar"><div class="ach-level-fill" style="width:${Math.min(100, Math.round(((score - level.min) / (level.next.min - level.min)) * 100))}%;"></div></div>
+       <div class="ach-summary-label">${level.next.min - score} נקודות עד ${esc(level.next.name)}</div>`
+    : `<div class="ach-summary-label">הדרגה הגבוהה ביותר</div>`;
+
   return `
     <div class="ach-summary">
-      <div class="ach-summary-num mono">${earnedCount} / ${ACHIEVEMENTS.length}</div>
-      <div class="ach-summary-label">עיטורים שהושגו</div>
+      <div class="ach-summary-level">${esc(level.name)}</div>
+      <div class="ach-summary-num mono">${score} נקודות</div>
+      ${progressToNext}
+      <div class="ach-summary-label" style="margin-top:8px;">${earnedCount} / ${ACHIEVEMENTS.length} עיטורים</div>
     </div>
+    ${capstoneSection}
     ${prSections}${streakSection}${milestoneSection}${rxSection}
   `;
 }

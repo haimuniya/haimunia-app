@@ -235,11 +235,21 @@
   .medal-milestone .medal-glyph{ stroke:#fff; } .medal-milestone .medal-glyph-fill{ color:#fff; }
   .medal-rx .medal-rim, .medal-rx .medal-face{ fill:var(--blue); }
   .medal-rx .medal-glyph{ stroke:#fff; } .medal-rx .medal-glyph-fill{ color:#fff; }
+  .medal-capstone .medal-rim{ fill:url(#gradCapstone); } .medal-capstone .medal-face{ fill:url(#gradCapstoneFace); }
+  .medal-capstone .medal-glyph{ stroke:#3A2410; } .medal-capstone .medal-glyph-fill{ color:#3A2410; }
   .ribbon{ fill:var(--stripe-a); }
 
   .medal-badge{ width:72px; text-align:center; flex-shrink:0; }
   .medal-shape{ width:64px; height:70px; margin:0 auto; }
   .medal-shape.shape-circle{ height:64px; }
+  .capstone-badge{ width:auto; }
+  .capstone-badge .medal-shape{ width:104px; height:104px; }
+  .capstone-badge .medal-name{ font-size:14px; }
+  .capstone-badge.earned .medal-shape{ filter:drop-shadow(0 0 14px var(--glow-color)); }
+  @media (prefers-reduced-motion: no-preference){
+    .capstone-badge.earned .medal-shape{ animation:medalGlowBig 2.6s ease-in-out infinite; }
+  }
+  @keyframes medalGlowBig{ 0%,100%{ filter:drop-shadow(0 0 8px var(--glow-color)); } 50%{ filter:drop-shadow(0 0 18px var(--glow-color)); } }
   .medal-name{ font-size:10.5px; font-weight:700; color:var(--chalk); margin-top:6px; line-height:1.3; }
   .medal-badge.locked .medal-name{ color:var(--steel); }
   .medal-rule{ font-size:9px; color:var(--steel); margin-top:2px; line-height:1.3; opacity:.85; }
@@ -251,8 +261,11 @@
   @keyframes medalGlow{ 0%,100%{ filter:drop-shadow(0 0 4px var(--glow-color)); } 50%{ filter:drop-shadow(0 0 10px var(--glow-color)); } }
 
   .ach-summary{ text-align:center; padding:4px 0 18px; }
+  .ach-summary-level{ font-weight:800; font-size:15px; color:var(--energy); letter-spacing:.3px; margin-bottom:2px; }
   .ach-summary-num{ font-weight:700; font-size:22px; color:var(--chalk); }
   .ach-summary-label{ color:var(--steel); font-size:12px; margin-top:2px; }
+  .ach-level-bar{ width:100%; max-width:220px; height:6px; border-radius:999px; background:var(--surface2); border:1px solid var(--border); margin:10px auto 4px; overflow:hidden; }
+  .ach-level-fill{ height:100%; background:var(--energy); border-radius:999px; }
   .ach-section{ margin-bottom:22px; }
   .ach-section-head{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
   .ach-section-dot{ width:8px; height:8px; border-radius:999px; flex-shrink:0; }
@@ -389,6 +402,12 @@
     </radialGradient>
     <radialGradient id="gradGoldFace" cx="35%" cy="25%" r="85%">
       <stop offset="0%" stop-color="var(--gold-hi)"/><stop offset="100%" stop-color="var(--gold-mid)"/>
+    </radialGradient>
+    <linearGradient id="gradCapstone" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="var(--gold-hi)"/><stop offset="50%" stop-color="var(--energy)"/><stop offset="100%" stop-color="var(--blue)"/>
+    </linearGradient>
+    <radialGradient id="gradCapstoneFace" cx="35%" cy="25%" r="85%">
+      <stop offset="0%" stop-color="var(--gold-hi)"/><stop offset="100%" stop-color="var(--energy)"/>
     </radialGradient>
 
     <g id="glyphHome">
