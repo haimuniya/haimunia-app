@@ -2,12 +2,21 @@
 // each pattern proved necessary (mostly: things a naive selector gets wrong
 // on this app's specific markup — see the comments on each one).
 
+// Completes the whole first-run sequence for a fresh browser context: the
+// welcome/name modal, then the onboarding walkthrough it now triggers right
+// after (added alongside the update-notifications/onboarding roadmap round —
+// every fresh-context check hits this, not just onboarding-specific ones).
 export async function dismissWelcomeModal(page, name = "בדיקה") {
   const open = await page.evaluate(() => document.getElementById("welcomeOverlay")?.classList.contains("open"));
   if (!open) return;
   await page.fill("#welcomeNameInput", name);
   await page.click("[data-action='save-user-name']");
   await page.waitForTimeout(150);
+  const onboardingOpen = await page.evaluate(() => document.getElementById("onboardingOverlay")?.classList.contains("open"));
+  if (onboardingOpen) {
+    await page.click("[data-action='close-onboarding']");
+    await page.waitForTimeout(150);
+  }
 }
 
 // Picking a movement by an exact-name query hits the app's own "+ add as

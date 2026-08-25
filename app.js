@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.21.0";
+const APP_VERSION = "2.22.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -264,11 +264,18 @@ const WOD_LIBRARY = [
   { id: "angie", name: "Angie", category: "Girls", scoreType: "time", desc: "100 pull-ups, push-ups, sit-ups, squats" },
   { id: "cindy", name: "Cindy", category: "Girls", scoreType: "amrap", desc: "AMRAP 20: 5 pull-ups, 10 push-ups, 15 squats" },
   { id: "mary", name: "Mary", category: "Girls", scoreType: "amrap", desc: "AMRAP 20: 5 HSPU, 10 pistols, 15 pull-ups" },
+  { id: "kelly", name: "Kelly", category: "Girls", scoreType: "time", desc: "5 rounds: 400m run, 30 box jumps, 30 wall balls" },
+  { id: "eva", name: "Eva", category: "Girls", scoreType: "time", desc: "5 rounds: 800m run, 30 KB swings, 30 pull-ups" },
+  { id: "barbara", name: "Barbara", category: "Girls", scoreType: "time", desc: "5 rounds: 20 pull-ups, 30 push-ups, 40 sit-ups, 50 squats" },
+  { id: "filthy-fifty", name: "Filthy Fifty", category: "Girls", scoreType: "time", desc: "50 reps each of 10 movements, for time" },
   { id: "murph", name: "Murph", category: "Heroes", scoreType: "time", desc: "1mi run, 100 pull-ups, 200 push-ups, 300 squats, 1mi run" },
   { id: "dt", name: "DT", category: "Heroes", scoreType: "time", desc: "5 rounds: 12 deadlifts, 9 hang power cleans, 6 push jerks" },
   { id: "randy", name: "Randy", category: "Heroes", scoreType: "time", desc: "75 power snatches" },
   { id: "jt", name: "JT", category: "Heroes", scoreType: "time", desc: "21-15-9 HSPU, ring dips, push-ups" },
   { id: "nate", name: "Nate", category: "Heroes", scoreType: "amrap", desc: "AMRAP 20: 2 muscle-ups, 4 HSPU, 8 KB swings" },
+  { id: "michael", name: "Michael", category: "Heroes", scoreType: "time", desc: "3 rounds: 800m run, 50 back extensions, 50 sit-ups" },
+  { id: "danny", name: "Danny", category: "Heroes", scoreType: "amrap", desc: "AMRAP 20: 30 box jumps, 20 push press, 30 pull-ups" },
+  { id: "badger", name: "Badger", category: "Heroes", scoreType: "time", desc: "3 rounds: 30 squat cleans, 30 pull-ups, 800m run" },
 ];
 const PLATE_DEFS = [
   { kg: 25, color: "#D8453C", w: 15, h: 78 },
@@ -816,6 +823,13 @@ function setImportMessage(msg) {
 
 // ---------- Derived helpers ----------
 function entriesFor(id, excludeId) { return entries.filter((e) => e.exerciseId === id && e.id !== excludeId); }
+// Actual logged working sets from the last N days, most recent first, capped
+// so a movement trained daily doesn't flood the entry screen. No warm-up
+// concept anywhere here — every row is a real set someone saved.
+function recentEntriesFor(id, days = 14, cap = 5) {
+  const cutoff = localISODate(new Date(Date.now() - days * 86400000));
+  return entriesFor(id).filter((e) => e.date >= cutoff).slice(0, cap);
+}
 function bestEst1RM(id, excludeId) {
   const list = entriesFor(id, excludeId);
   return list.length ? Math.max(...list.map((e) => e.est1RM)) : null;
@@ -1141,6 +1155,100 @@ function closeCelebration() {
   document.getElementById("celebrationOverlay").classList.remove("open");
 }
 
+// ---------- Update notifications ----------
+// Short, user-facing changelog — deliberately separate from CHANGES.md,
+// which is developer-facing, technical, and in English. Only add an entry
+// here when something a member would actually notice shipped; not every
+// version bump needs one. Same list backs both the auto-shown "what's new"
+// popup and the bell icon's persistent history — see openNotifications().
+const RELEASE_NOTES = [
+  { version: "2.22.0", date: "2026-08-25", items: [
+    "הקשה על \"אימון אחרון\" ממלאת אוטומטית את המשקל והחזרות",
+    "סטים בסולם (כמה סטים ברצף, כל אחד במשקל שונה) — עכשיו קל יותר למצוא ולהשתמש",
+  ] },
+];
+function compareVersions(a, b) {
+  const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+const LAST_SEEN_VERSION_KEY = "haimunia:lastSeenVersion";
+let lastSeenVersion = null;
+async function loadLastSeenVersion() {
+  try {
+    const v = await dbGetSetting(LAST_SEEN_VERSION_KEY);
+    lastSeenVersion = typeof v === "string" ? v : null;
+  } catch (e) { lastSeenVersion = null; }
+}
+function markNotificationsSeen() {
+  lastSeenVersion = APP_VERSION;
+  dbSetSetting(LAST_SEEN_VERSION_KEY, APP_VERSION).catch(noteStorageError);
+}
+function unseenReleaseNotes() {
+  if (!lastSeenVersion) return [];
+  return RELEASE_NOTES.filter((r) => compareVersions(r.version, lastSeenVersion) > 0);
+}
+function renderNotificationsList() {
+  const el = document.getElementById("notificationsList");
+  if (!el) return;
+  if (!RELEASE_NOTES.length) {
+    el.innerHTML = `<div class="empty">אין עדכונים עדיין</div>`;
+    return;
+  }
+  const unseen = new Set(unseenReleaseNotes().map((r) => r.version));
+  el.innerHTML = RELEASE_NOTES.slice().reverse().map((r) => `
+    <div class="cat-group">
+      <div class="cat-head flex items-center gap-8">
+        <span class="cat-name mono" style="direction:ltr; unicode-bidi:isolate;">${esc(r.version)}</span>
+        ${unseen.has(r.version) ? `<span style="background:var(--energy); color:#fff; font-size:10px; font-weight:800; border-radius:10px; padding:2px 8px;">חדש</span>` : ""}
+        <span style="color:var(--steel); font-size:11px; margin-inline-start:auto;">${esc(fmtDate(r.date))}</span>
+      </div>
+      <ul style="margin:6px 0 4px; padding-inline-start:20px; color:var(--chalk); font-size:13.5px; line-height:1.6;">
+        ${r.items.map((i) => `<li>${esc(i)}</li>`).join("")}
+      </ul>
+    </div>`).join("");
+}
+function updateNotificationsBadge() {
+  const badge = document.getElementById("notificationsBadge");
+  if (!badge) return;
+  const count = unseenReleaseNotes().length;
+  badge.textContent = count > 9 ? "9+" : String(count);
+  badge.style.display = count > 0 ? "flex" : "none";
+}
+function openNotifications() {
+  renderNotificationsList();
+  document.body.style.overflow = "hidden";
+  document.getElementById("notificationsOverlay").classList.add("open");
+  if (unseenReleaseNotes().length) { markNotificationsSeen(); updateNotificationsBadge(); }
+}
+function closeNotifications() {
+  document.body.style.overflow = "";
+  document.getElementById("notificationsOverlay").classList.remove("open");
+}
+
+// ---------- First-time onboarding ----------
+const HAS_ONBOARDED_KEY = "haimunia:hasOnboarded";
+let hasOnboarded = true; // default true so existing devices never see it by accident
+async function loadOnboardedFlag() {
+  try {
+    const v = await dbGetSetting(HAS_ONBOARDED_KEY);
+    hasOnboarded = v === true;
+  } catch (e) { hasOnboarded = true; }
+}
+function openOnboarding() {
+  document.body.style.overflow = "hidden";
+  document.getElementById("onboardingOverlay").classList.add("open");
+}
+function closeOnboarding() {
+  hasOnboarded = true;
+  dbSetSetting(HAS_ONBOARDED_KEY, true).catch(noteStorageError);
+  document.body.style.overflow = "";
+  document.getElementById("onboardingOverlay").classList.remove("open");
+}
+
 async function addMovement(name, category) {
   const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
@@ -1426,6 +1534,7 @@ function saveBoxStartDate(v) {
 // field or skipping the name doesn't discard a box-start-date the user
 // already picked.
 function saveWelcomeForm(name) {
+  const wasFirstTimeWelcome = !welcomeEditing;
   const boxInput = document.getElementById("welcomeBoxStartInput");
   saveBoxStartDate(boxInput ? boxInput.value : "");
   saveUserName(name);
@@ -1433,6 +1542,10 @@ function saveWelcomeForm(name) {
   // first time (member since before they ever opened this app) instantly
   // qualifies for tenure badges.
   checkForNewAchievements();
+  // Only the very first welcome (not "edit profile" later) triggers the
+  // onboarding walkthrough — openOnboarding() itself no-ops via
+  // hasOnboarded for anyone who's already seen it.
+  if (wasFirstTimeWelcome && !hasOnboarded) openOnboarding();
 }
 
 const BAR_WEIGHT_KEY = "haimunia:barWeight";
@@ -1710,6 +1823,10 @@ async function clearAllData() {
 function allWods() { return WOD_LIBRARY.concat(customWods); }
 function wodById(id) { return allWods().find((w) => w.id === id); }
 function wodEntriesFor(id, excludeId) { return wodEntries.filter((e) => e.wodId === id && e.id !== excludeId); }
+function recentWodEntriesFor(id, days = 14, cap = 5) {
+  const cutoff = localISODate(new Date(Date.now() - days * 86400000));
+  return wodEntriesFor(id).filter((e) => e.date >= cutoff).slice(0, cap);
+}
 function activeWods() {
   const ids = [...new Set(wodEntries.map((e) => e.wodId))];
   return ids.map(wodById).filter(Boolean);
@@ -1973,6 +2090,10 @@ const ICONS = {
   chevronsLeft: '<img src="./assets/icon-chevrons.png" alt="" width="11" height="10" style="transform:scaleX(-1); vertical-align:middle;" />',
   ladder: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v18M18 3v18M6 8h12M6 13h12M6 18h12"/></svg>',
   repeat: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+  bell: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+  calendarIcon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  chartIcon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V12M12 20V4M20 20v-7"/></svg>',
+  stopwatchIcon: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg>',
 };
 
 // ---------- Rendering ----------
@@ -2076,6 +2197,18 @@ function renderLogTab() {
         <div class="stat-value mono">${last.weight}×${last.reps}</div>
       </button>` : ""}
     </div>` : ""}
+
+    ${(() => {
+      const recent = recentEntriesFor(selectedId);
+      if (recent.length === 0) return "";
+      return `
+      <div style="margin-bottom:12px;">
+        <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">ב-14 הימים האחרונים</div>
+        <div class="flex wrap gap-8">
+          ${recent.map((e) => `<span class="mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel);">${esc(fmtDate(e.date))}: <span style="color:var(--chalk);">${e.sets}×${e.reps} @ ${e.weight}</span></span>`).join("")}
+        </div>
+      </div>`;
+    })()}
 
     ${renderBarWeightRow()}
 
@@ -2218,6 +2351,35 @@ function isoDate(y, m, d) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+// Whether any strength set or WOD attempt was logged on a given date —
+// shared by the calendar's day dots and the header streak indicator so the
+// two never define "counts as a trained day" differently.
+function hasAnyEntryOn(iso) {
+  return entries.some((e) => e.date === iso) || wodEntries.some((e) => e.date === iso);
+}
+// Consecutive days, counting backward from today, with at least one logged
+// entry. Today not being logged yet doesn't break the streak — it's just
+// not counted until it is; the first fully-empty day (including today, if
+// yesterday also has nothing) resets it to 0.
+function computeCurrentStreak() {
+  let streak = 0;
+  const d = new Date(todayISO() + "T00:00:00");
+  if (!hasAnyEntryOn(localISODate(d))) d.setDate(d.getDate() - 1);
+  while (hasAnyEntryOn(localISODate(d))) {
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
+function updateStreakLabel() {
+  const el = document.getElementById("streakLabel");
+  if (!el) return;
+  const streak = computeCurrentStreak();
+  if (streak <= 0) { el.style.display = "none"; return; }
+  el.innerHTML = `${ICONS.flame}<span>${streak}</span>`;
+  el.style.display = "flex";
+  el.setAttribute("aria-label", `${streak} ימים ברצף`);
+}
 function renderCalendarGrid() {
   const grid = document.getElementById("calGrid");
   const label = document.getElementById("calMonthLabel");
@@ -2232,7 +2394,7 @@ function renderCalendarGrid() {
     const iso = isoDate(calYear, calMonth, d);
     const dayEntries = entries.filter((e) => e.date === iso);
     const dayWods = wodEntries.filter((e) => e.date === iso);
-    const hasData = dayEntries.length > 0 || dayWods.length > 0;
+    const hasData = hasAnyEntryOn(iso);
     const hasPR = dayEntries.some((e) => e.isPR) || dayWods.some((e) => e.isPR);
     const cls = ["cal-cell"];
     if (iso === today) cls.push("today");
@@ -2264,9 +2426,39 @@ function groupDayEntries(list) {
   }
   return groups;
 }
+// One free-text note per calendar date (how the whole session felt) —
+// distinct from the per-WOD-entry scaling notes on wodEntries records.
+// Keyed straight into the existing settings key-value store, same as every
+// other small per-device flag; a note per day for years of use is trivial
+// volume for it.
+let calNoteDate = null; // which date calNoteText currently reflects
+let calNoteText = "";
+let calNoteLoading = false;
+async function loadSessionNoteFor(date) {
+  if (calNoteDate === date || calNoteLoading) return;
+  calNoteLoading = true;
+  try {
+    const v = await dbGetSetting(`sessionNote:${date}`);
+    calNoteText = typeof v === "string" ? v : "";
+  } catch (e) { calNoteText = ""; }
+  calNoteDate = date;
+  calNoteLoading = false;
+  if (tab === "calendar" && calSelectedDate === date) renderCalDetail();
+}
+async function saveSessionNote(date, text) {
+  const cleaned = cleanStr(text, LIMITS.notesLen);
+  calNoteText = cleaned;
+  calNoteDate = date;
+  try {
+    await dbSetSetting(`sessionNote:${date}`, cleaned);
+    setImportMessage("ההערה נשמרה");
+  } catch (e) { noteStorageError(e); }
+  render();
+}
 function renderCalDetail() {
   const el = document.getElementById("calDetail");
   if (!el) return;
+  if (calNoteDate !== calSelectedDate) loadSessionNoteFor(calSelectedDate);
   const dayEntries = entries.filter((e) => e.date === calSelectedDate).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const dayWods = wodEntries.filter((e) => e.date === calSelectedDate).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const d = new Date(calSelectedDate + "T00:00:00");
@@ -2335,6 +2527,10 @@ function renderCalDetail() {
         </div>`;
       }).join("")}
     </div>`}
+
+    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin:16px 0 6px;">איך היה האימון היום</div>
+    <textarea id="sessionNoteInput" class="text-input" dir="auto" maxlength="${LIMITS.notesLen}" rows="3" placeholder="הרגשה, אנרגיה, מה עבד ומה פחות..." aria-label="איך היה האימון היום" style="resize:vertical; min-height:64px; font-family:inherit; margin-bottom:8px;">${esc(calNoteDate === calSelectedDate ? calNoteText : "")}</textarea>
+    <button data-action="save-session-note" data-date="${esc(calSelectedDate)}" class="link-btn" style="display:block;">שמירת הערה</button>
   `;
 }
 
@@ -2682,6 +2878,7 @@ function render() {
     btn.setAttribute("aria-selected", String(tab === t));
   });
   document.getElementById("bottomBar").style.display = tab === "add" ? "flex" : "none";
+  updateStreakLabel();
   document.getElementById("content").innerHTML = content + renderFooter();
   try {
     if (tab === "add") {
@@ -2774,6 +2971,18 @@ function renderWodLogSection() {
       <div class="stat-card"><div class="stat-label">שיא</div><div class="stat-value mono" style="color:var(--brass);">${best}</div></div>
       <div class="stat-card"><div class="stat-label">סוג ניקוד</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : "Load"}</div></div>
     </div>`}
+
+    ${(() => {
+      const recent = recentWodEntriesFor(selectedWodId);
+      if (recent.length === 0) return "";
+      return `
+      <div style="margin-bottom:16px;">
+        <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">ב-14 הימים האחרונים</div>
+        <div class="flex wrap gap-8">
+          ${recent.map((e) => `<span class="mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel);">${esc(fmtDate(e.date))}: <span style="color:var(--chalk);">${esc(formatWodEntry(e))}</span>${e.rx ? "" : " · Scaled"}</span>`).join("")}
+        </div>
+      </div>`;
+    })()}
 
     <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:#fff; font-weight:800; font-size:14px; background-image:var(--stripe); border-radius:14px; padding:10px 0; margin-bottom:16px; text-shadow:0 1px 3px rgba(0,0,0,.5);">${ICONS.flame}<span>שיא חדש!</span></div>
 
@@ -3189,6 +3398,10 @@ document.addEventListener("click", (e) => {
   else if (action === "cal-prev") { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendarGrid(); }
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
   else if (action === "cal-select-day") { calSelectedDate = el.dataset.date; renderCalendarGrid(); }
+  else if (action === "save-session-note") {
+    const text = document.getElementById("sessionNoteInput");
+    saveSessionNote(el.dataset.date, text ? text.value : "");
+  }
   else if (action === "select-history") { historyId = historyId === el.dataset.id ? null : el.dataset.id; renderHistoryListArea(); }
   else if (action === "export-data") { exportData(); }
   else if (action === "import-data") { triggerImport(); }
@@ -3262,6 +3475,15 @@ document.addEventListener("click", (e) => {
   else if (action === "close-achievements") {
     if (el.id === "achievementsOverlay" && e.target !== el) return;
     closeAchievements();
+  }
+  else if (action === "open-notifications") { openNotifications(); }
+  else if (action === "close-notifications") {
+    if (el.id === "notificationsOverlay" && e.target !== el) return;
+    closeNotifications();
+  }
+  else if (action === "close-onboarding") {
+    if (el.id === "onboardingOverlay" && e.target !== el) return;
+    closeOnboarding();
   }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
@@ -3355,11 +3577,33 @@ async function init() {
   await loadBarWeight();
   await loadBoxStartDate();
   await loadSeenAchievements();
+  await loadLastSeenVersion();
+  await loadOnboardedFlag();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   renderUserGreeting();
   render();
+
+  // Bootstrap flags that predate this device ever tracking them. A device
+  // with real data/a name already existed before update-notifications and
+  // onboarding shipped — it must never see either retroactively. A device
+  // with nothing at all is a genuinely fresh install: the welcome modal
+  // (below) leads into onboarding on its own, and there's no changelog
+  // worth showing someone who's never used the app.
+  const isFreshInstall = userName === null && entries.length === 0 && wodEntries.length === 0
+    && customMovements.length === 0 && bodyweightEntries.length === 0 && measureTypes.length === 0;
+  if (lastSeenVersion === null) {
+    lastSeenVersion = isFreshInstall ? APP_VERSION : "0.0.0";
+    dbSetSetting(LAST_SEEN_VERSION_KEY, lastSeenVersion).catch(() => {});
+  }
+  if (!hasOnboarded && !isFreshInstall) {
+    hasOnboarded = true;
+    dbSetSetting(HAS_ONBOARDED_KEY, true).catch(() => {});
+  }
+  updateNotificationsBadge();
+
   if (userName === null) openWelcomeModal();
+  else if (unseenReleaseNotes().length) openNotifications();
 
   if ("serviceWorker" in navigator) {
     // The SW no longer calls skipWaiting() on install, so a new version parks

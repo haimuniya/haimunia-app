@@ -1,3 +1,55 @@
+# Roadmap round: notifications, onboarding, streaks, recent history, session notes — 2026-08-25
+
+A 10-phase roadmap came in for "look at every tab." Two phases turned out
+to already be substantially satisfied by existing code (found during
+research, not assumed): the WOD tab's custom + Girls/Heroes-benchmark entry
+paths, and the Log tab's last-session reference (which the immediately
+preceding round had already turned into a tap-to-prefill button). Phase 9
+depended on a "Goals" feature that doesn't exist anywhere in the codebase —
+asked directly, skipped for this round. Phase 8 (build-then-commit a whole
+session before saving anything) is a real redesign of the save flow the
+user themselves flagged as needing its own planning pass — deferred to a
+dedicated follow-up rather than bundled in with seven other features.
+
+This round: expanded `WOD_LIBRARY` with 7 more evergreen benchmarks (Kelly,
+Eva, Barbara, Filthy Fifty, Michael, Danny, Badger). Everything below is new.
+
+- **Update notifications.** A small `RELEASE_NOTES` list (separate from
+  this file — short, Hebrew, user-facing) backs both a one-time "מה חדש"
+  popup shown to returning users after a real update, and a persistent bell
+  icon in the header with an unread badge. A genuinely fresh install sees
+  neither — nothing to catch up on; existing devices from before this
+  shipped get silently backfilled so they're never shown a changelog
+  retroactively.
+- **First-time onboarding.** A short one-screen walkthrough (what each tab
+  is for) shown once, immediately after the very first welcome/name modal —
+  never for a device that already has data or a name.
+- **Recent history at the point of entry.** Picking an exercise or WOD now
+  shows up to 5 real logged attempts from the last 14 days, not just the
+  single most-recent one. No warm-up logic anywhere in it — every row is an
+  actual saved set.
+- **Streak indicator.** Consecutive days (strength set or WOD, either
+  counts) with at least one entry, shown next to the header's date. Reuses
+  the exact same day-has-an-entry check the calendar's dots already used
+  (extracted into one shared `hasAnyEntryOn`), so the two can never disagree
+  about what counts as a trained day. Today not being logged yet doesn't
+  break it — just isn't counted until it is.
+- **Per-day session note.** One free-text field per calendar date ("how did
+  the session feel"), distinct from the existing per-WOD-entry scaling
+  notes. Surfaced from the Calendar day view.
+
+Files changed: `app.js`, `index.html`. New `test/roadmap-features.test.mjs`
+(7 tests: version comparison, fresh-install vs. existing-device bootstrap
+paths, streak counting across gaps, the 14-day/5-item recent-history cap,
+session-note round-trip). New `scripts/browser-check/roadmap.mjs` — real
+Chromium session driving all five features end to end, including the
+session note surviving a navigate-away-and-back round trip. `boot-smoke.mjs`
+and `ladder.mjs` re-verified for regressions; their shared `dismissWelcomeModal`
+helper updated to also close the new onboarding modal, since every
+fresh-context check now hits it.
+
+---
+
 # Prefill from last session — 2026-08-25
 
 Reframed what this app actually is: filled in after a workout (from memory
