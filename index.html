@@ -242,6 +242,7 @@
   .medal-shape.shape-circle{ height:64px; }
   .medal-name{ font-size:10.5px; font-weight:700; color:var(--chalk); margin-top:6px; line-height:1.3; }
   .medal-badge.locked .medal-name{ color:var(--steel); }
+  .medal-rule{ font-size:9px; color:var(--steel); margin-top:2px; line-height:1.3; opacity:.85; }
   .medal-badge.locked .medal-shape{ filter:grayscale(1) brightness(.55); opacity:.4; }
   .medal-badge.earned .medal-shape{ filter:drop-shadow(0 0 7px var(--glow-color)); }
   @media (prefers-reduced-motion: no-preference){
@@ -440,6 +441,8 @@
       <div id="welcomeTitle" style="color:var(--chalk); font-weight:800; font-size:19px; margin-bottom:6px;">ברוכים הבאים!</div>
       <div id="welcomeSubtitle" style="color:var(--steel); font-size:13px; margin-bottom:18px;">איך נקרא לך?</div>
       <input id="welcomeNameInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="השם שלך" style="margin-bottom:16px; text-align:center;" />
+      <div style="color:var(--steel); font-size:12px; margin-bottom:6px;">מתי התחלתם להתאמן בבוקס? (לא חובה — פותח את עיטורי הוותק)</div>
+      <input id="welcomeBoxStartInput" type="date" class="text-input" style="margin-bottom:16px; text-align:center;" />
       <button data-action="save-user-name" class="save-btn" style="max-width:none; margin-bottom:10px;"><span id="welcomeSaveLabel">בואו נתחיל</span></button>
       <button id="welcomeSkipBtn" data-action="skip-user-name" class="link-btn">דלג</button>
     </div>

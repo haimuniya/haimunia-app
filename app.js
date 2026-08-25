@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.14.1";
+const APP_VERSION = "2.15.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -865,13 +865,9 @@ function longestWeekStreak() {
   return longest;
 }
 function totalSessions() { return new Set(loggedDates()).size; }
-function firstLogDate() {
-  const dates = loggedDates();
-  return dates.length ? dates.reduce((min, d) => (d < min ? d : min), dates[0]) : null;
-}
-function daysSinceFirstLog() {
-  const first = firstLogDate();
-  return first === null ? null : Math.floor((Date.now() - new Date(first + "T00:00:00").getTime()) / 86400000);
+function daysSinceBoxStart() {
+  if (!boxStartDate) return null;
+  return Math.floor((Date.now() - new Date(boxStartDate + "T00:00:00").getTime()) / 86400000);
 }
 function earnedRxWodIds() { return new Set(wodEntries.filter((e) => e.rx).map((e) => e.wodId)); }
 function loggedCategories() {
@@ -906,8 +902,8 @@ const ACHIEVEMENTS = [
   ...TENURE_MILESTONES.map((m) => ({
     id: `tenure-${m.id}`, group: "milestone", glyph: "flame",
     name: m.label,
-    rule: `${m.label} מהרישום הראשון`,
-    earned: () => { const d = daysSinceFirstLog(); return d !== null && d >= m.days; },
+    rule: `${m.label} מתאריך ההתחלה בבוקס`,
+    earned: () => { const d = daysSinceBoxStart(); return d !== null && d >= m.days; },
   })),
   {
     id: "well-rounded", group: "milestone", glyph: "chevrons",
@@ -934,9 +930,12 @@ function renderMedal(ach, earned) {
   const symbol = shape === "shield"
     ? `<svg class="medal-shape ${tierClass}" viewBox="0 0 100 112"><use href="#medalShield"/>${glyphUse}</svg>`
     : `<svg class="medal-shape shape-circle ${tierClass}" viewBox="0 0 100 100"><use href="#medalCircle"/>${glyphUse}</svg>`;
+  // title is a nice-to-have for desktop; it never shows on a touch screen,
+  // so locked badges also print the rule as a visible caption.
   return `<div class="medal-badge ${earned ? "earned" : "locked"}" style="--glow-color:${glow};" title="${esc(ach.rule)}">
     ${symbol}
     <div class="medal-name">${esc(ach.name)}</div>
+    ${earned ? "" : `<div class="medal-rule">${esc(ach.rule)}</div>`}
   </div>`;
 }
 function renderAchievementsContent() {
@@ -956,9 +955,16 @@ function renderAchievementsContent() {
       <div class="ach-row">${ACHIEVEMENTS.filter((a) => a.group === "streak").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
     </div>`;
 
+  const boxStartPrompt = boxStartDate ? "" : `
+    <button data-action="open-profile-from-achievements" class="card flex items-center justify-between gap-10" style="width:100%; text-align:right; margin-bottom:12px;">
+      <span style="font-size:12.5px; color:var(--chalk); font-weight:600;">הוסיפו תאריך התחלה בבוקס כדי לפתוח את עיטורי הוותק</span>
+      <span style="color:var(--steel); flex-shrink:0;">${ICONS.chevronsLeft}</span>
+    </button>`;
+
   const milestoneSection = `
     <div class="ach-section">
       <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--brass);"></span><span class="ach-section-title">אבני דרך</span></div>
+      ${boxStartPrompt}
       <div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.group === "milestone").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
     </div>`;
 
@@ -1139,6 +1145,18 @@ async function loadUserName() {
   }
 }
 
+// Box-tenure badges need the athlete's actual join date, not their first log
+// - someone can start using the app long after they joined the box, and
+// firstLogDate would silently measure "time using this app" instead.
+const BOX_START_KEY = "haimunia:boxStartDate";
+let boxStartDate = null;
+async function loadBoxStartDate() {
+  try {
+    const v = await dbGetSetting(BOX_START_KEY);
+    boxStartDate = v ? cleanISODate(v) : null;
+  } catch (e) { /* keep the default */ }
+}
+
 function renderUserGreeting() {
   const el = document.getElementById("userGreeting");
   if (el) el.innerHTML = userName ? `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">שלום ${esc(userName)}</span>${ICONS.chevronsLeft}` : "";
@@ -1153,7 +1171,7 @@ function openWelcomeModal(editing) {
   const subtitle = document.getElementById("welcomeSubtitle");
   const saveLabel = document.getElementById("welcomeSaveLabel");
   const skipBtn = document.getElementById("welcomeSkipBtn");
-  if (title) title.textContent = welcomeEditing ? "שינוי שם" : "ברוכים הבאים!";
+  if (title) title.textContent = welcomeEditing ? "עריכת פרופיל" : "ברוכים הבאים!";
   if (subtitle) subtitle.textContent = "איך נקרא לך?";
   if (saveLabel) saveLabel.textContent = welcomeEditing ? "שמירה" : "בואו נתחיל";
   if (skipBtn) {
@@ -1164,6 +1182,11 @@ function openWelcomeModal(editing) {
   if (input) {
     input.value = welcomeEditing ? (userName || "") : "";
     setTimeout(() => input.focus(), 50);
+  }
+  const boxInput = document.getElementById("welcomeBoxStartInput");
+  if (boxInput) {
+    boxInput.max = todayISO();
+    boxInput.value = welcomeEditing ? (boxStartDate || "") : "";
   }
 }
 function closeWelcomeModal() {
@@ -1177,6 +1200,20 @@ function saveUserName(name) {
   dbSetSetting(USER_NAME_KEY, trimmed).catch(noteStorageError);
   closeWelcomeModal();
   renderUserGreeting();
+}
+function saveBoxStartDate(v) {
+  const cleaned = v ? cleanISODate(v) : null;
+  const today = todayISO();
+  boxStartDate = (cleaned && cleaned <= today) ? cleaned : null;
+  dbSetSetting(BOX_START_KEY, boxStartDate).catch(noteStorageError);
+}
+// Saves both welcome-modal fields together, so hitting Enter in the name
+// field or skipping the name doesn't discard a box-start-date the user
+// already picked.
+function saveWelcomeForm(name) {
+  const boxInput = document.getElementById("welcomeBoxStartInput");
+  saveBoxStartDate(boxInput ? boxInput.value : "");
+  saveUserName(name);
 }
 
 const BAR_WEIGHT_KEY = "haimunia:barWeight";
@@ -1426,6 +1463,7 @@ async function clearAllData() {
     await dbClearSettings();
     try { localStorage.removeItem(USER_NAME_KEY); localStorage.removeItem(LAST_EXPORT_KEY); } catch (e) {}
     userName = null;
+    boxStartDate = null;
     lastExportAt = null;
   } catch (e) {
     noteStorageError(e);
@@ -2205,7 +2243,7 @@ function renderFooter() {
         return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${esc(msg)} — ייצוא גיבוי למטה</div>`;
       })()}
       <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
-        <button class="link-btn" data-action="edit-user-name">שינוי שם</button>
+        <button class="link-btn" data-action="edit-user-name">עריכת פרופיל</button>
         <span style="color:var(--border); font-size:11px;">·</span>
         <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
         <span style="color:var(--border); font-size:11px;">·</span>
@@ -2821,10 +2859,11 @@ document.addEventListener("click", (e) => {
   else if (action === "delete-measure-type") { deleteMeasureType(el.dataset.id); }
   else if (action === "save-measurement") { saveMeasurement(el.dataset.id); }
   else if (action === "delete-measurement-entry") { deleteMeasurementEntry(el.dataset.id); }
-  else if (action === "save-user-name") { saveUserName(document.getElementById("welcomeNameInput").value); }
-  else if (action === "skip-user-name") { saveUserName(""); }
+  else if (action === "save-user-name") { saveWelcomeForm(document.getElementById("welcomeNameInput").value); }
+  else if (action === "skip-user-name") { saveWelcomeForm(""); }
   else if (action === "cancel-welcome-name") { closeWelcomeModal(); }
   else if (action === "edit-user-name") { openWelcomeModal(true); }
+  else if (action === "open-profile-from-achievements") { closeAchievements(); openWelcomeModal(true); }
   else if (action === "open-achievements") { openAchievements(); }
   else if (action === "close-achievements") {
     if (el.id === "achievementsOverlay" && e.target !== el) return;
@@ -2859,7 +2898,7 @@ document.getElementById("wodBuilderMoveSearch").addEventListener("keydown", (e) 
   if (e.key === "Enter") e.target.blur();
 });
 document.getElementById("welcomeNameInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); saveUserName(e.target.value); }
+  if (e.key === "Enter") { e.preventDefault(); saveWelcomeForm(e.target.value); }
 });
 
 document.addEventListener("focusin", (e) => {
@@ -2920,6 +2959,7 @@ async function init() {
   await loadUserName();
   await loadLastExport();
   await loadBarWeight();
+  await loadBoxStartDate();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   renderUserGreeting();
