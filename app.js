@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.13.0";
+const APP_VERSION = "2.14.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -821,6 +821,171 @@ function activeExercises() {
 
 const MOVEMENT_CATEGORIES = ["Squat", "Deadlift", "Press", "Olympic", "Pull", "Other"];
 
+// ---------- Achievements ----------
+// Everything here is derived from data already on this device. No server, no
+// account, no comparison between athletes — tiers count personal PRs/weeks,
+// never absolute kg, so a bronze/silver/gold badge means the same effort
+// regardless of who's training.
+const ACHIEVEMENT_PR_CATEGORIES = ["Squat", "Deadlift", "Press", "Olympic", "Pull"];
+const PR_TIERS = [{ tier: "bronze", need: 1 }, { tier: "silver", need: 5 }, { tier: "gold", need: 15 }];
+const STREAK_TIERS = [{ tier: "bronze", need: 4 }, { tier: "silver", need: 12 }, { tier: "gold", need: 26 }];
+const SESSION_MILESTONES = [10, 50, 100, 365];
+const TENURE_MILESTONES = [
+  { id: "month1", days: 30, label: "חודש בבוקס" },
+  { id: "month6", days: 182, label: "חצי שנה בבוקס" },
+  { id: "year1", days: 365, label: "שנה בבוקס" },
+];
+const TIER_LABELS = { bronze: "ברונזה", silver: "כסף", gold: "זהב" };
+
+function categoryPRCounts() {
+  const counts = bag();
+  const byMovement = bag();
+  for (const e of entries) { (byMovement[e.exerciseId] ||= []).push(e); }
+  for (const movId of Object.keys(byMovement)) {
+    const mov = movementById(movId);
+    if (!mov || !ACHIEVEMENT_PR_CATEGORIES.includes(mov.category)) continue;
+    const list = byMovement[movId].slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    let max = -Infinity;
+    for (const e of list) {
+      if (e.est1RM > max) { max = e.est1RM; counts[mov.category] = (counts[mov.category] || 0) + 1; }
+    }
+  }
+  return counts;
+}
+function loggedDates() { return [...entries.map((e) => e.date), ...wodEntries.map((e) => e.date)]; }
+function weekBucket(iso) { return Math.floor(new Date(iso + "T00:00:00").getTime() / 86400000 / 7); }
+function longestWeekStreak() {
+  const buckets = [...new Set(loggedDates().map(weekBucket))].sort((a, b) => a - b);
+  let longest = 0, current = 0, prev = null;
+  for (const b of buckets) {
+    current = (prev !== null && b === prev + 1) ? current + 1 : 1;
+    longest = Math.max(longest, current);
+    prev = b;
+  }
+  return longest;
+}
+function totalSessions() { return new Set(loggedDates()).size; }
+function firstLogDate() {
+  const dates = loggedDates();
+  return dates.length ? dates.reduce((min, d) => (d < min ? d : min), dates[0]) : null;
+}
+function daysSinceFirstLog() {
+  const first = firstLogDate();
+  return first === null ? null : Math.floor((Date.now() - new Date(first + "T00:00:00").getTime()) / 86400000);
+}
+function earnedRxWodIds() { return new Set(wodEntries.filter((e) => e.rx).map((e) => e.wodId)); }
+function loggedCategories() {
+  const cats = new Set();
+  for (const e of entries) { const m = movementById(e.exerciseId); if (m) cats.add(m.category); }
+  return cats;
+}
+function isWellRounded() {
+  const cats = loggedCategories();
+  return ACHIEVEMENT_PR_CATEGORIES.every((c) => cats.has(c));
+}
+
+const ACHIEVEMENTS = [
+  ...ACHIEVEMENT_PR_CATEGORIES.flatMap((cat) => PR_TIERS.map((t) => ({
+    id: `pr-${cat}-${t.tier}`, group: "pr", tier: t.tier, cat, glyph: "bar",
+    name: `${CATEGORY_LABELS[cat]} — ${TIER_LABELS[t.tier]}`,
+    rule: `${t.need} ${t.need === 1 ? "שיא אישי" : "שיאים אישיים"} בקבוצת ${CATEGORY_LABELS[cat]}`,
+    earned: () => (categoryPRCounts()[cat] || 0) >= t.need,
+  }))),
+  ...STREAK_TIERS.map((t) => ({
+    id: `streak-${t.tier}`, group: "streak", tier: t.tier, glyph: "chevrons",
+    name: `רצף — ${TIER_LABELS[t.tier]}`,
+    rule: `רצף של ${t.need} שבועות עם רישום`,
+    earned: () => longestWeekStreak() >= t.need,
+  })),
+  ...SESSION_MILESTONES.map((n) => ({
+    id: `sessions-${n}`, group: "milestone", glyph: "home",
+    name: `${n} אימונים`,
+    rule: `${n} ימי אימון מתועדים`,
+    earned: () => totalSessions() >= n,
+  })),
+  ...TENURE_MILESTONES.map((m) => ({
+    id: `tenure-${m.id}`, group: "milestone", glyph: "flame",
+    name: m.label,
+    rule: `${m.label} מהרישום הראשון`,
+    earned: () => { const d = daysSinceFirstLog(); return d !== null && d >= m.days; },
+  })),
+  {
+    id: "well-rounded", group: "milestone", glyph: "chevrons",
+    name: "אתלט שלם",
+    rule: "תרגיל אחד לפחות מכל קבוצה (סקוואט/דדליפט/לחיצה/אולימפי/משיכה)",
+    earned: () => isWellRounded(),
+  },
+  ...WOD_LIBRARY.map((w) => ({
+    id: `rx-${w.id}`, group: "rx", glyph: "bar",
+    name: `Rx — ${w.name}`,
+    rule: `רישום ראשון של ${w.name} כ-Rx`,
+    earned: () => earnedRxWodIds().has(w.id),
+  })),
+];
+
+function renderMedal(ach, earned) {
+  const shape = ach.group === "pr" || ach.group === "streak" ? "shield" : "circle";
+  const glowMap = { bronze: "rgba(214,152,78,.65)", silver: "rgba(200,206,214,.7)", gold: "rgba(255,206,90,.75)" };
+  const glow = ach.tier ? glowMap[ach.tier] : (ach.group === "rx" ? "rgba(62,111,217,.6)" : "rgba(232,93,61,.6)");
+  const tierClass = ach.tier ? `tier-${ach.tier}` : (ach.group === "rx" ? "medal-rx" : "medal-milestone");
+  const glyphUse = shape === "shield"
+    ? `<use href="#glyph${ach.glyph === "home" ? "Home" : ach.glyph === "chevrons" ? "Chevrons" : ach.glyph === "bar" ? "Bar" : "Flame"}" transform="translate(19,16) scale(0.62)"/>`
+    : `<use href="#glyph${ach.glyph === "home" ? "Home" : ach.glyph === "chevrons" ? "Chevrons" : ach.glyph === "bar" ? "Bar" : "Flame"}" transform="translate(15,15) scale(0.7)"/>`;
+  const symbol = shape === "shield"
+    ? `<svg class="medal-shape ${tierClass}" viewBox="0 0 100 112"><use href="#medalShield"/>${glyphUse}</svg>`
+    : `<svg class="medal-shape shape-circle ${tierClass}" viewBox="0 0 100 100"><use href="#medalCircle"/>${glyphUse}</svg>`;
+  return `<div class="medal-badge ${earned ? "earned" : "locked"}" style="--glow-color:${glow};" title="${esc(ach.rule)}">
+    ${symbol}
+    <div class="medal-name">${esc(ach.name)}</div>
+  </div>`;
+}
+function renderAchievementsContent() {
+  const earnedMap = bag();
+  for (const a of ACHIEVEMENTS) earnedMap[a.id] = a.earned();
+  const earnedCount = ACHIEVEMENTS.filter((a) => earnedMap[a.id]).length;
+
+  const prSections = ACHIEVEMENT_PR_CATEGORIES.map((cat) => `
+    <div class="ach-section">
+      <div class="ach-section-head"><span class="ach-section-dot" style="background:${CATEGORY_COLORS[cat]};"></span><span class="ach-section-title">${esc(CATEGORY_LABELS[cat])}</span></div>
+      <div class="ach-row">${ACHIEVEMENTS.filter((a) => a.group === "pr" && a.cat === cat).map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
+    </div>`).join("");
+
+  const streakSection = `
+    <div class="ach-section">
+      <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--energy);"></span><span class="ach-section-title">רצף אימונים</span></div>
+      <div class="ach-row">${ACHIEVEMENTS.filter((a) => a.group === "streak").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
+    </div>`;
+
+  const milestoneSection = `
+    <div class="ach-section">
+      <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--brass);"></span><span class="ach-section-title">אבני דרך</span></div>
+      <div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.group === "milestone").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
+    </div>`;
+
+  const rxSection = `
+    <div class="ach-section">
+      <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--blue);"></span><span class="ach-section-title">Rx לכל אימון</span></div>
+      <div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.group === "rx").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
+    </div>`;
+
+  return `
+    <div class="ach-summary">
+      <div class="ach-summary-num mono">${earnedCount} / ${ACHIEVEMENTS.length}</div>
+      <div class="ach-summary-label">עיטורים שהושגו</div>
+    </div>
+    ${prSections}${streakSection}${milestoneSection}${rxSection}
+  `;
+}
+function openAchievements() {
+  document.body.style.overflow = "hidden";
+  document.getElementById("achievementsOverlay").classList.add("open");
+  document.getElementById("achievementsList").innerHTML = renderAchievementsContent();
+}
+function closeAchievements() {
+  document.body.style.overflow = "";
+  document.getElementById("achievementsOverlay").classList.remove("open");
+}
+
 async function addMovement(name, category) {
   const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
@@ -976,7 +1141,7 @@ async function loadUserName() {
 
 function renderUserGreeting() {
   const el = document.getElementById("userGreeting");
-  if (el) el.textContent = userName ? `שלום ${userName}` : "";
+  if (el) el.innerHTML = userName ? `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">שלום ${esc(userName)}</span>${ICONS.chevronsLeft}` : "";
 }
 let welcomeEditing = false;
 function openWelcomeModal(editing) {
@@ -2660,6 +2825,11 @@ document.addEventListener("click", (e) => {
   else if (action === "skip-user-name") { saveUserName(""); }
   else if (action === "cancel-welcome-name") { closeWelcomeModal(); }
   else if (action === "edit-user-name") { openWelcomeModal(true); }
+  else if (action === "open-achievements") { openAchievements(); }
+  else if (action === "close-achievements") {
+    if (el.id === "achievementsOverlay" && e.target !== el) return;
+    closeAchievements();
+  }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
     renderWodContent();
