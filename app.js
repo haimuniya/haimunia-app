@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.22.0";
+const APP_VERSION = "2.24.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -299,6 +299,14 @@ function estimate1RM(weight, reps) {
   if (reps <= 1) return weight;
   return Math.round(weight * (1 + reps / 30) * 10) / 10;
 }
+// Matches the box's own shorthand for holds: seconds alone under a minute,
+// M:SS once it crosses one — e.g. 20" for a 20-second hold, 1:15 for longer.
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds || 0));
+  if (s < 60) return `${s}"`;
+  const m = Math.floor(s / 60), rem = s % 60;
+  return `${m}:${String(rem).padStart(2, "0")}`;
+}
 function fmtDate(iso) {
   const d = new Date(iso);
   return d.toLocaleDateString("he-IL", { day: "2-digit", month: "2-digit" });
@@ -327,22 +335,27 @@ function catLabel(cat) {
 // Accumulator objects keyed by untrusted strings must have no prototype.
 function bag() { return Object.create(null); }
 
-const WOD_SCORE_TYPES = ["time", "amrap", "load"];
+const WOD_SCORE_TYPES = ["time", "amrap", "load", "emom"];
 const LIMITS = {
   nameLen: 80, notesLen: 300, idLen: 128, importItems: 20000,
   weight: 1000, reps: 1000, sets: 100, minutes: 999, seconds: 59,
-  rounds: 9999, bodyweight: 500, measurement: 300,
+  rounds: 9999, bodyweight: 500, measurement: 300, duration: 3600,
+  emomMovements: 20, partnerTag: 40,
 };
 const FIELD_MAX = {
   weight: LIMITS.weight, reps: LIMITS.reps, sets: LIMITS.sets,
   wodMinutes: LIMITS.minutes, wodSeconds: LIMITS.seconds, wodRounds: LIMITS.rounds,
   wodReps: LIMITS.reps, wodWeight: LIMITS.weight, wodScaledWeight: LIMITS.weight,
-  bwWeight: LIMITS.bodyweight,
+  bwWeight: LIMITS.bodyweight, durationSeconds: LIMITS.duration,
 };
 function fieldMax(action, field) {
   if (action === "bw-step") return LIMITS.bodyweight;
   if (action === "builder-movement-reps") return LIMITS.reps;
   if (action === "builder-movement-weight") return LIMITS.weight;
+  if (action === "builder-movement-duration") return LIMITS.duration;
+  if (action === "builder-emom-minutes") return LIMITS.minutes;
+  if (action === "builder-time-cap") return LIMITS.minutes;
+  if (action === "wod-emom-step") return LIMITS.reps;
   if (action === "measure-step") return LIMITS.measurement;
   return Object.prototype.hasOwnProperty.call(FIELD_MAX, field) ? FIELD_MAX[field] : LIMITS.weight;
 }
@@ -396,27 +409,61 @@ function sanitizeCustomWod(w) {
   if (!w || typeof w !== "object") return null;
   const id = cleanId(w.id), name = cleanStr(w.name, LIMITS.nameLen);
   if (!id || !name) return null;
-  return {
-    id, name, category: "Custom",
-    scoreType: WOD_SCORE_TYPES.includes(w.scoreType) ? w.scoreType : "time",
-    desc: cleanStr(w.desc, LIMITS.notesLen),
-  };
+  const scoreType = WOD_SCORE_TYPES.includes(w.scoreType) ? w.scoreType : "time";
+  const out = { id, name, category: "Custom", scoreType, desc: cleanStr(w.desc, LIMITS.notesLen) };
+  // EMOM structure lives on the WOD itself (unlike every other format, whose
+  // per-movement fields are only ever baked into free text) — the log form
+  // needs to know the movement rotation to render one reps field per
+  // movement each time this WOD is attempted. See renderWodLogSection.
+  if (scoreType === "emom") {
+    const movements = Array.isArray(w.emomMovements) ? w.emomMovements : [];
+    out.emomMovements = movements.slice(0, LIMITS.emomMovements).map((n) => cleanStr(n, LIMITS.nameLen)).filter(Boolean);
+    const targets = Array.isArray(w.emomTargetReps) ? w.emomTargetReps : [];
+    out.emomTargetReps = out.emomMovements.map((_, i) => Math.round(cleanNum(targets[i], 0, LIMITS.reps, 0)));
+    out.emomMinutes = Math.round(cleanNum(w.emomMinutes, 1, LIMITS.minutes, 10));
+    if (out.emomMovements.length === 0) return null;
+  }
+  // Optional reference-only time cap (e.g. "For Time, 20 min cap") — shown
+  // in the log form, never enforced or scored against.
+  const cap = cleanNum(w.timeCapSeconds, 0, LIMITS.minutes * 60 + 59, 0);
+  out.timeCapSeconds = cap || null;
+  return out;
 }
 function sanitizeEntry(e) {
   if (!e || typeof e !== "object") return null;
   const id = cleanId(e.id), exerciseId = cleanId(e.exerciseId), date = cleanISODate(e.date);
   if (!id || !exerciseId || !date) return null;
+  const sets = cleanNum(e.sets, 0, LIMITS.sets, null);
+  if (sets === null) return null;
+  // "duration" entries (holds/carries) skip reps/est1RM entirely — a hold has
+  // no rep count, and est1RM extrapolation is meaningless for time-under-load.
+  // Weight stays optional (0 for a bodyweight hold, >0 for a weighted carry).
+  const type = e.type === "duration" ? "duration" : "reps";
+  const groupId = cleanId(e.groupId) || null;
+  // Optional free tag ("A"/"B"/"C"/"D") for real A/B/C session-block
+  // programming — set once per ladder/superset group, see ladderBlockLabel.
+  const blockLabel = cleanStr(e.blockLabel, 8) || null;
+  if (type === "duration") {
+    const durationSeconds = cleanNum(e.durationSeconds, 1, LIMITS.duration, null);
+    if (durationSeconds === null) return null;
+    const weight = cleanNum(e.weight, 0, LIMITS.weight, 0);
+    return {
+      id, exerciseId, date, type, weight, reps: 0, sets: Math.round(sets),
+      durationSeconds: Math.round(durationSeconds),
+      ts: cleanTs(e.ts), isPR: e.isPR === true, groupId, blockLabel, est1RM: 0,
+    };
+  }
   const weight = cleanNum(e.weight, 0, LIMITS.weight, null);
   const reps = cleanNum(e.reps, 0, LIMITS.reps, null);
-  const sets = cleanNum(e.sets, 0, LIMITS.sets, null);
-  if (weight === null || reps === null || sets === null) return null;
+  if (weight === null || reps === null) return null;
   return {
-    id, exerciseId, date, weight, reps, sets: Math.round(sets),
+    id, exerciseId, date, type, weight, reps, sets: Math.round(sets),
+    durationSeconds: 0,
     ts: cleanTs(e.ts), isPR: e.isPR === true,
-    // Links several rows saved as one working-set ladder (same exercise,
-    // same day, different weight/reps each) so the calendar day view can
-    // group them — see renderCalDetail. null for an ordinary single set.
-    groupId: cleanId(e.groupId) || null,
+    // Links several rows saved as one working-set ladder or superset (same
+    // groupId, one or two exerciseIds, same day) so the calendar day view
+    // can group them — see renderCalDetail. null for an ordinary single set.
+    groupId, blockLabel,
     est1RM: cleanNum(e.est1RM, 0, LIMITS.weight * 2, estimate1RM(weight, reps)),
   };
 }
@@ -425,11 +472,20 @@ function sanitizeWodEntry(e) {
   const id = cleanId(e.id), wodId = cleanId(e.wodId), date = cleanISODate(e.date);
   if (!id || !wodId || !date) return null;
   const scoreType = WOD_SCORE_TYPES.includes(e.scoreType) ? e.scoreType : "time";
-  const out = { id, wodId, date, scoreType, ts: cleanTs(e.ts), rx: e.rx !== false, isPR: e.isPR === true };
+  // EMOM has no cross-attempt scoring (yet) — never let a hand-edited import
+  // claim a PR flame for it.
+  const out = { id, wodId, date, scoreType, ts: cleanTs(e.ts), rx: e.rx !== false, isPR: scoreType === "emom" ? false : e.isPR === true };
   if (scoreType === "time") out.timeSeconds = cleanNum(e.timeSeconds, 0, LIMITS.minutes * 60 + 59, 0);
   else if (scoreType === "amrap") {
     out.rounds = Math.round(cleanNum(e.rounds, 0, LIMITS.rounds, 0));
     out.reps = Math.round(cleanNum(e.reps, 0, LIMITS.reps, 0));
+  } else if (scoreType === "emom") {
+    // No fixed movement count to validate against here (the WOD record that
+    // defines it may not even be loaded yet during import) — just clamp
+    // whatever array of rep counts came in; renderWodLogSection resizes it
+    // to match the WOD's own movement count whenever it's actually shown.
+    const reps = Array.isArray(e.emomReps) ? e.emomReps : [];
+    out.emomReps = reps.slice(0, LIMITS.emomMovements).map((r) => Math.round(cleanNum(r, 0, LIMITS.reps, 0)));
   } else out.weight = cleanNum(e.weight, 0, LIMITS.weight, 0);
   if (!out.rx) {
     const sw = cleanNum(e.scaledWeight, 0, LIMITS.weight, 0);
@@ -437,6 +493,8 @@ function sanitizeWodEntry(e) {
     const notes = cleanStr(e.notes, LIMITS.notesLen);
     out.notes = notes || null;
   }
+  // Applies regardless of Rx/Scaled — a partner WOD is a partner WOD either way.
+  out.partnerTag = cleanStr(e.partnerTag, LIMITS.partnerTag) || null;
   return out;
 }
 function sanitizeBodyweight(e) {
@@ -751,10 +809,23 @@ const urlTab = new URLSearchParams(location.search).get("tab");
 let tab = VALID_TABS.includes(urlTab) ? urlTab : "add";
 let selectedId = MOVEMENTS[0].id;
 let weight = 20, reps = 5, sets = 1;
+// "reps" (weight×reps×sets, the original/default) or "duration" (a timed
+// hold/carry — see sanitizeEntry). durationSeconds is that mode's own value,
+// kept separate from reps so switching modes never clobbers the other.
+let logEntryType = "reps", durationSeconds = 20;
 let logDate = todayISO();
 // A ladder groups the next saves (different weight/reps each) under one
 // groupId, scoped to one exercise/day — see toggleLadderMode() and saveSet().
-let ladderMode = false, ladderGroupId = null;
+// Setting ladderPartnerId turns the same group into a superset: exactly two
+// exercises alternating rounds under one groupId (see switchLadderExercise
+// and openPicker's "partner" target). ladderPrimaryId is fixed at whatever
+// selectedId was when the ladder started — selectedId itself keeps changing
+// as the user switches between the two exercises, so it can't double as
+// "the other one" once they match; these two ids are the stable pair to
+// switch between. ladderBlockLabel is an optional free tag ("A"/"B"/"C"/"D")
+// for real-world A/B/C session-block programming — set once per group,
+// carried by every round saved into it.
+let ladderMode = false, ladderGroupId = null, ladderPrimaryId = null, ladderPartnerId = null, ladderBlockLabel = null;
 let editingEntryId = null;
 // Never allow a future-dated set, even if a user bypasses the date input's
 // max attribute (e.g. via devtools) or the device clock is off.
@@ -776,9 +847,17 @@ let customWods = [];
 let wodSubTab = "log";
 let selectedWodId = WOD_LIBRARY[0].id;
 let wodMinutes = 3, wodSeconds = 0, wodRounds = 5, wodReps = 0, wodWeight = 20;
+// EMOM-only: one rep count per movement in the selected WOD's rotation,
+// index-aligned with its emomMovements — kept in sync with that WOD's own
+// movement count by renderWodLogSection whenever it renders.
+let wodEmomReps = [];
 let wodRx = true;
 let wodScaledWeight = 20;
 let wodNotes = "";
+// Free-text tag for a partner WOD ("with Dana", a team name, ...) — per
+// entry (who you partnered with varies attempt to attempt), unlike
+// timeCapSeconds below which describes the WOD itself.
+let wodPartnerTag = "";
 let wodLogDate = todayISO();
 let editingWodEntryId = null;
 let wodHistoryId = null;
@@ -787,6 +866,12 @@ let wodBuilderOpen = false;
 let builderFormat = null;
 let builderMovements = bag();
 let builderMoveSearch = "";
+// EMOM-only: how many minutes the rotation runs. Movement order/targets for
+// an EMOM come from builderMovements itself (insertion order = rotation
+// order) — see createWodFromBuilder.
+let builderEmomMinutes = 10;
+// Optional, any non-EMOM format — reference-only, never enforced. 0 = no cap.
+let builderTimeCapMinutes = 0;
 let confirmClear = false;
 let storageOK = true;
 let storageErrMsg = "";
@@ -831,12 +916,36 @@ function recentEntriesFor(id, days = 14, cap = 5) {
   return entriesFor(id).filter((e) => e.date >= cutoff).slice(0, cap);
 }
 function bestEst1RM(id, excludeId) {
-  const list = entriesFor(id, excludeId);
+  // Duration entries carry est1RM: 0 (see sanitizeEntry) so they can't win
+  // this max by accident, but they're filtered explicitly anyway so an
+  // exercise logged only as holds correctly reports "no 1RM" (null), not 0.
+  const list = entriesFor(id, excludeId).filter((e) => e.type !== "duration");
   return list.length ? Math.max(...list.map((e) => e.est1RM)) : null;
 }
 function repRecordFor(id, repCount, excludeId) {
   const list = entriesFor(id, excludeId).filter((e) => e.reps === repCount);
   return list.length ? Math.max(...list.map((e) => e.weight)) : null;
+}
+function bestDurationFor(id, excludeId) {
+  const list = entriesFor(id, excludeId).filter((e) => e.type === "duration");
+  return list.length ? Math.max(...list.map((e) => e.durationSeconds)) : null;
+}
+// Which entry type the Log tab's toggle should default to when an exercise
+// is (re)selected — follows whatever this exercise was logged as last time,
+// so a hold-only movement like a plank doesn't keep resetting to reps mode.
+function inferEntryTypeFor(id) {
+  const last = entriesFor(id)[0];
+  return last && last.type === "duration" ? "duration" : "reps";
+}
+// Called right after selectedId changes to a fresh exercise (not while
+// editing an existing entry — startEditEntry restores type from the entry
+// itself instead).
+function syncLogEntryTypeToSelection() {
+  logEntryType = inferEntryTypeFor(selectedId);
+  if (logEntryType === "duration") {
+    const last = entriesFor(selectedId)[0];
+    durationSeconds = last.durationSeconds || 20;
+  }
 }
 function activeExercises() {
   const ids = [...new Set(entries.map((e) => e.exerciseId))];
@@ -904,7 +1013,10 @@ function categoryPRCounts() {
   for (const movId of Object.keys(byMovement)) {
     const mov = movementById(movId);
     if (!mov || !ACHIEVEMENT_PR_CATEGORIES.includes(mov.category)) continue;
-    const list = byMovement[movId].slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    // Duration entries carry est1RM: 0 (see sanitizeEntry) — skip them so a
+    // hold-only movement (e.g. a dead hang under Pull) can't register a
+    // phantom 0kg "PR" the first time it's logged.
+    const list = byMovement[movId].filter((e) => e.type !== "duration").sort((a, b) => (a.ts || 0) - (b.ts || 0));
     let max = -Infinity;
     for (const e of list) {
       if (e.est1RM > max) { max = e.est1RM; counts[mov.category] = (counts[mov.category] || 0) + 1; }
@@ -1162,6 +1274,14 @@ function closeCelebration() {
 // version bump needs one. Same list backs both the auto-shown "what's new"
 // popup and the bell icon's persistent history — see openNotifications().
 const RELEASE_NOTES = [
+  { version: "2.24.0", date: "2026-08-25", items: [
+    "אפשר לרשום סופרסט — שני תרגילים לסירוגין תחת אותו סולם, עם תווית בלוק (A/B/C/D) לתוכניות מסודרות",
+    "פורמט EMOM חדש באימונים: בונים סבב תרגילים מתחלף ורושמים חזרות לכל תרגיל בנפרד",
+    "אפשר להוסיף מגבלת זמן ותג פרטנר לאימונים",
+  ] },
+  { version: "2.23.0", date: "2026-08-25", items: [
+    "אפשר לרשום גם תרגילי החזקה בזמן (כמו פלאנק או תלייה) — לא רק משקל וחזרות",
+  ] },
   { version: "2.22.0", date: "2026-08-25", items: [
     "הקשה על \"אימון אחרון\" ממלאת אוטומטית את המשקל והחזרות",
     "סטים בסולם (כמה סטים ברצף, כל אחד במשקל שונה) — עכשיו קל יותר למצוא ולהשתמש",
@@ -1254,8 +1374,7 @@ async function addMovement(name, category) {
   if (!trimmed) return;
   const existing = allMovements().find((m) => m.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) {
-    selectedId = existing.id;
-    endLadder();
+    choosePickedMovement(existing.id);
     closePicker();
     render();
     return;
@@ -1266,28 +1385,44 @@ async function addMovement(name, category) {
   const movement = { id, name: trimmed, category: MOVEMENT_CATEGORIES.includes(category) ? category : "Other" };
   customMovements.push(movement);
   try { await dbAddMovement(movement); } catch (e) { noteStorageError(e); }
-  selectedId = id;
-  endLadder();
+  choosePickedMovement(id);
   closePicker();
   render();
 }
 async function saveSet() {
-  if (!isFinite(weight) || !isFinite(reps) || !isFinite(sets)) return;
   const date = clampLogDate(logDate);
   const editId = editingEntryId;
-  const prevRepRecord = repRecordFor(selectedId, reps, editId) || 0;
-  const prevEst1RM = bestEst1RM(selectedId, editId) || 0;
-  const est = estimate1RM(weight, reps);
-  const isPR = weight > prevRepRecord || est > prevEst1RM;
   const existing = editId ? entries.find((e) => e.id === editId) : null;
-  const entry = {
-    id: existing ? existing.id : uid("set"),
-    ts: existing ? existing.ts : Date.now(),
-    exerciseId: selectedId, weight, reps, sets, date, isPR, est1RM: est,
-    // Editing keeps the row's original group; a fresh save only joins the
-    // active ladder (if any) — see toggleLadderMode().
-    groupId: existing ? (existing.groupId ?? null) : (ladderMode ? ladderGroupId : null),
-  };
+  // Editing keeps the row's original group/label; a fresh save only joins
+  // the active ladder/superset (if any) — see toggleLadderMode().
+  const groupId = existing ? (existing.groupId ?? null) : (ladderMode ? ladderGroupId : null);
+  const blockLabel = existing ? (existing.blockLabel ?? null) : (ladderMode ? ladderBlockLabel : null);
+  let entry, isPR, celebrationLabel;
+  if (logEntryType === "duration") {
+    if (!isFinite(durationSeconds) || durationSeconds <= 0 || !isFinite(sets)) return;
+    const prevBest = bestDurationFor(selectedId, editId) || 0;
+    isPR = durationSeconds > prevBest;
+    entry = {
+      id: existing ? existing.id : uid("set"),
+      ts: existing ? existing.ts : Date.now(),
+      exerciseId: selectedId, type: "duration", weight, reps: 0, sets,
+      durationSeconds, date, isPR, est1RM: 0, groupId, blockLabel,
+    };
+    celebrationLabel = `${weight ? weight + ' ק"ג × ' : ""}${formatDuration(durationSeconds)}`;
+  } else {
+    if (!isFinite(weight) || !isFinite(reps) || !isFinite(sets)) return;
+    const prevRepRecord = repRecordFor(selectedId, reps, editId) || 0;
+    const prevEst1RM = bestEst1RM(selectedId, editId) || 0;
+    const est = estimate1RM(weight, reps);
+    isPR = weight > prevRepRecord || est > prevEst1RM;
+    entry = {
+      id: existing ? existing.id : uid("set"),
+      ts: existing ? existing.ts : Date.now(),
+      exerciseId: selectedId, type: "reps", weight, reps, sets, date, isPR, est1RM: est,
+      durationSeconds: 0, groupId, blockLabel,
+    };
+    celebrationLabel = `${weight} ק"ג × ${reps}`;
+  }
   entries = entries.filter((e) => e.id !== entry.id);
   entries.unshift(entry);
   entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -1306,7 +1441,7 @@ async function saveSet() {
   // off), that celebration still fires normally then.
   if (!ladderMode) {
     const mov = movementById(entry.exerciseId);
-    celebrateAfterSave(isPR && mov ? `${mov.name} — ${weight} ק"ג × ${reps}` : null);
+    celebrateAfterSave(isPR && mov ? `${mov.name} — ${celebrationLabel}` : null);
   }
 }
 // A ladder (working-set session: same exercise/day, different weight+reps
@@ -1317,19 +1452,62 @@ async function saveSet() {
 function toggleLadderMode() {
   if (ladderMode) {
     const count = currentLadderRounds().length;
+    const wasSuperset = !!ladderPartnerId;
     endLadder();
-    if (count > 0) setImportMessage(count === 1 ? "הסולם נשמר — סט אחד" : `הסולם נשמר — ${count} סטים`);
+    if (count > 0) {
+      const label = wasSuperset ? "הסופרסט" : "הסולם";
+      setImportMessage(count === 1 ? `${label} נשמר — סט אחד` : `${label} נשמר — ${count} סטים`);
+    }
     render();
     return;
   }
   ladderMode = true;
   ladderGroupId = uid("ladder");
+  ladderPrimaryId = selectedId;
+  ladderPartnerId = null;
+  ladderBlockLabel = null;
   render();
 }
 function endLadder() {
   if (!ladderMode) return;
   ladderMode = false;
   ladderGroupId = null;
+  ladderPrimaryId = null;
+  ladderPartnerId = null;
+  ladderBlockLabel = null;
+}
+// Adds (or would-be-adds) a second exercise to the active ladder, turning it
+// into a superset — exactly two exercises alternating rounds under one
+// groupId. A no-op if the picked exercise is the same as the primary one
+// (a superset needs two distinct movements) or no ladder is running.
+function setLadderPartner(id) {
+  if (!ladderMode || !id || id === ladderPrimaryId) return;
+  ladderPartnerId = id;
+  render();
+}
+// Switches which of the superset's two exercises the next save is for,
+// without ending the ladder (unlike the normal exercise picker, which
+// always ends it — see pick-movement). ladderPrimaryId/ladderPartnerId are
+// the fixed pair to switch between — selectedId itself can't play that role
+// since it becomes equal to whichever one is currently active.
+function switchLadderExercise(id) {
+  if (!ladderMode || !ladderPartnerId) return;
+  if (id !== ladderPrimaryId && id !== ladderPartnerId) return;
+  selectedId = id;
+  syncLogEntryTypeToSelection();
+  render();
+}
+function setLadderBlockLabel(label) {
+  if (!ladderMode) return;
+  ladderBlockLabel = ["A", "B", "C", "D"].includes(label) ? label : null;
+  render();
+}
+function setLogEntryType(t) {
+  const type = t === "duration" ? "duration" : "reps";
+  if (type === logEntryType) return;
+  logEntryType = type;
+  endLadder();
+  render();
 }
 function currentLadderRounds() {
   if (!ladderGroupId) return [];
@@ -1341,20 +1519,27 @@ function currentLadderRounds() {
 // copies them into the steppers as a starting point instead of everyone
 // re-dragging from whatever was left over from the previous save.
 function prefillFromLast() {
-  const last = entriesFor(selectedId)[0];
+  // Matches the currently toggled mode, not just whatever was logged most
+  // recently — prefilling reps numbers into a duration hold (or vice versa)
+  // would be meaningless.
+  const wantDuration = logEntryType === "duration";
+  const last = entriesFor(selectedId).find((e) => (e.type === "duration") === wantDuration);
   if (!last) return;
   weight = last.weight;
-  reps = last.reps;
   sets = last.sets;
+  if (wantDuration) durationSeconds = last.durationSeconds;
+  else reps = last.reps;
   render();
 }
 function startEditEntry(id) {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return;
   selectedId = entry.exerciseId;
+  logEntryType = entry.type === "duration" ? "duration" : "reps";
   weight = entry.weight;
   reps = entry.reps;
   sets = entry.sets;
+  if (entry.durationSeconds) durationSeconds = entry.durationSeconds;
   logDate = entry.date;
   editingEntryId = entry.id;
   tab = "add";
@@ -1838,17 +2023,25 @@ function formatClock(totalSeconds) {
 function scoreValue(e) {
   if (e.scoreType === "time") return e.timeSeconds;
   if (e.scoreType === "amrap") return e.rounds * 1000 + e.reps;
+  if (e.scoreType === "emom") return 0; // no single comparable score — see bestWodScore
   return e.weight;
 }
 function bestWodScore(id, excludeId) {
   const w = wodById(id);
+  // EMOM has no cross-attempt scoring yet: consistency (did every round)
+  // matters more than a single number, and there's no agreed way to reduce
+  // "10 reps of A, 8 of B" to one comparable value. No PR concept for it.
+  if (w.scoreType === "emom") return null;
   const list = wodEntriesFor(id, excludeId);
   if (!list.length) return null;
   if (w.scoreType === "time") return Math.min(...list.map(scoreValue));
   return Math.max(...list.map(scoreValue));
 }
 function formatWodEntry(e) {
-  const base = e.scoreType === "time" ? formatClock(e.timeSeconds) : e.scoreType === "amrap" ? `${e.rounds}+${e.reps}` : `${e.weight} kg`;
+  const base = e.scoreType === "time" ? formatClock(e.timeSeconds)
+    : e.scoreType === "amrap" ? `${e.rounds}+${e.reps}`
+    : e.scoreType === "emom" ? (e.emomReps || []).join(" · ")
+    : `${e.weight} kg`;
   return (!e.rx && e.scaledWeight) ? `${base} @ ${e.scaledWeight}kg` : base;
 }
 function lastScaledAttempt(id) {
@@ -1864,14 +2057,17 @@ function formatWodBest(id) {
   return `${best} kg`;
 }
 
-async function addCustomWod(name, scoreType, desc) {
+async function addCustomWod(name, scoreType, desc, extra) {
   const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
   if (!WOD_SCORE_TYPES.includes(scoreType)) return;
   const existing = allWods().find((w) => w.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) { selectedWodId = existing.id; closeWodPicker(); closeWodBuilder(); render(); return; }
   const id = uid("customwod");
-  const wod = { id, name: trimmed, category: "Custom", scoreType, desc: cleanStr(desc, LIMITS.notesLen) };
+  // extra carries scoreType-specific structured fields (currently just EMOM's
+  // movement rotation — see sanitizeCustomWod) that, unlike every other
+  // format, aren't fully representable as free text alone.
+  const wod = { id, name: trimmed, category: "Custom", scoreType, desc: cleanStr(desc, LIMITS.notesLen), ...(extra || {}) };
   customWods.push(wod);
   try { await dbAddCustomWod(wod); } catch (e) { noteStorageError(e); }
   selectedWodId = id;
@@ -1886,6 +2082,8 @@ function openWodBuilder(prefillName) {
   builderFormat = null;
   builderMovements = bag();
   builderMoveSearch = "";
+  builderEmomMinutes = 10;
+  builderTimeCapMinutes = 0;
   document.body.style.overflow = "hidden";
   const overlay = document.getElementById("wodBuilderOverlay");
   overlay.style.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight) + "px";
@@ -1913,6 +2111,25 @@ function renderWodBuilderFormats() {
   if (hint) {
     hint.textContent = "חובה לבחור אחד";
     hint.style.color = "var(--steel)";
+  }
+  const isEmom = builderFormat === "emom";
+  const emomEl = document.getElementById("wodBuilderEmomOptions");
+  if (emomEl) {
+    emomEl.innerHTML = isEmom ? `
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">כמה דקות</div>
+      <div class="steppers" style="margin-bottom:16px;">${renderStepper("emomMinutes", "דקות", builderEmomMinutes, 1, 1, "builder-emom-minutes")}</div>
+    ` : "";
+  }
+  const movesLabel = document.getElementById("wodBuilderMovesLabel");
+  if (movesLabel) movesLabel.textContent = isEmom ? "תרגילים (סדר הסיבוב — לפי סדר הבחירה)" : "תרגילים (אופציונלי)";
+  // Reference-only, shown for every format except EMOM (which already has
+  // its own minutes) — never enforced or scored against, see saveWod().
+  const capEl = document.getElementById("wodBuilderTimeCapOptions");
+  if (capEl) {
+    capEl.innerHTML = (builderFormat && !isEmom) ? `
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">מגבלת זמן (אופציונלי, 0 = ללא)</div>
+      <div class="steppers" style="margin-bottom:16px;">${renderStepper("timeCapMinutes", "דקות", builderTimeCapMinutes, 1, 0, "builder-time-cap")}</div>
+    ` : "";
   }
 }
 function renderWodBuilderMovements(query) {
@@ -1943,23 +2160,45 @@ function renderWodBuilderMovements(query) {
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${items.map((m) => {
         const checked = Object.prototype.hasOwnProperty.call(builderMovements, m.name);
-        const data = builderMovements[m.name] || { reps: 10, weight: 0 };
-        const hasWeight = WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
+        const data = builderMovements[m.name] || { reps: 10, weight: 0, type: "reps", durationSeconds: 20 };
+        const isEmom = builderFormat === "emom";
+        const hasWeight = !isEmom && WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
+        const isDuration = !isEmom && data.type === "duration";
+        // EMOM movements are reps-only (no weight/duration toggle) — the
+        // rotation order itself (shown here) carries the structure, and
+        // keeping every station the same simple shape keeps the log form
+        // straightforward too. See renderWodLogSection.
+        const rotationNum = isEmom && checked ? Object.keys(builderMovements).indexOf(m.name) + 1 : null;
         return `
         <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}" role="checkbox" aria-checked="${checked}">
-          <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
+          <span style="font-weight:600; font-size:14px;">${rotationNum ? `${rotationNum}. ` : ""}${esc(m.name)}</span>
           <div class="movecheck-box">${checked ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>' : ""}</div>
         </button>
-        ${checked ? (hasWeight ? `
-        <div class="flex" style="gap:8px; margin:-2px 0 10px; padding:0 2px;">
-          ${renderStepper(m.name, "חזרות", data.reps, 1, 0, "builder-movement-reps")}
-          ${renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight")}
-        </div>` : `
+        ${checked && !isEmom ? `
+        <div class="flex gap-8" style="margin:-2px 0 6px; padding:0 2px;" role="radiogroup" aria-label="חזרות או זמן — ${esc(m.name)}">
+          <button class="format-chip ${!isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="reps" role="radio" aria-checked="${!isDuration}">חזרות</button>
+          <button class="format-chip ${isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="duration" role="radio" aria-checked="${isDuration}">זמן</button>
+        </div>
+        <div class="flex" style="gap:8px; margin:0 0 10px; padding:0 2px;">
+          ${isDuration ? renderStepper(m.name, "שניות", data.durationSeconds, 5, 1, "builder-movement-duration") : renderStepper(m.name, "חזרות", data.reps, 1, 0, "builder-movement-reps")}
+          ${hasWeight ? renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight") : ""}
+        </div>` : ""}
+        ${checked && isEmom ? `
         <div style="width:50%; margin:-2px 0 10px; padding:0 2px;">
-          ${renderStepper(m.name, "חזרות", data.reps, 1, 0, "builder-movement-reps")}
-        </div>`) : ""}`;
+          ${renderStepper(m.name, "חזרות בכל סבב", data.reps, 1, 0, "builder-movement-reps")}
+        </div>` : ""}`;
       }).join("")}
     </div>`).join("");
+}
+function toggleBuilderMovement(name) {
+  if (Object.prototype.hasOwnProperty.call(builderMovements, name)) delete builderMovements[name];
+  else builderMovements[name] = { reps: 10, weight: 0, type: "reps", durationSeconds: 20 };
+  renderWodBuilderMovements();
+}
+function setBuilderMovementType(name, type) {
+  if (!builderMovements[name]) return;
+  builderMovements[name].type = type === "duration" ? "duration" : "reps";
+  renderWodBuilderMovements();
 }
 function createWodFromBuilder() {
   const nameInput = document.getElementById("wodBuilderName");
@@ -1976,15 +2215,43 @@ function createWodFromBuilder() {
     });
     return;
   }
-  const desc = Object.entries(builderMovements)
-    .map(([name, d]) => `${d.reps} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`)
+  if (builderFormat === "emom") {
+    const emomMovements = Object.keys(builderMovements);
+    if (emomMovements.length === 0) {
+      const hint = document.getElementById("wodBuilderFormatHint");
+      if (hint) { hint.textContent = "יש לבחור לפחות תרגיל אחד לסיבוב"; hint.style.color = "var(--red)"; }
+      return;
+    }
+    const emomTargetReps = emomMovements.map((n) => builderMovements[n].reps);
+    addCustomWod(name, "emom", emomWodDesc(builderEmomMinutes, emomMovements, emomTargetReps), {
+      emomMinutes: builderEmomMinutes, emomMovements, emomTargetReps,
+    });
+    return;
+  }
+  addCustomWod(name, builderFormat, builderMovementsToDesc(builderMovements), {
+    timeCapSeconds: builderTimeCapMinutes > 0 ? builderTimeCapMinutes * 60 : null,
+  });
+}
+// Pure by design, same reasoning as builderMovementsToDesc — a compact,
+// human-readable summary of the rotation for the WOD picker/log header.
+function emomWodDesc(minutes, movements, targetReps) {
+  return `EMOM ${minutes}: ${movements.map((n, i) => `${targetReps[i]} ${n}`).join(" / ")}`;
+}
+// Pure by design (no DOM/state reads) so it's directly testable — the
+// builder's per-movement reps/weight/duration fields are never stored as
+// structured data on the WOD itself, only baked into this free-text desc.
+function builderMovementsToDesc(movements) {
+  return Object.entries(movements)
+    .map(([name, d]) => d.type === "duration"
+      ? `${formatDuration(d.durationSeconds)} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`
+      : `${d.reps} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`)
     .join(", ");
-  addCustomWod(name, builderFormat, desc);
 }
 
 async function saveWod() {
   const w = wodById(selectedWodId);
   if (!isFinite(wodMinutes) || !isFinite(wodSeconds) || !isFinite(wodRounds) || !isFinite(wodReps) || !isFinite(wodWeight) || !isFinite(wodScaledWeight)) return;
+  if (w.scoreType === "emom" && !wodEmomReps.every((r) => isFinite(r))) return;
   const editId = editingWodEntryId;
   const existing = editId ? wodEntries.find((e) => e.id === editId) : null;
   const prevBest = bestWodScore(selectedWodId, editId);
@@ -1998,12 +2265,15 @@ async function saveWod() {
   };
   if (w.scoreType === "time") entry.timeSeconds = wodMinutes * 60 + wodSeconds;
   else if (w.scoreType === "amrap") { entry.rounds = wodRounds; entry.reps = wodReps; }
+  else if (w.scoreType === "emom") entry.emomReps = wodEmomReps.slice();
   else entry.weight = wodWeight;
   entry.notes = wodNotes.trim() || null;
   entry.scaledWeight = !wodRx ? wodScaledWeight : null;
+  entry.partnerTag = cleanStr(wodPartnerTag, LIMITS.partnerTag) || null;
 
+  // EMOM has no cross-attempt scoring (yet) — see bestWodScore/scoreValue.
   const val = scoreValue(entry);
-  const isPR = prevBest === null || (w.scoreType === "time" ? val < prevBest : val > prevBest);
+  const isPR = w.scoreType === "emom" ? false : (prevBest === null || (w.scoreType === "time" ? val < prevBest : val > prevBest));
   entry.isPR = isPR;
 
   wodEntries = wodEntries.filter((e) => e.id !== entry.id);
@@ -2011,6 +2281,7 @@ async function saveWod() {
   wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   try { await dbPutWodEntry(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   wodNotes = "";
+  wodPartnerTag = "";
   editingWodEntryId = null;
   wodLogDate = todayISO();
   if (isPR) flashWodPR();
@@ -2025,9 +2296,11 @@ function startEditWodEntry(id) {
   selectedWodId = entry.wodId;
   wodRx = entry.rx;
   wodNotes = entry.notes || "";
+  wodPartnerTag = entry.partnerTag || "";
   wodScaledWeight = entry.scaledWeight || 20;
   if (entry.scoreType === "time") { wodMinutes = Math.floor((entry.timeSeconds || 0) / 60); wodSeconds = (entry.timeSeconds || 0) % 60; }
   else if (entry.scoreType === "amrap") { wodRounds = entry.rounds || 0; wodReps = entry.reps || 0; }
+  else if (entry.scoreType === "emom") wodEmomReps = (entry.emomReps || []).slice();
   else wodWeight = entry.weight || 0;
   wodLogDate = entry.date;
   editingWodEntryId = entry.id;
@@ -2039,6 +2312,7 @@ function cancelEditWodEntry() {
   editingWodEntryId = null;
   wodLogDate = todayISO();
   wodNotes = "";
+  wodPartnerTag = "";
   render();
 }
 async function deleteWodEntry(id) {
@@ -2158,10 +2432,29 @@ function renderChart(data) {
   return wide ? `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">${svg}</div>` : svg;
 }
 
+// One-line summary for an entry regardless of its type — used anywhere a
+// logged set/hold needs a compact label (recent-history strip, day footer).
+function entrySummary(e) {
+  if (e.type === "duration") return `${e.sets}×${formatDuration(e.durationSeconds)}${e.weight ? " @ " + e.weight : ""}`;
+  return `${e.sets}×${e.reps} @ ${e.weight}`;
+}
+// showExercise: true for a superset (two exercises in the same group) so
+// each round is legible on its own — a plain single-exercise ladder omits
+// it, matching the existing compact "reps×weight" style.
+function ladderRoundSummary(r, showExercise) {
+  const prefix = showExercise ? `${movementById(r.exerciseId) ? movementById(r.exerciseId).name : "?"}: ` : "";
+  if (r.type === "duration") return `${prefix}${formatDuration(r.durationSeconds)}${r.weight ? " @ " + r.weight : ""}`;
+  return `${prefix}${r.reps}×${r.weight}`;
+}
+
 function renderLogTab() {
   const selected = movementById(selectedId);
-  const est = bestEst1RM(selectedId);
-  const last = entriesFor(selectedId)[0];
+  const isDuration = logEntryType === "duration";
+  const est = isDuration ? null : bestEst1RM(selectedId);
+  const bestHold = isDuration ? bestDurationFor(selectedId) : null;
+  // Matches whichever mode is toggled — a duration exercise's most recent
+  // reps-mode entry (or vice versa) isn't "last session" for this toggle.
+  const last = entriesFor(selectedId).find((e) => (e.type === "duration") === isDuration);
   const isToday = logDate === todayISO();
   const dayEntries = entries.filter((e) => e.date === logDate);
   const dayLabel = isToday ? "היום" : fmtDate(logDate);
@@ -2181,20 +2474,26 @@ function renderLogTab() {
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
     </button>
 
+    <div class="rx-toggle" role="radiogroup" aria-label="סוג רישום">
+      <button class="rx-btn ${!isDuration ? "active-type" : ""}" data-action="set-log-entry-type" data-type="reps" role="radio" aria-checked="${!isDuration}">משקל וחזרות</button>
+      <button class="rx-btn ${isDuration ? "active-type" : ""}" data-action="set-log-entry-type" data-type="duration" role="radio" aria-checked="${isDuration}"><span style="display:inline-flex; width:16px; height:16px; vertical-align:-3px; margin-left:4px;">${ICONS.stopwatchIcon}</span>החזקה בזמן</button>
+    </div>
+
     <div class="flex items-center gap-8" style="margin-bottom:12px;">
       <input type="date" id="logDateInput" value="${esc(logDate)}" max="${todayISO()}" aria-label="תאריך רישום הסט" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
       ${logDate !== todayISO() ? `<button data-action="reset-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
     </div>
 
-    ${(est || last) ? `
+    ${(est || bestHold || last) ? `
     <div class="stat-row">
       ${est ? `<div class="stat-card"><div class="stat-label">1RM משוער</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
-      ${last ? `<button data-action="prefill-last" class="stat-card" style="text-align:right;" aria-label="מילוי המשקל, החזרות והסטים מהאימון האחרון — ${last.weight} על ${last.reps}">
+      ${bestHold ? `<div class="stat-card"><div class="stat-label">שיא החזקה</div><div class="stat-value mono" style="color:var(--brass);">${formatDuration(bestHold)}</div></div>` : ""}
+      ${last ? `<button data-action="prefill-last" class="stat-card" style="text-align:right;" aria-label="מילוי הנתונים מהאימון האחרון — ${isDuration ? formatDuration(last.durationSeconds) : `${last.weight} על ${last.reps}`}">
         <div class="flex items-center justify-between gap-6">
           <span class="stat-label">אימון אחרון</span>
           <span style="color:var(--steel);">${ICONS.repeat}</span>
         </div>
-        <div class="stat-value mono">${last.weight}×${last.reps}</div>
+        <div class="stat-value mono">${isDuration ? formatDuration(last.durationSeconds) : `${last.weight}×${last.reps}`}</div>
       </button>` : ""}
     </div>` : ""}
 
@@ -2205,47 +2504,66 @@ function renderLogTab() {
       <div style="margin-bottom:12px;">
         <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">ב-14 הימים האחרונים</div>
         <div class="flex wrap gap-8">
-          ${recent.map((e) => `<span class="mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel);">${esc(fmtDate(e.date))}: <span style="color:var(--chalk);">${e.sets}×${e.reps} @ ${e.weight}</span></span>`).join("")}
+          ${recent.map((e) => `<span class="mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel);">${esc(fmtDate(e.date))}: <span style="color:var(--chalk);">${esc(entrySummary(e))}</span></span>`).join("")}
         </div>
       </div>`;
     })()}
 
-    ${renderBarWeightRow()}
+    ${isDuration ? "" : renderBarWeightRow()}
 
     <div class="bar-wrap" id="barWrap">
       <div class="pr-flash" id="prFlash" style="display:none;">${ICONS.flame}<span>שיא חדש!</span></div>
-      <div id="barbellVisual">${renderBarbell(weight)}</div>
+      ${isDuration ? "" : `<div id="barbellVisual">${renderBarbell(weight)}</div>`}
     </div>
 
     <div class="steppers">
-      ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, barWeight)}
-      ${renderStepper("reps", "חזרות", reps, 1, 1)}
+      ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, isDuration ? 0 : barWeight)}
+      ${isDuration ? renderStepper("durationSeconds", "משך (שניות)", durationSeconds, 5, 1) : renderStepper("reps", "חזרות", reps, 1, 1)}
       ${renderStepper("sets", "סטים", sets, 1, 1)}
     </div>
 
-    <div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>
+    ${isDuration
+      ? `<div class="est-line">‹ משך ההחזקה: <b id="durationLineValue">${formatDuration(durationSeconds)}</b></div>`
+      : `<div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>`}
 
     ${(() => {
       const rounds = ladderMode ? currentLadderRounds() : [];
       const nextNum = rounds.length + 1;
+      const isSuperset = !!ladderPartnerId;
+      const modeLabel = isSuperset ? "סופרסט" : "סולם";
+      const partner = ladderPartnerId ? movementById(ladderPartnerId) : null;
       return `
       <button data-action="toggle-ladder-mode" class="movement-btn ${ladderMode ? "active" : ""}" aria-pressed="${ladderMode}" style="margin-bottom:${ladderMode ? "0" : "12px"};">
         <div class="flex items-center gap-8">
           <span style="display:inline-flex; color:var(--brass); flex-shrink:0;">${ICONS.ladder}</span>
           <div style="text-align:right;">
-            <div aria-live="polite" style="font-weight:700; font-size:14px; color:${ladderMode ? "var(--brass)" : "var(--chalk)"};">${ladderMode ? (rounds.length ? `סולם פעיל — ${rounds.length} סטים נרשמו · הבא: ${nextNum}` : "סולם פעיל — קבעו את הסט הראשון למטה") : "רישום סולם"}</div>
-            ${!ladderMode ? `<div style="color:var(--steel); font-size:11.5px; margin-top:2px;">כמה סטים ברצף, כל אחד במשקל וחזרות משלו — למשל עולים במשקל וחוזרים ל־3 חזרות</div>` : ""}
+            <div aria-live="polite" style="font-weight:700; font-size:14px; color:${ladderMode ? "var(--brass)" : "var(--chalk)"};">${ladderMode ? (rounds.length ? `${modeLabel} פעיל — ${rounds.length} סטים נרשמו · הבא: ${nextNum}` : `${modeLabel} פעיל — קבעו את הסט הראשון למטה`) : "רישום סולם / סופרסט"}</div>
+            ${!ladderMode ? `<div style="color:var(--steel); font-size:11.5px; margin-top:2px;">כמה סטים ברצף — אותו תרגיל במשקלים שונים, או שני תרגילים לסירוגין</div>` : ""}
           </div>
         </div>
         ${ladderMode ? `<span style="color:var(--brass); font-size:12px; font-weight:700; flex-shrink:0;">סיום</span>` : ""}
       </button>
       ${ladderMode ? `
       <div style="border:1px solid var(--brass); border-top:none; border-radius:0 0 12px 12px; padding:10px 12px; margin-bottom:12px; margin-top:-1px;">
+        <div class="flex items-center gap-8" style="margin-bottom:10px;" role="radiogroup" aria-label="תווית בלוק (לא חובה)">
+          <span style="color:var(--steel); font-size:11px; font-weight:700;">בלוק:</span>
+          ${["A", "B", "C", "D"].map((l) => `<button class="format-chip ${ladderBlockLabel === l ? "active" : ""}" style="flex:0 0 auto; padding:5px 12px; font-size:12px;" data-action="set-ladder-block-label" data-label="${l}" role="radio" aria-checked="${ladderBlockLabel === l}">${l}</button>`).join("")}
+          ${ladderBlockLabel ? `<button class="format-chip" style="flex:0 0 auto; padding:5px 12px; font-size:12px;" data-action="set-ladder-block-label" data-label="">ללא</button>` : ""}
+        </div>
+        ${partner ? (() => {
+          const primary = movementById(ladderPrimaryId);
+          return `
+        <div class="flex items-center gap-8" style="margin-bottom:10px;" role="radiogroup" aria-label="תרגיל נוכחי בסופרסט">
+          <button class="format-chip ${selectedId === ladderPrimaryId ? "active" : ""}" style="padding:8px 10px; font-size:12.5px;" data-action="ladder-switch-exercise" data-id="${esc(ladderPrimaryId)}" role="radio" aria-checked="${selectedId === ladderPrimaryId}">${esc(primary ? primary.name : "?")}</button>
+          <button class="format-chip ${selectedId === ladderPartnerId ? "active" : ""}" style="padding:8px 10px; font-size:12.5px;" data-action="ladder-switch-exercise" data-id="${esc(ladderPartnerId)}" role="radio" aria-checked="${selectedId === ladderPartnerId}">${esc(partner.name)}</button>
+        </div>`;
+        })() : `
+        <button data-action="open-picker" data-target="partner" class="link-btn" style="display:block; margin-bottom:10px; font-size:12.5px;">${ICONS.repeat} הוספת תרגיל שני (סופרסט)</button>`}
         ${rounds.length ? `<div class="flex wrap gap-8">
           ${rounds.map((r, i) => `
             <span class="flex items-center gap-6 mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:13px; font-weight:700;">
-              ${i + 1}. ${r.reps}×${r.weight}
-              <button data-action="delete-entry" data-id="${esc(r.id)}" aria-label="מחיקת סט ${i + 1} מהסולם" style="color:var(--steel); padding:0; display:inline-flex;">
+              ${i + 1}. ${esc(ladderRoundSummary(r, isSuperset))}
+              <button data-action="delete-entry" data-id="${esc(r.id)}" aria-label="מחיקת סט ${i + 1} מה${modeLabel}" style="color:var(--steel); padding:0; display:inline-flex;">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
               </button>
             </span>`).join("")}
@@ -2259,7 +2577,7 @@ function renderLogTab() {
       <div class="flex items-center gap-8">
         ${dayEntries[0].isPR ? ICONS.flame : ""}
         <div style="text-align:right;">
-          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(movementById(dayEntries[0].exerciseId) ? movementById(dayEntries[0].exerciseId).name : "?")} — ${dayEntries[0].sets}×${dayEntries[0].reps} @ ${dayEntries[0].weight}</div>
+          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(movementById(dayEntries[0].exerciseId) ? movementById(dayEntries[0].exerciseId).name : "?")} — ${esc(entrySummary(dayEntries[0]))}</div>
           <div style="color:var(--steel); font-size:11px;">${dayEntries.length} סט${dayEntries.length === 1 ? "" : "ים"} נרשמו ${isToday ? "היום" : `ב-${esc(dayLabel)}`}</div>
         </div>
       </div>
@@ -2291,8 +2609,13 @@ function renderStepper(field, label, value, step, min, action) {
 function renderDetailCard(m) {
   const hEntries = entriesFor(m.id);
   if (hEntries.length === 0) return "";
+  // The most recently logged entry decides which mode this card renders in —
+  // a movement almost never switches between holds and reps, and this keeps
+  // the chart/PR-table meaningful instead of averaging two unrelated units.
+  const isDuration = hEntries[0].type === "duration";
+  if (isDuration) return renderDurationDetailCard(m, hEntries.filter((e) => e.type === "duration"));
   let max = -Infinity;
-  const chartData = hEntries.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).map((e) => {
+  const chartData = hEntries.filter((e) => e.type !== "duration").slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).map((e) => {
     const isPR = e.est1RM >= max;
     if (e.est1RM > max) max = e.est1RM;
     return { dateLabel: fmtDate(e.date), est1RM: e.est1RM, isPR };
@@ -2312,6 +2635,30 @@ function renderDetailCard(m) {
           return `<div class="rep-cell"><div class="rep-cell-label">${r}RM</div><div class="rep-cell-val mono" style="color:${rec ? "var(--chalk)" : "var(--border)"};">${rec ?? "—"}</div></div>`;
         }).join("")}
       </div>
+    </div>`;
+}
+
+// Duration-mode counterpart to the block above — same chart, but plotting
+// hold time instead of est1RM, and a single best-hold stat instead of the
+// STANDARD_REPS grid (a rep-record table means nothing for a timed hold).
+function renderDurationDetailCard(m, durationEntries) {
+  let max = -Infinity;
+  const chartData = durationEntries.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).map((e) => {
+    const isPR = e.durationSeconds >= max;
+    if (e.durationSeconds > max) max = e.durationSeconds;
+    return { dateLabel: fmtDate(e.date), est1RM: e.durationSeconds, isPR };
+  });
+  const prPoints = chartData.filter((d) => d.isPR);
+  const trendSec = prPoints.length >= 2 ? prPoints[prPoints.length - 1].est1RM - prPoints[prPoints.length - 2].est1RM : null;
+  const best = bestDurationFor(m.id);
+  return `
+    <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
+      <div class="flex items-center justify-between" style="margin-bottom:12px;">
+        <span style="font-weight:800; font-size:15px;">${esc(m.name)}</span>
+        ${trendSec !== null ? `<span class="flex items-center gap-6" style="font-weight:700; font-size:12px;">${trendSec > 0 ? ICONS.up : trendSec < 0 ? ICONS.down : ICONS.flat}<span class="mono">${trendSec > 0 ? "+" : ""}${formatDuration(Math.abs(trendSec))}</span> שיא החזקה</span>` : ""}
+      </div>
+      ${renderChart(chartData)}
+      ${best ? `<div class="rep-table"><div class="rep-cell"><div class="rep-cell-label">שיא החזקה</div><div class="rep-cell-val mono" style="color:var(--chalk);">${formatDuration(best)}</div></div></div>` : ""}
     </div>`;
 }
 
@@ -2477,28 +2824,34 @@ function renderCalDetail() {
             <span style="font-weight:700; font-size:14px;">${esc(movementById(e.exerciseId) ? movementById(e.exerciseId).name : "?")}</span>
           </div>
           <div class="flex items-center gap-10">
-            <span class="mono" style="color:var(--steel); font-size:13px;">${e.sets}×${e.reps} @ ${e.weight}</span>
+            <span class="mono" style="color:var(--steel); font-size:13px;">${esc(entrySummary(e))}</span>
             <button data-action="edit-entry" data-id="${esc(e.id)}" aria-label="עריכת סט" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
             <button data-action="delete-entry" data-id="${esc(e.id)}" aria-label="מחיקת סט" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
           </div>
         </div>`;
         }
-        // Ladder: one card, exercise name + PR flame shown once, then every
-        // round on its own line with its own edit/delete — each rung stays
-        // individually correctable, per the point of this whole feature.
+        // Ladder or superset: one card, exercise name(s) + PR flame shown
+        // once, then every round on its own line with its own edit/delete —
+        // each rung stays individually correctable, per the point of this
+        // whole feature. A superset is just a ladder whose rounds span two
+        // exerciseIds instead of one — derived from the group's own data,
+        // not from any currently-active session state.
         const anyPR = group.some((e) => e.isPR);
-        const name = esc(movementById(group[0].exerciseId) ? movementById(group[0].exerciseId).name : "?");
+        const exerciseIds = [...new Set(group.map((e) => e.exerciseId))];
+        const isSuperset = exerciseIds.length > 1;
+        const name = esc(exerciseIds.map((id) => movementById(id) ? movementById(id).name : "?").join(" + "));
+        const blockTag = group[0].blockLabel ? ` · בלוק ${esc(group[0].blockLabel)}` : "";
         return `
         <div class="log-row" style="flex-direction:column; align-items:stretch; gap:8px;">
           <div class="flex items-center gap-8">
             ${anyPR ? ICONS.flame : ""}
             <span style="font-weight:700; font-size:14px;">${name}</span>
-            <span style="color:var(--steel); font-size:11px;">סולם · ${group.length} סטים</span>
+            <span style="color:var(--steel); font-size:11px;">${isSuperset ? "סופרסט" : "סולם"} · ${group.length} סטים${blockTag}</span>
           </div>
           <div class="flex col gap-6">
             ${group.map((e, i) => `
             <div class="flex items-center justify-between">
-              <span class="mono flex items-center gap-6" style="color:var(--steel); font-size:13px;">${i + 1}. ${e.reps}×${e.weight}${e.isPR ? ICONS.flame : ""}</span>
+              <span class="mono flex items-center gap-6" style="color:var(--steel); font-size:13px;">${i + 1}. ${esc(ladderRoundSummary(e, isSuperset))}${e.isPR ? ICONS.flame : ""}</span>
               <div class="flex items-center gap-6">
                 <button data-action="edit-entry" data-id="${esc(e.id)}" aria-label="עריכת סט ${i + 1}" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
                 <button data-action="delete-entry" data-id="${esc(e.id)}" aria-label="מחיקת סט ${i + 1}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
@@ -2515,7 +2868,7 @@ function renderCalDetail() {
             <div class="flex items-center gap-8">
               ${e.isPR ? ICONS.flame : ""}
               <span style="font-weight:700; font-size:14px;">${esc(w ? w.name : "?")}</span>
-              <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}</span>
+              <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}${e.partnerTag ? ` · ${esc(e.partnerTag)}` : ""}</span>
             </div>
             <div class="flex items-center gap-10">
               <span class="mono" style="color:var(--steel); font-size:13px;">${formatWodEntry(e)}</span>
@@ -2766,18 +3119,23 @@ function renderFooter() {
 }
 
 function updateLogQuickUI(field) {
-  const valMap = { weight, reps, sets };
+  const valMap = { weight, reps, sets, durationSeconds };
   const inp = document.querySelector(`.stepper-val[data-action="step"][data-field="${cssSel(field)}"]`);
   if (inp) inp.value = valMap[field];
-  if (field === "weight") {
+  if (field === "weight" && logEntryType === "reps") {
     const bv = document.getElementById("barbellVisual");
     if (bv) bv.innerHTML = renderBarbell(weight);
     // The weight stepper's floor tracks barWeight (total can't be less than
     // the empty bar) - keep every element carrying data-min in sync with it.
     document.querySelectorAll('[data-action="step"][data-field="weight"]').forEach((elm) => { elm.dataset.min = barWeight; });
   }
-  const estEl = document.getElementById("estLineValue");
-  if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+  if (logEntryType === "reps") {
+    const estEl = document.getElementById("estLineValue");
+    if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+  } else if (field === "durationSeconds") {
+    const durEl = document.getElementById("durationLineValue");
+    if (durEl) durEl.textContent = formatDuration(durationSeconds);
+  }
 }
 
 // Bound every numeric field at both ends. Previously only a floor was applied,
@@ -2790,11 +3148,15 @@ function clampField(action, field, value, min) {
 }
 
 function getFieldValue(action, field) {
-  if (action === "step") return { weight, reps, sets }[field];
+  if (action === "step") return { weight, reps, sets, durationSeconds }[field];
   if (action === "wod-step") return { wodMinutes, wodSeconds, wodRounds, wodReps, wodWeight, wodScaledWeight }[field];
   if (action === "bw-step") return bwWeight;
   if (action === "builder-movement-reps") return builderMovements[field] ? builderMovements[field].reps : 0;
   if (action === "builder-movement-weight") return builderMovements[field] ? builderMovements[field].weight : 0;
+  if (action === "builder-movement-duration") return builderMovements[field] ? builderMovements[field].durationSeconds : 0;
+  if (action === "builder-emom-minutes") return builderEmomMinutes;
+  if (action === "builder-time-cap") return builderTimeCapMinutes;
+  if (action === "wod-emom-step") return typeof wodEmomReps[+field] === "number" ? wodEmomReps[+field] : 0;
   if (action === "measure-step") return typeof measureValues[field] === "number" ? measureValues[field] : 0;
   return 0;
 }
@@ -2805,6 +3167,7 @@ function setFieldState(action, field, value) {
     if (field === "weight") weight = value;
     else if (field === "reps") reps = value;
     else if (field === "sets") sets = value;
+    else if (field === "durationSeconds") durationSeconds = value;
   } else if (action === "wod-step") {
     if (field === "wodMinutes") wodMinutes = value;
     else if (field === "wodSeconds") wodSeconds = value;
@@ -2818,6 +3181,14 @@ function setFieldState(action, field, value) {
     if (builderMovements[field]) builderMovements[field].reps = value;
   } else if (action === "builder-movement-weight") {
     if (builderMovements[field]) builderMovements[field].weight = value;
+  } else if (action === "builder-movement-duration") {
+    if (builderMovements[field]) builderMovements[field].durationSeconds = value;
+  } else if (action === "builder-emom-minutes") {
+    builderEmomMinutes = value;
+  } else if (action === "builder-time-cap") {
+    builderTimeCapMinutes = value;
+  } else if (action === "wod-emom-step") {
+    wodEmomReps[+field] = value;
   } else if (action === "measure-step") {
     measureValues[field] = value;
   }
@@ -2840,8 +3211,17 @@ function applyFieldValue(action, field, value) {
   } else if (action === "bw-step") {
     const inp = document.querySelector(`.stepper-val[data-action="bw-step"][data-field="bwWeight"]`);
     if (inp) inp.value = bwWeight;
-  } else if (action === "builder-movement-reps" || action === "builder-movement-weight") {
+  } else if (action === "builder-movement-reps" || action === "builder-movement-weight" || action === "builder-movement-duration") {
     renderWodBuilderMovements();
+  } else if (action === "builder-emom-minutes") {
+    const inp = document.querySelector(`.stepper-val[data-action="builder-emom-minutes"]`);
+    if (inp) inp.value = builderEmomMinutes;
+  } else if (action === "builder-time-cap") {
+    const inp = document.querySelector(`.stepper-val[data-action="builder-time-cap"]`);
+    if (inp) inp.value = builderTimeCapMinutes;
+  } else if (action === "wod-emom-step") {
+    const inp = document.querySelector(`.stepper-val[data-action="wod-emom-step"][data-field="${cssSel(field)}"]`);
+    if (inp) inp.value = value;
   } else if (action === "measure-step") {
     const inp = document.querySelector(`.stepper-val[data-action="measure-step"][data-field="${cssSel(field)}"]`);
     if (inp) inp.value = value;
@@ -2855,7 +3235,7 @@ function render() {
       const selected = movementById(selectedId);
       content = renderLogTab();
       if (selected) {
-        const prefix = editingEntryId ? "עדכון סט — " : ladderMode ? `הוספת סט ${currentLadderRounds().length + 1} לסולם — ` : "רישום סט — ";
+        const prefix = editingEntryId ? "עדכון סט — " : ladderMode ? `הוספת סט ${currentLadderRounds().length + 1} ל${ladderPartnerId ? "סופרסט" : "סולם"} — ` : "רישום סט — ";
         document.getElementById("saveBtnLabel").textContent = prefix + selected.name;
       }
     } else if (tab === "history") {
@@ -2924,6 +3304,18 @@ function renderWodLogSection() {
       ${renderStepper("wodRounds", "סבבים", wodRounds, 1, 0, "wod-step")}
       ${renderStepper("wodReps", "+ חזרות", wodReps, 1, 0, "wod-step")}
     </div>`;
+  } else if (w.scoreType === "emom") {
+    // Resync to this WOD's own rotation whenever it doesn't already match —
+    // covers first-ever render, switching from a differently-shaped EMOM,
+    // and switching in from a non-EMOM WOD. Prefills from the WOD's own
+    // target reps, same "starting point, not a blank form" idea as
+    // prefill-from-last elsewhere in the app.
+    if (wodEmomReps.length !== w.emomMovements.length) wodEmomReps = w.emomTargetReps.slice();
+    inputsHtml = `
+    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">EMOM ${w.emomMinutes} — חזרות בכל סבב, לפי תרגיל</div>
+    <div class="steppers">
+      ${w.emomMovements.map((name, i) => renderStepper(String(i), `${i + 1}. ${name}`, wodEmomReps[i], 1, 0, "wod-emom-step")).join("")}
+    </div>`;
   } else {
     inputsHtml = `<div class="steppers">
       ${renderStepper("wodWeight", "משקל (ק\"ג)", wodWeight, 2.5, 0, "wod-step")}
@@ -2943,6 +3335,7 @@ function renderWodLogSection() {
         <div>
           <span style="font-weight:800; font-size:16px;">${esc(w.name)}</span>
           ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
+          ${w.timeCapSeconds ? `<div class="wod-desc" style="color:var(--brass);">מגבלת זמן: ${formatClock(w.timeCapSeconds)}</div>` : ""}
         </div>
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
@@ -2969,7 +3362,7 @@ function renderWodLogSection() {
     </div>` : `
     <div class="stat-row">
       <div class="stat-card"><div class="stat-label">שיא</div><div class="stat-value mono" style="color:var(--brass);">${best}</div></div>
-      <div class="stat-card"><div class="stat-label">סוג ניקוד</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : "Load"}</div></div>
+      <div class="stat-card"><div class="stat-label">סוג ניקוד</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : w.scoreType === "emom" ? "EMOM" : "Load"}</div></div>
     </div>`}
 
     ${(() => {
@@ -2990,6 +3383,8 @@ function renderWodLogSection() {
       <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1" role="radio" aria-checked="${wodRx}">Rx</button>
       <button class="rx-btn ${!wodRx ? "active-scaled" : ""}" data-action="set-rx" data-rx="0" role="radio" aria-checked="${!wodRx}">Scaled</button>
     </div>
+
+    <input id="wodPartnerTagInput" class="text-input" dir="auto" maxlength="${LIMITS.partnerTag}" style="margin-bottom:16px;" placeholder="עם פרטנר? (אופציונלי, לדוגמה עם דנה)" aria-label="שם הפרטנר (אופציונלי)" value="${esc(wodPartnerTag)}" />
 
     ${!wodRx ? `
     <div class="steppers" style="margin-bottom:16px;">
@@ -3025,22 +3420,31 @@ function renderWodLogSection() {
 function renderWodDetailCard(w) {
   const list = wodEntriesFor(w.id);
   if (list.length === 0) return "";
-  const sorted = list.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
-  let bestSoFar = w.scoreType === "time" ? Infinity : -Infinity;
-  const chartData = sorted.map((e) => {
-    const val = scoreValue(e);
-    const isPR = w.scoreType === "time" ? val <= bestSoFar : val >= bestSoFar;
-    bestSoFar = w.scoreType === "time" ? Math.min(bestSoFar, val) : Math.max(bestSoFar, val);
-    return { dateLabel: fmtDate(e.date), est1RM: val, isPR };
-  });
+  // EMOM has no single comparable score (see bestWodScore/scoreValue) — a
+  // PR-trend chart would either be misleadingly flat or falsely mark every
+  // attempt as a "PR". Skip the chart for it; the per-attempt list below
+  // (with formatWodEntry's per-movement reps) is the useful part.
+  const isEmom = w.scoreType === "emom";
+  let chartHtml = "";
+  if (!isEmom) {
+    const sorted = list.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
+    let bestSoFar = w.scoreType === "time" ? Infinity : -Infinity;
+    const chartData = sorted.map((e) => {
+      const val = scoreValue(e);
+      const isPR = w.scoreType === "time" ? val <= bestSoFar : val >= bestSoFar;
+      bestSoFar = w.scoreType === "time" ? Math.min(bestSoFar, val) : Math.max(bestSoFar, val);
+      return { dateLabel: fmtDate(e.date), est1RM: val, isPR };
+    });
+    chartHtml = renderChart(chartData);
+  }
   const recent = list.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 8);
   return `
     <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
       <div class="flex items-center justify-between" style="margin-bottom:12px;">
         <span style="font-weight:800; font-size:15px;">${esc(w.name)}</span>
-        <span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">שיא: ${formatWodBest(w.id)}</span>
+        ${isEmom ? "" : `<span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">שיא: ${formatWodBest(w.id)}</span>`}
       </div>
-      ${renderChart(chartData)}
+      ${chartHtml}
       <div class="log-list" style="margin-top:12px;">
         ${recent.map((e) => `
           <div class="log-row" style="${e.notes ? "flex-direction:column; align-items:stretch; gap:4px;" : ""}">
@@ -3048,7 +3452,7 @@ function renderWodDetailCard(w) {
               <div class="flex items-center gap-8">
                 ${e.isPR ? ICONS.flame : ""}
                 <span style="color:var(--steel); font-size:12px;">${fmtDate(e.date)}</span>
-                <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}</span>
+                <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}${e.partnerTag ? ` · ${esc(e.partnerTag)}` : ""}</span>
               </div>
               <span class="mono" style="font-size:13px;">${formatWodEntry(e)}</span>
             </div>
@@ -3115,6 +3519,8 @@ function renderWodContent() {
   if (wodSubTab === "log") {
     const notesInput = document.getElementById("wodNotesInput");
     if (notesInput) notesInput.addEventListener("input", (e) => { wodNotes = cleanStr(e.target.value, LIMITS.notesLen); });
+    const partnerInput = document.getElementById("wodPartnerTagInput");
+    if (partnerInput) partnerInput.addEventListener("input", (e) => { wodPartnerTag = cleanStr(e.target.value, LIMITS.partnerTag); });
     const dateInput = document.getElementById("wodLogDateInput");
     if (dateInput) dateInput.addEventListener("change", (e) => {
       wodLogDate = clampLogDate(e.target.value);
@@ -3130,6 +3536,9 @@ function renderWodContent() {
 
 // ---------- Picker ----------
 let pickerOpen = false;
+// "primary" (the normal case — picking selectedId) or "partner" (picking
+// the second exercise of an active superset — see setLadderPartner).
+let pickerTarget = "primary";
 function syncPickerViewport() {
   const overlay = document.getElementById("pickerOverlay");
   if (!overlay) return;
@@ -3139,8 +3548,9 @@ function syncPickerViewport() {
 if (window.visualViewport) {
   window.visualViewport.addEventListener("resize", () => { if (pickerOpen) syncPickerViewport(); });
 }
-function openPicker() {
+function openPicker(target) {
   pickerOpen = true;
+  pickerTarget = target === "partner" ? "partner" : "primary";
   document.body.style.overflow = "hidden";
   syncPickerViewport();
   document.getElementById("pickerOverlay").classList.add("open");
@@ -3148,6 +3558,14 @@ function openPicker() {
   search.value = "";
   renderPickerList("");
   setTimeout(() => search.focus(), 50);
+}
+// Routes a picked movement id to the right place depending on pickerTarget:
+// the normal exercise selection, or the active ladder's superset partner.
+function choosePickedMovement(id) {
+  if (pickerTarget === "partner") { setLadderPartner(id); return; }
+  selectedId = id;
+  syncLogEntryTypeToSelection();
+  endLadder();
 }
 function closePicker() {
   pickerOpen = false;
@@ -3362,6 +3780,9 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "reset-log-date") { logDate = todayISO(); endLadder(); render(); }
   else if (action === "toggle-ladder-mode") { toggleLadderMode(); }
+  else if (action === "set-log-entry-type") { setLogEntryType(el.dataset.type); }
+  else if (action === "ladder-switch-exercise") { switchLadderExercise(el.dataset.id); }
+  else if (action === "set-ladder-block-label") { setLadderBlockLabel(el.dataset.label); }
   else if (action === "prefill-last") { prefillFromLast(); }
   else if (action === "cancel-edit-entry") { cancelEditEntry(); }
   else if (action === "edit-entry") { startEditEntry(el.dataset.id); }
@@ -3376,15 +3797,15 @@ document.addEventListener("click", (e) => {
   else if (action === "reset-wod-log-date") { wodLogDate = todayISO(); renderWodContent(); }
   else if (action === "cancel-edit-wod-entry") { cancelEditWodEntry(); }
   else if (action === "edit-wod-entry") { startEditWodEntry(el.dataset.id); }
-  else if (action === "open-picker") { openPicker(); }
+  else if (action === "open-picker") { openPicker(el.dataset.target); }
   else if (action === "close-picker") {
     if (el.id === "pickerOverlay" && e.target !== el) return;
     closePicker();
   }
-  else if (action === "pick-movement") { selectedId = el.dataset.id; endLadder(); closePicker(); render(); }
+  else if (action === "pick-movement") { choosePickedMovement(el.dataset.id); closePicker(); render(); }
   else if (action === "add-movement") { addMovement(el.dataset.name, el.dataset.category); }
   else if (action === "focus-picker-search") { document.getElementById("pickerSearch").focus(); }
-  else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight" || action === "measure-step") {
+  else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight" || action === "builder-movement-duration" || action === "builder-emom-minutes" || action === "builder-time-cap" || action === "wod-emom-step" || action === "measure-step") {
     const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
     const current = getFieldValue(action, field);
     const base = (typeof current === "number" && isFinite(current)) ? current : 0;
@@ -3425,13 +3846,9 @@ document.addEventListener("click", (e) => {
     if (el.id === "wodBuilderOverlay" && e.target !== el) return;
     closeWodBuilder();
   }
-  else if (action === "builder-set-format") { builderFormat = el.dataset.format; renderWodBuilderFormats(); }
-  else if (action === "toggle-builder-movement") {
-    const name = el.dataset.name;
-    if (Object.prototype.hasOwnProperty.call(builderMovements, name)) delete builderMovements[name];
-    else builderMovements[name] = { reps: 10, weight: 0 };
-    renderWodBuilderMovements();
-  }
+  else if (action === "builder-set-format") { builderFormat = el.dataset.format; renderWodBuilderFormats(); renderWodBuilderMovements(); }
+  else if (action === "toggle-builder-movement") { toggleBuilderMovement(el.dataset.name); }
+  else if (action === "toggle-builder-movement-type") { setBuilderMovementType(el.dataset.name, el.dataset.type); }
   else if (action === "add-builder-movement-tag") {
     const name = cleanStr(el.dataset.name, LIMITS.nameLen), category = el.dataset.category;
     if (!name) return;
@@ -3505,7 +3922,7 @@ document.getElementById("pickerSearch").addEventListener("keydown", (e) => {
   const q = e.target.value.trim();
   if (!q) return;
   const exact = allMovements().find((m) => m.name.toLowerCase() === q.toLowerCase());
-  if (exact) { selectedId = exact.id; closePicker(); render(); }
+  if (exact) { choosePickedMovement(exact.id); closePicker(); render(); }
   else e.target.blur();
 });
 document.getElementById("wodPickerSearch").addEventListener("input", (e) => renderWodPickerList(cleanStr(e.target.value, LIMITS.nameLen)));
@@ -3535,13 +3952,18 @@ document.addEventListener("input", (e) => {
   if (!isFinite(val)) return;
   const action = el.dataset.action, field = el.dataset.field;
   setFieldState(action, field, clampField(action, field, val, +el.dataset.min));
-  if (action === "step" && field === "weight") {
+  if (action === "step" && field === "weight" && logEntryType === "reps") {
     const bv = document.getElementById("barbellVisual");
     if (bv) bv.innerHTML = renderBarbell(weight);
   }
   if (action === "step") {
-    const estEl = document.getElementById("estLineValue");
-    if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+    if (logEntryType === "reps") {
+      const estEl = document.getElementById("estLineValue");
+      if (estEl) estEl.textContent = estimate1RM(weight, reps) + " kg";
+    } else if (field === "durationSeconds") {
+      const durEl = document.getElementById("durationLineValue");
+      if (durEl) durEl.textContent = formatDuration(durationSeconds);
+    }
   }
 });
 document.addEventListener("focusout", (e) => {

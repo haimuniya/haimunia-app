@@ -1,3 +1,88 @@
+# Workout format support, sub-tasks A (WOD builder half) + B + D + extras — 2026-08-25
+
+Finishes the workout-format-support spec: the WOD builder's own duration
+toggle (the other half of sub-task A), blocks/supersets (B), EMOM (D), and
+the two lower-priority extras (time cap, partner tag). Sub-task C was
+already covered by the existing ladder feature (confirmed in the previous
+round). Plain single-exercise logging, and every previously-shipped
+feature, is unaffected — re-verified via the full test suite and browser
+checks after each addition below.
+
+- **WOD builder duration toggle.** A movement checked in the builder can be
+  marked "reps" or "duration" (a reps/duration chip pair per movement,
+  reusing the toggle from the Log tab). Only changes the free-text
+  description the builder generates (`builderMovementsToDesc`) — WOD
+  entries themselves have never stored structured per-movement data for any
+  format except EMOM (see below).
+- **Supersets and A/B/C/D block labels.** Extends the existing ladder
+  mechanism rather than replacing it: a ladder can now optionally take a
+  second exercise (`setLadderPartner`), turning it into a superset —
+  alternating rounds between exactly two exercises under one `groupId`,
+  switched between via two pills (`switchLadderExercise`) instead of the
+  normal exercise picker (which still ends it, same as before). An
+  optional `blockLabel` chip (A/B/C/D) tags the whole group, carried by
+  every round. The calendar day view and Log tab's running list both
+  derive "is this a superset" from the group's own data (more than one
+  distinct exerciseId), not from in-progress session state, so a finished
+  superset displays correctly regardless of how it was built.
+- **EMOM.** A fourth WOD scoreType, built through the same
+  reusable/named WOD builder as Fran or Grace — not a one-off freeform
+  entry. Unlike every other format, an EMOM's movement rotation
+  (`emomMovements`/`emomTargetReps`/`emomMinutes`) is structured data on the
+  WOD record itself, because the log form needs it to render one reps
+  field per movement, prefilled from that WOD's own targets and resized
+  automatically when switching between differently-shaped EMOM WODs.
+  Explicitly out of scope per the confirmed spec: no cross-attempt scoring
+  — `bestWodScore`/the History tab's PR chart both skip EMOM entirely
+  rather than fabricate a comparison that doesn't mean anything for it.
+- **Time cap and partner tag.** Two small, independent additions: an
+  optional reference-only time cap on a WOD (shown in the log header,
+  never enforced or scored), and a free-text partner tag per WOD entry
+  ("with Dana") shown next to Rx/Scaled in history and the calendar.
+
+Also fixed along the way: the strength Log tab's est-1RM/barbell-visual
+live-update on raw keystroke input wasn't duration-mode-aware (a latent gap
+from the previous round, caught while wiring the same live-update path for
+the new duration stepper), and picking an exact-name search match in the
+exercise picker via Enter didn't end an active ladder the way clicking the
+same movement's button already did — both now consistent.
+
+# Workout format support, sub-task A: duration/hold entries — 2026-08-25
+
+A structured spec came in covering four workout-logging gaps that BTWB/
+SugarWOD-style apps handle poorly: timed holds, multi-part A/B/C blocks
+with supersets, pyramid rep schemes, and EMOMs with rotating movements.
+Pyramid schemes turned out to already be covered by the existing ladder
+feature (confirmed, not assumed — skipped as its own sub-task). This round
+covers sub-task A only; blocks/supersets and EMOM are separate, larger
+changes staged for their own rounds.
+
+- **Duration/hold entries in the strength Log tab.** A new reps/duration
+  toggle next to the exercise picker switches the whole entry form: reps
+  mode is exactly what existed before (unchanged), duration mode swaps the
+  reps stepper for a duration-in-seconds one and skips the barbell-plate
+  visual and bar-weight row (neither applies to a timed hold). Weight stays
+  available in duration mode for weighted carries/holds, defaulting to 0
+  for a bodyweight hold. `sanitizeEntry` gained a `type` ("reps" |
+  "duration") discriminator and a `durationSeconds` field — every entry
+  from before this change has no `type`, which sanitizes to "reps"
+  automatically, so existing data and the plain reps flow are unaffected.
+- Selecting an exercise now defaults the toggle to whatever it was last
+  logged as (a hold-only movement like a plank stays in duration mode),
+  and editing an existing entry restores its own type regardless of
+  whatever the toggle currently shows.
+- PR tracking, the History tab's per-exercise chart, and the achievement
+  system's per-category PR counter all now correctly separate duration
+  entries from reps entries — a hold-only movement reports "no 1RM" (not a
+  phantom 0kg one), and its History chart plots hold time instead of
+  est1RM. Recent-history, the calendar day view, and ladder-round display
+  all format each entry by its own type, so a mixed history (an exercise
+  logged both ways over time) renders correctly everywhere.
+- Ladders and duration entries compose: a ladder can be a sequence of
+  progressively longer holds, same as it can be a sequence of different
+  weight/rep rungs. Switching the reps/duration toggle mid-ladder ends it,
+  same as switching exercise or date already did.
+
 # Roadmap round: notifications, onboarding, streaks, recent history, session notes — 2026-08-25
 
 A 10-phase roadmap came in for "look at every tab." Two phases turned out

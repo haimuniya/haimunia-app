@@ -208,6 +208,7 @@
   .rx-btn{ flex:1; padding:10px 0; border-radius:12px; border:1px solid var(--border); background:var(--surface); font-weight:700; font-size:13px; color:var(--steel); }
   .rx-btn.active-rx{ background:rgba(63,132,85,.15); border-color:var(--green); color:var(--green); }
   .rx-btn.active-scaled{ background:rgba(224,178,60,.15); border-color:var(--yellow); color:var(--yellow); }
+  .rx-btn.active-type{ background:rgba(201,75,41,.15); border-color:var(--energy); color:var(--energy); }
   .wod-desc{ color:var(--steel); font-size:12px; margin-top:2px; }
   .text-input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:var(--chalk); font-size:16px; }
   input[type="date"]{ color-scheme:var(--color-scheme); }
@@ -429,12 +430,15 @@
         <button class="format-chip" data-action="builder-set-format" data-format="time" role="radio" aria-checked="false">זמן</button>
         <button class="format-chip" data-action="builder-set-format" data-format="amrap" role="radio" aria-checked="false">AMRAP</button>
         <button class="format-chip" data-action="builder-set-format" data-format="load" role="radio" aria-checked="false">משקל מקסימלי</button>
+        <button class="format-chip" data-action="builder-set-format" data-format="emom" role="radio" aria-checked="false">EMOM</button>
       </div>
       <div id="wodBuilderFormatHint" style="color:var(--steel); font-size:11px; margin-bottom:16px;">חובה לבחור אחד</div>
+      <div id="wodBuilderEmomOptions"></div>
+      <div id="wodBuilderTimeCapOptions"></div>
 
       <button data-action="create-wod" class="save-btn" style="max-width:none; margin-bottom:20px;">צור אימון</button>
 
-      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">תרגילים (אופציונלי)</div>
+      <div id="wodBuilderMovesLabel" style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">תרגילים (אופציונלי)</div>
       <div class="search-box" style="margin:0 0 12px;">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
         <input id="wodBuilderMoveSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש תרגילים" aria-label="חיפוש תרגילים" />
