@@ -1,3 +1,37 @@
+# Service worker: stop self-reloading on first install, apply updates without reopening — 2026-08-25
+
+Two bugs in the update-delivery path, found while chasing a report that the
+new ladder feature "wasn't showing up."
+
+**Critical: every fresh visit was reloading itself ~1-2s after opening.**
+`self.clients.claim()` in the service worker's `activate` handler fires
+`controllerchange` even on a page's very first-ever install — not just on a
+real update swap. The app's `controllerchange` listener reloaded
+unconditionally, so any in-progress input (the welcome-modal name field, a
+weight being adjusted, a ladder mid-session) could get silently wiped a
+second or two into every single visit. `applyUpdate()` now sets a
+`swapRequested` flag right before asking a waiting worker to take over, and
+the listener only reloads when that flag is set — ignoring the incidental
+first-claim event. Confirmed via a real Chromium session: before the fix, a
+fresh load always fired a second navigation within ~2s; after, zero.
+
+**Updates now apply without a manual reopen, in the common case.** Previously
+every update needed an explicit tap on the "עדכון חדש זמין" banner. Since the
+phone screen locking between sets already fires `visibilitychange`, updates
+now apply automatically the moment the page regains visibility after being
+backgrounded — no banner, no reopening needed. The banner still appears as a
+fallback only when an update lands while the page has stayed continuously
+visible (reloading then could drop unsaved input), and applies automatically
+on the next visibility regain even if the banner is never tapped.
+
+Files changed: `app.js`. No test suite coverage for either fix — both are
+real Service Worker lifecycle behavior that jsdom doesn't implement, so they
+were verified with a real Chromium session (Playwright) against a local
+static server instead; see the session's own scratch scripts for the pattern
+if this code changes again.
+
+---
+
 # Ladder logging — 2026-08-25
 
 Working-up ladders (e.g. Press: 6 reps @ 60, 5 @ 70, 4 @ 80, 3 @ 85, 3 @ 90 —

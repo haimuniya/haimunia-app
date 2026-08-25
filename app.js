@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.18.0";
+const APP_VERSION = "2.19.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -3001,13 +3001,39 @@ function renderWodPickerList(query) {
 
 // ---------- Service worker update handshake ----------
 let pendingWorker = null;
+// Set right before we ask a waiting worker to take over, so the
+// controllerchange listener below can tell "we asked for this swap" apart
+// from self.clients.claim() firing that same event on the very first
+// install too (a page with no prior controller still gets one controllerchange
+// the moment the first SW claims it — that's not an update, and reloading
+// for it was wiping out whatever someone had just started typing, every
+// single first visit).
+let swapRequested = false;
 function applyUpdate() {
-  // Ask the waiting worker to take over; controllerchange then reloads us.
-  if (pendingWorker) {
-    try { pendingWorker.postMessage({ type: "SKIP_WAITING" }); return; } catch (e) {}
+  const worker = pendingWorker;
+  pendingWorker = null; // guard against a second trigger firing before the reload lands
+  if (worker) {
+    swapRequested = true;
+    try { worker.postMessage({ type: "SKIP_WAITING" }); return; } catch (e) { swapRequested = false; }
   }
   location.reload();
 }
+// A new version becomes available mid-session fairly often here — the phone
+// screen locks between sets, which already fires visibilitychange, so most
+// updates apply the moment someone picks the phone back up, with no banner
+// and no manual reopen needed. The one case that still needs the banner:
+// the update lands while the page has been continuously visible (an
+// uninterrupted stretch of active use) — reloading out from under someone
+// mid-set would drop whatever they just typed but haven't tapped Save on
+// yet, since nothing here persists until that tap.
+function offerUpdate(worker) {
+  pendingWorker = worker;
+  if (document.visibilityState === "visible") showUpdateBanner();
+  else applyUpdate();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && pendingWorker) applyUpdate();
+});
 
 // ---------- Install prompt ----------
 // Chrome/Android fire beforeinstallprompt once, early, and let a page defer
@@ -3293,10 +3319,11 @@ async function init() {
 
   if ("serviceWorker" in navigator) {
     // The SW no longer calls skipWaiting() on install, so a new version parks
-    // in "waiting" until the user taps the banner. That keeps the running page
-    // and its cached assets on the same version.
+    // in "waiting" until offerUpdate() applies it (see the update handshake
+    // above) — either right away if the page isn't currently visible, or via
+    // the banner/next visibility-regain otherwise. That keeps the running
+    // page and its cached assets on the same version until it's safe to swap.
     navigator.serviceWorker.register("./sw.js").then((reg) => {
-      const offerUpdate = (worker) => { pendingWorker = worker; showUpdateBanner(); };
       if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg.waiting);
       reg.addEventListener("updatefound", () => {
         const nw = reg.installing;
@@ -3309,6 +3336,7 @@ async function init() {
 
     let reloading = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!swapRequested) return; // e.g. the first-ever clients.claim() — nothing to reload for
       if (reloading) return;
       reloading = true;
       location.reload();
