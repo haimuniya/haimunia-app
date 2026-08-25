@@ -406,6 +406,10 @@ function sanitizeEntry(e) {
   return {
     id, exerciseId, date, weight, reps, sets: Math.round(sets),
     ts: cleanTs(e.ts), isPR: e.isPR === true,
+    // Links several rows saved as one working-set ladder (same exercise,
+    // same day, different weight/reps each) so the calendar day view can
+    // group them — see renderCalDetail. null for an ordinary single set.
+    groupId: cleanId(e.groupId) || null,
     est1RM: cleanNum(e.est1RM, 0, LIMITS.weight * 2, estimate1RM(weight, reps)),
   };
 }
@@ -741,6 +745,9 @@ let tab = VALID_TABS.includes(urlTab) ? urlTab : "add";
 let selectedId = MOVEMENTS[0].id;
 let weight = 20, reps = 5, sets = 1;
 let logDate = todayISO();
+// A ladder groups the next saves (different weight/reps each) under one
+// groupId, scoped to one exercise/day — see toggleLadderMode() and saveSet().
+let ladderMode = false, ladderGroupId = null;
 let editingEntryId = null;
 // Never allow a future-dated set, even if a user bypasses the date input's
 // max attribute (e.g. via devtools) or the device clock is off.
@@ -1140,6 +1147,7 @@ async function addMovement(name, category) {
   const existing = allMovements().find((m) => m.name.toLowerCase() === trimmed.toLowerCase());
   if (existing) {
     selectedId = existing.id;
+    endLadder();
     closePicker();
     render();
     return;
@@ -1151,6 +1159,7 @@ async function addMovement(name, category) {
   customMovements.push(movement);
   try { await dbAddMovement(movement); } catch (e) { noteStorageError(e); }
   selectedId = id;
+  endLadder();
   closePicker();
   render();
 }
@@ -1167,17 +1176,50 @@ async function saveSet() {
     id: existing ? existing.id : uid("set"),
     ts: existing ? existing.ts : Date.now(),
     exerciseId: selectedId, weight, reps, sets, date, isPR, est1RM: est,
+    // Editing keeps the row's original group; a fresh save only joins the
+    // active ladder (if any) — see toggleLadderMode().
+    groupId: existing ? (existing.groupId ?? null) : (ladderMode ? ladderGroupId : null),
   };
   entries = entries.filter((e) => e.id !== entry.id);
   entries.unshift(entry);
   entries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   try { await dbPut(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   editingEntryId = null;
-  logDate = todayISO();
+  // Mid-ladder, keep the date fixed so every rung lands on the same day —
+  // otherwise this reset-to-today would silently misdate rungs 2+ of a
+  // ladder logged for a past date.
+  if (!ladderMode) logDate = todayISO();
   if (isPR) flashPR();
   render();
-  const mov = movementById(entry.exerciseId);
-  celebrateAfterSave(isPR && mov ? `${mov.name} — ${weight} ק"ג × ${reps}` : null);
+  // The full-screen popup is disruptive mid-ladder — an ascending ladder's
+  // rungs routinely all beat the previous best est1RM, which would otherwise
+  // mean one popup per rung. The barbell flash above still shows a PR inline
+  // either way; if this same set unlocks a badge later (once ladder mode is
+  // off), that celebration still fires normally then.
+  if (!ladderMode) {
+    const mov = movementById(entry.exerciseId);
+    celebrateAfterSave(isPR && mov ? `${mov.name} — ${weight} ק"ג × ${reps}` : null);
+  }
+}
+// A ladder (working-set session: same exercise/day, different weight+reps
+// each rung) is just consecutive saveSet() calls tagged with one groupId —
+// see saveSet(). Turning ladder mode on starts a fresh group; turning it
+// off (here or via endLadder()) only stops future saves from joining it,
+// rounds already saved keep their tag.
+function toggleLadderMode() {
+  if (ladderMode) { endLadder(); return; }
+  ladderMode = true;
+  ladderGroupId = uid("ladder");
+  render();
+}
+function endLadder() {
+  if (!ladderMode) return;
+  ladderMode = false;
+  ladderGroupId = null;
+}
+function currentLadderRounds() {
+  if (!ladderGroupId) return [];
+  return entries.filter((e) => e.groupId === ladderGroupId).sort((a, b) => (a.ts || 0) - (b.ts || 0));
 }
 function startEditEntry(id) {
   const entry = entries.find((e) => e.id === id);
@@ -2016,6 +2058,28 @@ function renderLogTab() {
 
     <div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>
 
+    <div class="flex items-center justify-between" style="margin:8px 0 12px;">
+      <button data-action="toggle-ladder-mode" class="link-btn" aria-pressed="${ladderMode}" style="${ladderMode ? "color:var(--brass); font-weight:700; text-decoration:none;" : ""}">
+        ${ladderMode ? "סיום סולם" : "רישום סולם (כמה סטים, משקלים שונים)"}
+      </button>
+    </div>
+    ${ladderMode ? (() => {
+      const rounds = currentLadderRounds();
+      return `
+      <div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:12px;">
+        <div style="color:var(--brass); font-weight:700; font-size:12px; margin-bottom:${rounds.length ? "8px" : "0"};">הסולם הנוכחי${rounds.length ? ` — ${rounds.length} סטים` : ""}</div>
+        ${rounds.length ? `<div class="flex wrap gap-8">
+          ${rounds.map((r, i) => `
+            <span class="flex items-center gap-6 mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:13px; font-weight:700;">
+              ${i + 1}. ${r.reps}×${r.weight}
+              <button data-action="delete-entry" data-id="${esc(r.id)}" aria-label="מחיקת סט ${i + 1} מהסולם" style="color:var(--steel); padding:0; display:inline-flex;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </span>`).join("")}
+        </div>` : `<div style="color:var(--steel); font-size:12px;">קבעו משקל וחזרות למטה ולחצו על הכפתור הכחול בכל פעם שמסיימים סט</div>`}
+      </div>`;
+    })() : ""}
+
     ${dayEntries.length === 0 ? `
     <div class="empty">${isToday ? "עדיין לא נרשמו סטים היום. קדימה למוט." : `עדיין לא נרשמו סטים ב-${esc(dayLabel)}.`}</div>` : `
     <button class="exercise-row" data-action="view-log-date-calendar" style="margin-bottom:0;">
@@ -2143,6 +2207,23 @@ function renderCalendarGrid() {
   renderCalDetail();
 }
 
+// Partitions same-day entries into ladder groups (rows sharing a groupId)
+// and singletons (an ordinary set, or a ladder row from an older backup
+// with no groupId). Groups keep the incoming (most-recent-first) order;
+// rounds within a group are oldest-first, i.e. the order they were logged.
+function groupDayEntries(list) {
+  const seen = new Set();
+  const groups = [];
+  for (const e of list) {
+    const key = e.groupId || e.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    groups.push(e.groupId
+      ? list.filter((x) => x.groupId === e.groupId).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0))
+      : [e]);
+  }
+  return groups;
+}
 function renderCalDetail() {
   const el = document.getElementById("calDetail");
   if (!el) return;
@@ -2154,7 +2235,10 @@ function renderCalDetail() {
     <div class="section-label" style="margin-top:4px;">${label.toUpperCase()}</div>
     ${(dayEntries.length === 0 && dayWods.length === 0) ? `<div class="empty">לא נרשם דבר ביום הזה.</div>` : `
     <div class="log-list">
-      ${dayEntries.map((e) => `
+      ${groupDayEntries(dayEntries).map((group) => {
+        if (group.length === 1) {
+          const e = group[0];
+          return `
         <div class="log-row">
           <div class="flex items-center gap-8">
             ${e.isPR ? ICONS.flame : ""}
@@ -2165,7 +2249,32 @@ function renderCalDetail() {
             <button data-action="edit-entry" data-id="${esc(e.id)}" aria-label="עריכת סט" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
             <button data-action="delete-entry" data-id="${esc(e.id)}" aria-label="מחיקת סט" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
           </div>
-        </div>`).join("")}
+        </div>`;
+        }
+        // Ladder: one card, exercise name + PR flame shown once, then every
+        // round on its own line with its own edit/delete — each rung stays
+        // individually correctable, per the point of this whole feature.
+        const anyPR = group.some((e) => e.isPR);
+        const name = esc(movementById(group[0].exerciseId) ? movementById(group[0].exerciseId).name : "?");
+        return `
+        <div class="log-row" style="flex-direction:column; align-items:stretch; gap:8px;">
+          <div class="flex items-center gap-8">
+            ${anyPR ? ICONS.flame : ""}
+            <span style="font-weight:700; font-size:14px;">${name}</span>
+            <span style="color:var(--steel); font-size:11px;">סולם · ${group.length} סטים</span>
+          </div>
+          <div class="flex col gap-6">
+            ${group.map((e, i) => `
+            <div class="flex items-center justify-between">
+              <span class="mono flex items-center gap-6" style="color:var(--steel); font-size:13px;">${i + 1}. ${e.reps}×${e.weight}${e.isPR ? ICONS.flame : ""}</span>
+              <div class="flex items-center gap-6">
+                <button data-action="edit-entry" data-id="${esc(e.id)}" aria-label="עריכת סט ${i + 1}" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
+                <button data-action="delete-entry" data-id="${esc(e.id)}" aria-label="מחיקת סט ${i + 1}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+              </div>
+            </div>`).join("")}
+          </div>
+        </div>`;
+      }).join("")}
       ${dayWods.map((e) => {
         const w = wodById(e.wodId);
         return `
@@ -2536,6 +2645,7 @@ function render() {
       const dateInput = document.getElementById("logDateInput");
       if (dateInput) dateInput.addEventListener("change", (e) => {
         logDate = clampLogDate(e.target.value);
+        endLadder(); // a ladder is scoped to one day
         render();
       });
     }
@@ -2972,7 +3082,8 @@ document.addEventListener("click", (e) => {
     calSelectedDate = logDate;
     render();
   }
-  else if (action === "reset-log-date") { logDate = todayISO(); render(); }
+  else if (action === "reset-log-date") { logDate = todayISO(); endLadder(); render(); }
+  else if (action === "toggle-ladder-mode") { toggleLadderMode(); }
   else if (action === "cancel-edit-entry") { cancelEditEntry(); }
   else if (action === "edit-entry") { startEditEntry(el.dataset.id); }
   else if (action === "view-log-wod-date-calendar") {
@@ -2991,7 +3102,7 @@ document.addEventListener("click", (e) => {
     if (el.id === "pickerOverlay" && e.target !== el) return;
     closePicker();
   }
-  else if (action === "pick-movement") { selectedId = el.dataset.id; closePicker(); render(); }
+  else if (action === "pick-movement") { selectedId = el.dataset.id; endLadder(); closePicker(); render(); }
   else if (action === "add-movement") { addMovement(el.dataset.name, el.dataset.category); }
   else if (action === "focus-picker-search") { document.getElementById("pickerSearch").focus(); }
   else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight" || action === "measure-step") {

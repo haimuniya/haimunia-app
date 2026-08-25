@@ -1,3 +1,35 @@
+# Ladder logging — 2026-08-25
+
+Working-up ladders (e.g. Press: 6 reps @ 60, 5 @ 70, 4 @ 80, 3 @ 85, 3 @ 90 —
+each rung a different weight *and* rep count) didn't fit the "Sets" field,
+which only means "N identical sets at one weight/reps." Saving each rung
+separately already worked, but showed up as unrelated rows.
+
+- Entries gained an optional `groupId` (`sanitizeEntry`) tying together the
+  rows saved in one ladder session. Existing records get `groupId: null` —
+  no behavior change for anyone who never uses this.
+- New toggle in the log tab: "רישום סולם" turns it on (generates a session
+  id), every Save while it's on joins that session, a running list of the
+  rounds so far shows underneath with a per-round remove. "סיום סולם" turns
+  it off. Switching exercise or changing the log date auto-ends it, so a set
+  can't silently misjoin the wrong session.
+- The calendar day view groups a ladder's rows into one card (exercise name
+  + PR flame shown once) — but every rung keeps its own edit/delete, so a
+  specific set stays individually correctable.
+- The full-screen "PR!" celebration popup is suppressed while a ladder is
+  active — an ascending ladder routinely beats the previous best est1RM on
+  every rung, which meant one popup per rung. The inline barbell flash still
+  shows a PR immediately; the popup resumes normally once the ladder ends.
+- Nothing else changed: PR detection, `bestEst1RM`/`repRecordFor`, the
+  progress chart, and export/import all still treat every round as its own
+  entry, same as before — a ladder's rungs just happen to share a tag.
+
+Files changed: `app.js`. Tests: `test/sanitizers.test.mjs` (groupId
+round-trip), `test/app-flow.test.mjs` (a real 5-round ladder end to end,
+including surviving a simulated reload, and exercise-switch auto-ending it).
+
+---
+
 # "Next level" pass — 2026-08-25
 
 Follow-up to the review below: closed out the "left for you" items from the
