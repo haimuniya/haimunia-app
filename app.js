@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.24.0";
+const APP_VERSION = "2.24.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -3829,7 +3829,20 @@ document.addEventListener("click", (e) => {
   else if (action === "ask-clear") { confirmClear = true; render(); }
   else if (action === "do-clear") { clearAllData(); }
   else if (action === "cancel-clear") { confirmClear = false; render(); }
-  else if (action === "switch-wod-subtab") { wodSubTab = el.dataset.subtab; renderWodContent(); }
+  else if (action === "switch-wod-subtab") {
+    wodSubTab = el.dataset.subtab;
+    // The pill buttons themselves live in renderWodTab(), which only runs
+    // on a full top-level tab switch — renderWodContent() alone only swaps
+    // #wodContent's innerHTML, so without this the highlighted pill stayed
+    // stuck on whichever subtab was active when the WOD tab was first
+    // opened, even though the content underneath switched correctly.
+    document.querySelectorAll(".subtabbar .subtabbtn").forEach((btn) => {
+      const active = btn.dataset.subtab === wodSubTab;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-selected", String(active));
+    });
+    renderWodContent();
+  }
   else if (action === "open-wod-picker") { openWodPicker(); }
   else if (action === "close-wod-picker") {
     if (el.id === "wodPickerOverlay" && e.target !== el) return;

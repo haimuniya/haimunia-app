@@ -1,3 +1,15 @@
+# Fix: WOD tab's רישום/היסטוריה pill highlight not following the subtab — 2026-08-25
+
+Reported by the user with a screenshot: after switching WOD subtabs,
+היסטוריה stayed highlighted while the רישום (log) form was actually
+showing underneath. Root cause: the pill buttons are rendered once in
+renderWodTab(), which only runs on a full top-level tab switch —
+switch-wod-subtab's handler only ever called renderWodContent() (swaps
+#wodContent's innerHTML), so the content switched correctly but the
+highlight never followed it. Fixed by having the handler also update the
+two buttons' active/aria-selected state directly, same pattern already
+used for the WOD builder's format chips.
+
 # Workout format support, sub-tasks A (WOD builder half) + B + D + extras — 2026-08-25
 
 Finishes the workout-format-support spec: the WOD builder's own duration
