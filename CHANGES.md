@@ -1,3 +1,38 @@
+# Committed browser-check scripts — 2026-08-25
+
+Three real bugs this session (self-reload on first install, PR celebration
+firing on every ladder rung, editing mid-ladder not ending it) only
+surfaced through real-Chromium testing — jsdom doesn't implement Service
+Worker lifecycle or real DOM event timing, so the committed `npm test`
+suite structurally can't catch this class of bug. Those checks previously
+lived as scratch scripts, rebuilt from scratch each time.
+
+`scripts/browser-check/` — a separate package (own `package.json`, own
+`playwright` dependency, own lockfile) so the main app's dependency tree
+stays untouched:
+
+- `npm run setup` once (installs Playwright + downloads Chromium)
+- `npm run check:boot` — fresh load, fonts actually loaded, no self-reload,
+  all 4 tabs switch, no console errors
+- `npm run check:ladder` — a real 5-round working-up ladder end to end:
+  toggle, save, celebration suppression, calendar grouping, edit, delete,
+  finish
+- `npm run check:update` — the Service Worker update lifecycle (first
+  install doesn't self-reload; an update hidden from view auto-applies
+  silently; one landing mid-session shows the banner and applies on the
+  next visibility regain). Local-only — it edits `sw.js` on disk to
+  simulate a new deploy landing, reverted when it's done.
+- `npm run check:all` runs all three, stopping at the first failure
+
+Each defaults to a throwaway local static server over the working tree
+(uncommitted changes included); `TARGET_URL=<url>` points any of them at a
+deployed site instead, e.g. to verify a push actually landed.
+
+Not part of the main test suite or any CI — on-demand only, the same way
+this session ran them by hand throughout.
+
+---
+
 # Gap-hunting pass — 2026-08-25
 
 Went back through the app looking for rough edges, focused on the ladder
