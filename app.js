@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.16.1";
+const APP_VERSION = "2.16.2";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
