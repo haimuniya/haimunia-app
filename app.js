@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.17.0";
+const APP_VERSION = "2.17.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1086,21 +1086,43 @@ async function loadSeenAchievements() {
   seenAchievementIds = new Set(ACHIEVEMENTS.filter((a) => a.earned()).map((a) => a.id));
   dbSetSetting(SEEN_ACHIEVEMENTS_KEY, [...seenAchievementIds]).catch(() => {});
 }
+function newlyEarnedAchievements() {
+  return ACHIEVEMENTS.filter((a) => a.earned() && !seenAchievementIds.has(a.id));
+}
 function checkForNewAchievements() {
-  const newlyEarned = [];
-  for (const a of ACHIEVEMENTS) {
-    if (a.earned() && !seenAchievementIds.has(a.id)) newlyEarned.push(a);
-  }
+  const newlyEarned = newlyEarnedAchievements();
   if (!newlyEarned.length) return;
   for (const a of newlyEarned) seenAchievementIds.add(a.id);
   dbSetSetting(SEEN_ACHIEVEMENTS_KEY, [...seenAchievementIds]).catch(noteStorageError);
-  showAchievementCelebration(newlyEarned);
+  showCelebration(null, newlyEarned);
 }
-function showAchievementCelebration(list) {
+// prLabel: a short "Exercise — 92.5 kg" style string when this save itself
+// was a personal record, or null. Badges and a plain PR can land in the
+// same save (a PR that also crosses a tier threshold) - one popup covers
+// both instead of firing twice back to back.
+function celebrateAfterSave(prLabel) {
+  const newBadges = newlyEarnedAchievements();
+  if (!prLabel && !newBadges.length) return;
+  for (const a of newBadges) seenAchievementIds.add(a.id);
+  if (newBadges.length) dbSetSetting(SEEN_ACHIEVEMENTS_KEY, [...seenAchievementIds]).catch(noteStorageError);
+  showCelebration(prLabel, newBadges);
+}
+function showCelebration(prLabel, badges) {
+  const title = document.getElementById("celebrationTitle");
+  if (title) title.textContent = badges.length ? "כל הכבוד!" : "שיא אישי חדש!";
+  const prLine = document.getElementById("celebrationPrLine");
+  if (prLine) {
+    prLine.textContent = prLabel || "";
+    prLine.style.display = prLabel ? "block" : "none";
+  }
   const medalsEl = document.getElementById("celebrationMedals");
-  if (medalsEl) medalsEl.innerHTML = list.map((a) => renderMedal(a, true)).join("");
+  if (medalsEl) medalsEl.innerHTML = badges.map((a) => renderMedal(a, true)).join("");
   const sub = document.getElementById("celebrationSub");
-  if (sub) sub.textContent = list.length > 1 ? `${list.length} עיטורים חדשים נפתחו — תמשיכו ככה!` : "עיטור חדש נפתח — תמשיכו ככה!";
+  if (sub) {
+    sub.textContent = badges.length
+      ? (badges.length > 1 ? `${badges.length} עיטורים חדשים נפתחו — תמשיכו ככה!` : "עיטור חדש נפתח — תמשיכו ככה!")
+      : "תמשיכו ככה!";
+  }
   document.body.style.overflow = "hidden";
   document.getElementById("celebrationOverlay").classList.add("open");
 }
@@ -1151,7 +1173,8 @@ async function saveSet() {
   logDate = todayISO();
   if (isPR) flashPR();
   render();
-  checkForNewAchievements();
+  const mov = movementById(entry.exerciseId);
+  celebrateAfterSave(isPR && mov ? `${mov.name} — ${weight} ק"ג × ${reps}` : null);
 }
 function startEditEntry(id) {
   const entry = entries.find((e) => e.id === id);
@@ -1799,7 +1822,7 @@ async function saveWod() {
   wodLogDate = todayISO();
   if (isPR) flashWodPR();
   render();
-  checkForNewAchievements();
+  celebrateAfterSave(isPR ? `${w.name} — ${formatWodEntry(entry)}` : null);
 }
 function startEditWodEntry(id) {
   const entry = wodEntries.find((e) => e.id === id);
