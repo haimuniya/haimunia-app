@@ -209,3 +209,50 @@ test("editing an unrelated entry mid-ladder ends it; editing the ladder's own ro
   assert.equal(benchSets.length, 1, "the ladder's own round is untouched by editing the unrelated entry");
   assert.equal(benchSets[0].weight, 62.5);
 });
+
+test("prefillFromLast() copies the exercise's last weight/reps/sets into the steppers", async () => {
+  const window = await bootApp();
+  await window.addMovement("Test Prefill Row", "Pull");
+  const movement = window.allMovements().find((m) => m.name === "Test Prefill Row");
+
+  window.applyFieldValue("step", "weight", 45);
+  window.applyFieldValue("step", "reps", 12);
+  window.applyFieldValue("step", "sets", 3);
+  await window.saveSet();
+
+  // Switch to a different exercise first, so the steppers hold unrelated
+  // values — prefill must pull from Test Prefill Row's own history, not
+  // whatever happened to be left over from the previous save.
+  await window.addMovement("Test Prefill Other", "Press");
+  window.applyFieldValue("step", "weight", 999);
+  window.applyFieldValue("step", "reps", 1);
+  window.applyFieldValue("step", "sets", 1);
+
+  await window.addMovement("Test Prefill Row", "Pull"); // re-selects the existing movement (exact-name match branch)
+
+  window.prefillFromLast();
+
+  const weightVal = window.document.querySelector("[data-field='weight'].stepper-val").value;
+  const repsVal = window.document.querySelector("[data-field='reps'].stepper-val").value;
+  const setsVal = window.document.querySelector("[data-field='sets'].stepper-val").value;
+  assert.equal(weightVal, "45");
+  assert.equal(repsVal, "12");
+  assert.equal(setsVal, "3");
+
+  // And it actually saves a matching entry, not just visually-updated inputs.
+  await window.saveSet();
+  const rows = window.entriesFor(movement.id);
+  assert.equal(rows.length, 2, "should have the original set plus this new prefilled one");
+  assert.equal(rows[0].weight, 45);
+  assert.equal(rows[0].reps, 12);
+  assert.equal(rows[0].sets, 3);
+});
+
+test("prefillFromLast() is a no-op for an exercise with no history yet", async () => {
+  const window = await bootApp();
+  await window.addMovement("Test Prefill Fresh", "Squat");
+  window.applyFieldValue("step", "weight", 40);
+  window.prefillFromLast(); // no prior entry for this movement
+  const weightVal = window.document.querySelector("[data-field='weight'].stepper-val").value;
+  assert.equal(weightVal, "40", "stepper value should be untouched when there's nothing to prefill from");
+});

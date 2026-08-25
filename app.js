@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.20.1";
+const APP_VERSION = "2.21.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1227,6 +1227,19 @@ function currentLadderRounds() {
   if (!ladderGroupId) return [];
   return entries.filter((e) => e.groupId === ladderGroupId).sort((a, b) => (a.ts || 0) - (b.ts || 0));
 }
+// This app is filled in after a workout, not during one — reconstructing a
+// session from memory (or a whiteboard scribble) usually means numbers
+// close to last time, not random ones. Tapping the "last session" card
+// copies them into the steppers as a starting point instead of everyone
+// re-dragging from whatever was left over from the previous save.
+function prefillFromLast() {
+  const last = entriesFor(selectedId)[0];
+  if (!last) return;
+  weight = last.weight;
+  reps = last.reps;
+  sets = last.sets;
+  render();
+}
 function startEditEntry(id) {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return;
@@ -1959,6 +1972,7 @@ const ICONS = {
   flat: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>',
   chevronsLeft: '<img src="./assets/icon-chevrons.png" alt="" width="11" height="10" style="transform:scaleX(-1); vertical-align:middle;" />',
   ladder: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3v18M18 3v18M6 8h12M6 13h12M6 18h12"/></svg>',
+  repeat: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
 };
 
 // ---------- Rendering ----------
@@ -2054,7 +2068,13 @@ function renderLogTab() {
     ${(est || last) ? `
     <div class="stat-row">
       ${est ? `<div class="stat-card"><div class="stat-label">1RM משוער</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
-      ${last ? `<div class="stat-card"><div class="stat-label">אימון אחרון</div><div class="stat-value mono">${last.weight}×${last.reps}</div></div>` : ""}
+      ${last ? `<button data-action="prefill-last" class="stat-card" style="text-align:right;" aria-label="מילוי המשקל, החזרות והסטים מהאימון האחרון — ${last.weight} על ${last.reps}">
+        <div class="flex items-center justify-between gap-6">
+          <span class="stat-label">אימון אחרון</span>
+          <span style="color:var(--steel);">${ICONS.repeat}</span>
+        </div>
+        <div class="stat-value mono">${last.weight}×${last.reps}</div>
+      </button>` : ""}
     </div>` : ""}
 
     ${renderBarWeightRow()}
@@ -3133,6 +3153,7 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "reset-log-date") { logDate = todayISO(); endLadder(); render(); }
   else if (action === "toggle-ladder-mode") { toggleLadderMode(); }
+  else if (action === "prefill-last") { prefillFromLast(); }
   else if (action === "cancel-edit-entry") { cancelEditEntry(); }
   else if (action === "edit-entry") { startEditEntry(el.dataset.id); }
   else if (action === "view-log-wod-date-calendar") {

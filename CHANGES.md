@@ -1,3 +1,25 @@
+# Prefill from last session — 2026-08-25
+
+Reframed what this app actually is: filled in after a workout (from memory
+or a whiteboard scribble), not used live during one — which rules out
+things like a rest timer, but means entry *speed* for reconstructing a
+session is what matters. Progressive overload means today's numbers are
+usually close to last time's, not random, yet the "אימון אחרון" (last
+session) card was informational only — you still dragged the steppers from
+scratch every time.
+
+It's now a button: tapping it copies that exercise's last weight, reps,
+and sets straight into the steppers (and the barbell visual updates with
+them). A small repeat icon signals it's interactive, distinct from the
+adjacent 1RM card which stays informational.
+
+Files changed: `app.js`. Two new tests in `test/app-flow.test.mjs` (prefill
+pulls the right exercise's history, not whatever was left over from a
+different one; no-op when there's no history yet). Verified visually in a
+real Chromium session — steppers and barbell both update from one tap.
+
+---
+
 # Committed browser-check scripts — 2026-08-25
 
 Three real bugs this session (self-reload on first install, PR celebration
