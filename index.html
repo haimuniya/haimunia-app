@@ -283,11 +283,11 @@
   <div class="modal-sheet" style="border-radius:22px; border-bottom:1px solid var(--border); max-height:none;">
     <div style="padding:28px 20px calc(env(safe-area-inset-bottom,0px) + 24px); text-align:center;">
       <img src="./assets/mark.png" alt="" width="36" height="41" style="margin-bottom:14px; opacity:.9;" />
-      <div style="color:var(--chalk); font-weight:800; font-size:19px; margin-bottom:6px;">ברוכים הבאים!</div>
-      <div style="color:var(--steel); font-size:13px; margin-bottom:18px;">איך נקרא לך?</div>
+      <div id="welcomeTitle" style="color:var(--chalk); font-weight:800; font-size:19px; margin-bottom:6px;">ברוכים הבאים!</div>
+      <div id="welcomeSubtitle" style="color:var(--steel); font-size:13px; margin-bottom:18px;">איך נקרא לך?</div>
       <input id="welcomeNameInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="השם שלך" style="margin-bottom:16px; text-align:center;" />
-      <button data-action="save-user-name" class="save-btn" style="max-width:none; margin-bottom:10px;">בואו נתחיל</button>
-      <button data-action="skip-user-name" class="link-btn">דלג</button>
+      <button data-action="save-user-name" class="save-btn" style="max-width:none; margin-bottom:10px;"><span id="welcomeSaveLabel">בואו נתחיל</span></button>
+      <button id="welcomeSkipBtn" data-action="skip-user-name" class="link-btn">דלג</button>
     </div>
   </div>
 </div>

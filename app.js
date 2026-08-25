@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.12.0";
+const APP_VERSION = "2.12.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -978,12 +978,28 @@ function renderUserGreeting() {
   const el = document.getElementById("userGreeting");
   if (el) el.textContent = userName ? `שלום ${userName}` : "";
 }
-function openWelcomeModal() {
+let welcomeEditing = false;
+function openWelcomeModal(editing) {
+  welcomeEditing = !!editing;
   document.body.style.overflow = "hidden";
   const overlay = document.getElementById("welcomeOverlay");
   if (overlay) overlay.classList.add("open");
+  const title = document.getElementById("welcomeTitle");
+  const subtitle = document.getElementById("welcomeSubtitle");
+  const saveLabel = document.getElementById("welcomeSaveLabel");
+  const skipBtn = document.getElementById("welcomeSkipBtn");
+  if (title) title.textContent = welcomeEditing ? "שינוי שם" : "ברוכים הבאים!";
+  if (subtitle) subtitle.textContent = "איך נקרא לך?";
+  if (saveLabel) saveLabel.textContent = welcomeEditing ? "שמירה" : "בואו נתחיל";
+  if (skipBtn) {
+    skipBtn.textContent = welcomeEditing ? "ביטול" : "דלג";
+    skipBtn.dataset.action = welcomeEditing ? "cancel-welcome-name" : "skip-user-name";
+  }
   const input = document.getElementById("welcomeNameInput");
-  if (input) setTimeout(() => input.focus(), 50);
+  if (input) {
+    input.value = welcomeEditing ? (userName || "") : "";
+    setTimeout(() => input.focus(), 50);
+  }
 }
 function closeWelcomeModal() {
   document.body.style.overflow = "";
@@ -1983,7 +1999,9 @@ function renderFooter() {
         const msg = days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`;
         return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${esc(msg)} — ייצוא גיבוי למטה</div>`;
       })()}
-      <div class="flex items-center justify-center gap-10" style="margin-bottom:8px;">
+      <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
+        <button class="link-btn" data-action="edit-user-name">שינוי שם</button>
+        <span style="color:var(--border); font-size:11px;">·</span>
         <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
         <span style="color:var(--border); font-size:11px;">·</span>
         <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
@@ -2597,6 +2615,8 @@ document.addEventListener("click", (e) => {
   else if (action === "delete-measurement-entry") { deleteMeasurementEntry(el.dataset.id); }
   else if (action === "save-user-name") { saveUserName(document.getElementById("welcomeNameInput").value); }
   else if (action === "skip-user-name") { saveUserName(""); }
+  else if (action === "cancel-welcome-name") { closeWelcomeModal(); }
+  else if (action === "edit-user-name") { openWelcomeModal(true); }
   else if (action === "set-rx") {
     wodRx = el.dataset.rx === "1";
     renderWodContent();
