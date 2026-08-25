@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.16.2";
+const APP_VERSION = "2.16.3";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -982,7 +982,7 @@ const ACHIEVEMENTS = [
 
 function renderMedal(ach, earned) {
   const shape = ach.group === "pr" || ach.group === "streak" ? "shield" : "circle";
-  const glowMap = { bronze: "rgba(214,152,78,.65)", silver: "rgba(200,206,214,.7)", gold: "rgba(255,206,90,.75)" };
+  const glowMap = { bronze: "rgba(201,162,39,.7)", silver: "rgba(216,222,228,.8)", gold: "rgba(242,185,12,.8)" };
   const glow = ach.group === "capstone" ? "rgba(255,180,60,.85)"
     : ach.tier ? glowMap[ach.tier]
     : (ach.group === "rx" ? "rgba(62,111,217,.6)" : "rgba(232,93,61,.6)");
