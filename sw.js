@@ -1,7 +1,8 @@
 // Service worker for האימוניה.
 // Version is the single source of truth for the cache name — bumping
-// APP_VERSION in app.js and SW_VERSION here is what ships an update.
-const SW_VERSION = "2.17.1"; // keep in sync with APP_VERSION in app.js
+// APP_VERSION in app.js is what ships an update. Don't edit SW_VERSION by
+// hand: run `npm run sync-version` (see app.js) to copy it here.
+const SW_VERSION = "2.17.1";
 const CACHE = `haimunia-v${SW_VERSION}`;
 
 // Everything the app shell needs to boot with no network.
@@ -19,6 +20,19 @@ const ASSETS = [
   "./assets/icon-barbell.png",
   "./assets/icon-chevrons.png",
   "./assets/logo-full.png",
+  "./assets/fonts/rubik-400-latin.woff2",
+  "./assets/fonts/rubik-400-hebrew.woff2",
+  "./assets/fonts/rubik-600-latin.woff2",
+  "./assets/fonts/rubik-600-hebrew.woff2",
+  "./assets/fonts/rubik-700-latin.woff2",
+  "./assets/fonts/rubik-700-hebrew.woff2",
+  "./assets/fonts/rubik-800-latin.woff2",
+  "./assets/fonts/rubik-800-hebrew.woff2",
+  "./assets/fonts/rubik-900-latin.woff2",
+  "./assets/fonts/rubik-900-hebrew.woff2",
+  "./assets/fonts/jbmono-500-latin.woff2",
+  "./assets/fonts/jbmono-700-latin.woff2",
+  "./assets/fonts/anton-400-latin.woff2",
 ];
 
 // Precache each asset independently. addAll() is all-or-nothing: a single

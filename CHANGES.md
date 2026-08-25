@@ -1,3 +1,82 @@
+# "Next level" pass — 2026-08-25
+
+Follow-up to the review below: closed out the "left for you" items from the
+2.8.0 pass, plus an accessibility sweep, an install prompt, and the first
+committed automated test suite.
+
+Files changed: `app.js`, `index.html`, `sw.js`. New: `assets/fonts/*` (13
+files), `package.json`, `package-lock.json`, `scripts/sync-version.mjs`,
+`test/*`, `.gitignore`. `manifest.json` unchanged.
+
+Verified with `npm test` (Node's built-in test runner, jsdom + fake-indexeddb,
+dev-only — nothing here ships to the deployed site): **19 assertions**, all
+passing, covering sanitizers/XSS-escaping, the add-movement → log-a-set →
+simulated-reload round trip, and the import path (valid backup, `__proto__`
+category neutralization, wrong-app-id rejection, oversized-file rejection).
+
+## Self-hosted fonts, tightened CSP
+
+- Downloaded the exact Rubik (400/600/700/800/900, latin+hebrew subsets),
+  JetBrains Mono (500/700), and Anton (400) `.woff2` files Google's own CSS2
+  API serves for this app, into `./assets/fonts/`. Verified woff2 magic bytes
+  on all 13 files.
+- Replaced the Google Fonts `<link>` in `index.html` with local `@font-face`
+  rules using the same `unicode-range` values, so subsetting behavior is
+  unchanged.
+- CSP's `style-src`/`font-src` no longer allow any external origin — the app
+  now makes zero third-party network requests, full stop.
+- `sw.js` precaches all 13 font files, so typography no longer degrades
+  offline.
+
+## Accessibility pass
+
+Previously: 2 `aria-*`/`role` attributes in the whole app. Now: 120 across
+`index.html` + `app.js`. Added:
+- `role="tablist"`/`"tab"`/`aria-selected` on the main tab bar and the WOD
+  sub-tab bar, kept in sync on every tab switch.
+- `role="dialog"` `aria-modal` `aria-labelledby` on all 6 modals (picker, WOD
+  picker, WOD builder, achievements, celebration, welcome), `aria-label` on
+  every icon-only close button.
+- `aria-label` on every search input, date input, and icon-only edit/delete
+  button; `aria-label` on the stepper +/− buttons and value fields.
+- `role="radiogroup"`/`"radio"` + `aria-checked` on the WOD format picker, bar
+  weight picker, Rx/Scaled toggle, and theme picker; `role="checkbox"`
+  `aria-checked` on the WOD-builder movement checklist rows.
+- `role="status"`/`aria-live` on the update banner, install banner, loading
+  screen, storage-error footer note, and import-result message.
+
+## Version sync automated
+
+`APP_VERSION` (app.js) and `SW_VERSION` (sw.js) were kept in sync by hand.
+`scripts/sync-version.mjs` now does it — `npm run sync-version` after bumping
+`APP_VERSION`, `npm run check-version` (or `npm test`) fails loudly if they
+ever drift.
+
+## Install prompt
+
+Custom "Add to Home Screen" banner (`app.js`: `beforeinstallprompt` handling;
+`index.html`: `#installBanner`), styled like the update banner but with the
+brand stripe instead of solid energy color so the two are visually distinct.
+Shows once per session, steps aside if an update banner is showing, never
+shows if already installed. iOS Safari doesn't fire `beforeinstallprompt`, so
+the banner simply never appears there — no regression, just no improvement
+for that platform.
+
+## Export privacy notice
+
+One line under the export/import buttons: the backup file is plaintext JSON
+and includes name, bodyweight history, and full training log.
+
+## Left undone (by design, not oversight)
+
+- **Server response headers** (HSTS, `X-Content-Type-Options`,
+  `Permissions-Policy`, real `frame-ancestors`) — GitHub Pages can't set
+  custom headers; would need Cloudflare or another host in front. Decided
+  against for now: no backend, no data leaves the device, so this was already
+  low real-world risk.
+
+---
+
 # Security & hardening pass — v2.7.0 → v2.8.0
 
 Files changed: `app.js`, `index.html`, `sw.js`. `manifest.json` unchanged.

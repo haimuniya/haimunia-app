@@ -97,6 +97,9 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
+// Single source of truth for the app version. After bumping this, run
+// `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
+// fails if the two drift apart.
 const APP_VERSION = "2.17.1";
 
 const WOD_MOVEMENT_TAGS = [
@@ -1300,7 +1303,10 @@ async function loadBoxStartDate() {
 
 function renderUserGreeting() {
   const el = document.getElementById("userGreeting");
-  if (el) el.innerHTML = userName ? `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">שלום ${esc(userName)}</span>${ICONS.chevronsLeft}` : "";
+  if (!el) return;
+  el.innerHTML = userName ? `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">שלום ${esc(userName)}</span>${ICONS.chevronsLeft}` : "";
+  if (userName) el.setAttribute("aria-label", `שלום ${userName} — פתיחת עיטורים והישגים`);
+  else el.removeAttribute("aria-label");
 }
 let welcomeEditing = false;
 function openWelcomeModal(editing) {
@@ -1415,8 +1421,8 @@ function setThemePref(pref) {
 }
 function renderThemeRow() {
   const opts = [["dark", "כהה"], ["light", "בהיר"], ["auto", "אוטומטי"]];
-  return `<div id="themeRow" class="flex items-center justify-center gap-8" style="margin-bottom:8px;">
-    ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-theme" data-pref="${val}" style="${themePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;">·</span>')}
+  return `<div id="themeRow" class="flex items-center justify-center gap-8" role="radiogroup" aria-label="מראה" style="margin-bottom:8px;">
+    ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-theme" data-pref="${val}" role="radio" aria-checked="${themePref === val}" style="${themePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;" aria-hidden="true">·</span>')}
   </div>`;
 }
 
@@ -1713,7 +1719,9 @@ function closeWodBuilder() {
 }
 function renderWodBuilderFormats() {
   document.querySelectorAll("#wodBuilderFormats .format-chip").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.format === builderFormat);
+    const active = btn.dataset.format === builderFormat;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-checked", String(active));
     btn.style.borderColor = "";
   });
   const hint = document.getElementById("wodBuilderFormatHint");
@@ -1753,9 +1761,9 @@ function renderWodBuilderMovements(query) {
         const data = builderMovements[m.name] || { reps: 10, weight: 0 };
         const hasWeight = WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
         return `
-        <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}">
+        <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}" role="checkbox" aria-checked="${checked}">
           <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
-          <div class="movecheck-box">${checked ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>' : ""}</div>
+          <div class="movecheck-box">${checked ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>' : ""}</div>
         </button>
         ${checked ? (hasWeight ? `
         <div class="flex" style="gap:8px; margin:-2px 0 10px; padding:0 2px;">
@@ -1881,6 +1889,7 @@ function flashPR() {
 function showUpdateBanner() {
   const el = document.getElementById("updateBanner");
   if (el) el.style.display = "block";
+  dismissInstallBanner();
 }
 
 // ---------- Icons ----------
@@ -1899,9 +1908,9 @@ const ICONS = {
 // ---------- Rendering ----------
 function renderBarWeightRow() {
   return `<div id="barWeightRow">
-    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">משקל המוט</div>
-    <div class="flex gap-8" style="margin-bottom:12px;">
-      ${BAR_OPTIONS.map((kg) => `<button class="format-chip ${barWeight === kg ? "active" : ""}" data-action="set-bar-weight" data-kg="${kg}">${kg} ק"ג</button>`).join("")}
+    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;" id="barWeightLabel">משקל המוט</div>
+    <div class="flex gap-8" style="margin-bottom:12px;" role="radiogroup" aria-labelledby="barWeightLabel">
+      ${BAR_OPTIONS.map((kg) => `<button class="format-chip ${barWeight === kg ? "active" : ""}" data-action="set-bar-weight" data-kg="${kg}" role="radio" aria-checked="${barWeight === kg}">${kg} ק"ג</button>`).join("")}
     </div>
   </div>`;
 }
@@ -1982,7 +1991,7 @@ function renderLogTab() {
     </button>
 
     <div class="flex items-center gap-8" style="margin-bottom:12px;">
-      <input type="date" id="logDateInput" value="${esc(logDate)}" max="${todayISO()}" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
+      <input type="date" id="logDateInput" value="${esc(logDate)}" max="${todayISO()}" aria-label="תאריך רישום הסט" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
       ${logDate !== todayISO() ? `<button data-action="reset-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
     </div>
 
@@ -2031,12 +2040,12 @@ function renderStepper(field, label, value, step, min, action) {
     <div class="stepper">
       <span class="stepper-label">${esc(label)}</span>
       <div class="stepper-box">
-        <button class="stepper-btn" data-action="${a}" data-field="${f}" data-dir="-1" data-step="${st}" data-min="${mn}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/></svg>
+        <button class="stepper-btn" data-action="${a}" data-field="${f}" data-dir="-1" data-step="${st}" data-min="${mn}" aria-label="הפחתה — ${esc(label)}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>
         </button>
-        <input class="stepper-val mono" type="text" inputmode="decimal" data-action="${a}" data-field="${f}" data-min="${mn}" value="${v}" />
-        <button class="stepper-btn" data-action="${a}" data-field="${f}" data-dir="1" data-step="${st}" data-min="${mn}">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <input class="stepper-val mono" type="text" inputmode="decimal" data-action="${a}" data-field="${f}" data-min="${mn}" value="${v}" aria-label="${esc(label)}" />
+        <button class="stepper-btn" data-action="${a}" data-field="${f}" data-dir="1" data-step="${st}" data-min="${mn}" aria-label="הוספה — ${esc(label)}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
     </div>`;
@@ -2124,9 +2133,10 @@ function renderCalendarGrid() {
     const cls = ["cal-cell"];
     if (iso === today) cls.push("today");
     if (iso === calSelectedDate) cls.push("selected");
-    cells += `<button class="${cls.join(" ")}" data-action="cal-select-day" data-date="${esc(iso)}">
-      <span class="cal-daynum">${d}</span>
-      ${hasData ? `<div class="cal-dot ${hasPR ? "pr" : ""}"></div>` : ""}
+    const dayAria = `${d}${hasData ? (hasPR ? " — שיא אישי" : " — יש נתונים") : ""}`;
+    cells += `<button class="${cls.join(" ")}" data-action="cal-select-day" data-date="${esc(iso)}" aria-label="${esc(dayAria)}">
+      <span class="cal-daynum" aria-hidden="true">${d}</span>
+      ${hasData ? `<div class="cal-dot ${hasPR ? "pr" : ""}" aria-hidden="true"></div>` : ""}
     </button>`;
   }
   grid.innerHTML = cells;
@@ -2152,8 +2162,8 @@ function renderCalDetail() {
           </div>
           <div class="flex items-center gap-10">
             <span class="mono" style="color:var(--steel); font-size:13px;">${e.sets}×${e.reps} @ ${e.weight}</span>
-            <button data-action="edit-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
-            <button data-action="delete-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+            <button data-action="edit-entry" data-id="${esc(e.id)}" aria-label="עריכת סט" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
+            <button data-action="delete-entry" data-id="${esc(e.id)}" aria-label="מחיקת סט" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
           </div>
         </div>`).join("")}
       ${dayWods.map((e) => {
@@ -2168,8 +2178,8 @@ function renderCalDetail() {
             </div>
             <div class="flex items-center gap-10">
               <span class="mono" style="color:var(--steel); font-size:13px;">${formatWodEntry(e)}</span>
-              <button data-action="edit-wod-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
-              <button data-action="delete-wod-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+              <button data-action="edit-wod-entry" data-id="${esc(e.id)}" aria-label="עריכת אימון" style="color:var(--steel); padding:4px;">${ICONS.edit}</button>
+              <button data-action="delete-wod-entry" data-id="${esc(e.id)}" aria-label="מחיקת אימון" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
             </div>
           </div>
           ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-left:23px;">${esc(e.notes)}</div>` : ""}
@@ -2228,12 +2238,12 @@ function renderVolumeReport() {
 function renderCalendarTab() {
   return `
     <div class="cal-header">
-      <button class="cal-nav-btn" data-action="cal-prev">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>
+      <button class="cal-nav-btn" data-action="cal-prev" aria-label="חודש קודם">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
       </button>
       <span class="cal-month-label" id="calMonthLabel"></span>
-      <button class="cal-nav-btn" data-action="cal-next">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg>
+      <button class="cal-nav-btn" data-action="cal-next" aria-label="חודש הבא">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </button>
     </div>
     <div class="cal-weekdays">${["א","ב","ג","ד","ה","ו","ש"].map((d) => `<div class="cal-weekday">${d}</div>`).join("")}</div>
@@ -2276,7 +2286,7 @@ function renderMeasureArea() {
 
   const addRow = measureAddOpen
     ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:8px;">
-         <input id="measureTypeInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="לדוגמה: היקף מותן" style="margin-bottom:8px;" />
+         <input id="measureTypeInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="לדוגמה: היקף מותן" aria-label="שם מדד חדש" style="margin-bottom:8px;" />
          <div class="flex gap-8">
            <button data-action="confirm-add-measure-type" class="save-btn" style="max-width:none; flex:1;">הוספה</button>
            <button data-action="cancel-add-measure-type" style="color:var(--steel); font-size:13px; padding:0 10px;">ביטול</button>
@@ -2307,7 +2317,7 @@ function renderMeasureArea() {
       <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
         <div class="flex items-center justify-between" style="margin-bottom:${chartData.length ? "12px" : "0"};">
           ${last ? `<span style="color:var(--steel); font-size:12px;">עודכן לאחרונה: ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
-          <button data-action="delete-measure-type" data-id="${esc(t.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+          <button data-action="delete-measure-type" data-id="${esc(t.id)}" aria-label="מחיקת מדד" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
         </div>
         ${chartData.length ? renderChart(chartData) : ""}
         <div class="steppers" style="margin-top:14px; margin-bottom:0;">
@@ -2321,7 +2331,7 @@ function renderMeasureArea() {
               <span style="color:var(--steel); font-size:12px;">${fmtDate(e.date)}</span>
               <div class="flex items-center gap-10">
                 <span class="mono" style="font-size:13px;">${e.value} ס"מ</span>
-                <button data-action="delete-measurement-entry" data-id="${esc(e.id)}" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+                <button data-action="delete-measurement-entry" data-id="${esc(e.id)}" aria-label="מחיקת מדידה" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
               </div>
             </div>`).join("")}
         </div>` : ""}
@@ -2365,8 +2375,8 @@ function renderHistoryTab() {
     ${activeExercises().length > 0 ? `
     <div class="section-label">שיאים כלל-זמנים</div>
     <div class="search-box" style="margin:0 0 12px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" aria-label="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
     </div>` : ""}
 
     <div id="historyListArea"></div>
@@ -2380,7 +2390,7 @@ function renderHistoryTab() {
 function renderFooter() {
   return `
     <div class="footer">
-      <div class="footer-note"${storageOK ? "" : ' style="color:var(--red);"'}>${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
+      <div class="footer-note"${storageOK ? "" : ' style="color:var(--red);" role="alert"'}>${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
       ${(() => {
         const hasData = entries.length || wodEntries.length || bodyweightEntries.length || measureTypes.length;
         if (!hasData) return "";
@@ -2396,9 +2406,10 @@ function renderFooter() {
         <span style="color:var(--border); font-size:11px;">·</span>
         <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
       </div>
+      <div class="footer-note" style="margin-bottom:8px;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל שם, היסטוריית משקל גוף ויומן אימונים מלא — שמרו אותו במקום בטוח</div>
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">מראה</div>
       ${renderThemeRow()}
-      ${importMessage ? `<div class="footer-note" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
+      ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
       ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">מחיקת כל הנתונים</button>` : `
         <div class="flex items-center justify-center gap-10">
           <span style="color:var(--steel); font-size:11px;">למחוק הכל?</span>
@@ -2513,10 +2524,11 @@ function render() {
       <div style="color:var(--steel); font-size:12px;">${esc((err && err.message) ? err.message : String(err))}</div>
     </div>`;
   }
-  document.getElementById("tabAddBtn").className = "tabbtn" + (tab === "add" ? " active" : "");
-  document.getElementById("tabHistoryBtn").className = "tabbtn" + (tab === "history" ? " active" : "");
-  document.getElementById("tabCalendarBtn").className = "tabbtn" + (tab === "calendar" ? " active" : "");
-  document.getElementById("tabWodBtn").className = "tabbtn" + (tab === "wod" ? " active" : "");
+  [["tabAddBtn", "add"], ["tabHistoryBtn", "history"], ["tabCalendarBtn", "calendar"], ["tabWodBtn", "wod"]].forEach(([id, t]) => {
+    const btn = document.getElementById(id);
+    btn.className = "tabbtn" + (tab === t ? " active" : "");
+    btn.setAttribute("aria-selected", String(tab === t));
+  });
   document.getElementById("bottomBar").style.display = tab === "add" ? "flex" : "none";
   document.getElementById("content").innerHTML = content + renderFooter();
   try {
@@ -2587,7 +2599,7 @@ function renderWodLogSection() {
     </button>
 
     <div class="flex items-center gap-8" style="margin-bottom:12px;">
-      <input type="date" id="wodLogDateInput" value="${esc(wodLogDate)}" max="${todayISO()}" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
+      <input type="date" id="wodLogDateInput" value="${esc(wodLogDate)}" max="${todayISO()}" aria-label="תאריך רישום האימון" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
       ${wodLogDate !== todayISO() ? `<button data-action="reset-wod-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
     </div>
 
@@ -2612,16 +2624,16 @@ function renderWodLogSection() {
 
     <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:#fff; font-weight:800; font-size:14px; background-image:var(--stripe); border-radius:14px; padding:10px 0; margin-bottom:16px; text-shadow:0 1px 3px rgba(0,0,0,.5);">${ICONS.flame}<span>שיא חדש!</span></div>
 
-    <div class="rx-toggle">
-      <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1">Rx</button>
-      <button class="rx-btn ${!wodRx ? "active-scaled" : ""}" data-action="set-rx" data-rx="0">Scaled</button>
+    <div class="rx-toggle" role="radiogroup" aria-label="Rx או Scaled">
+      <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1" role="radio" aria-checked="${wodRx}">Rx</button>
+      <button class="rx-btn ${!wodRx ? "active-scaled" : ""}" data-action="set-rx" data-rx="0" role="radio" aria-checked="${!wodRx}">Scaled</button>
     </div>
 
     ${!wodRx ? `
     <div class="steppers" style="margin-bottom:16px;">
       ${renderStepper("wodScaledWeight", "משקל מותאם (ק\"ג)", wodScaledWeight, 2.5, 0, "wod-step")}
     </div>
-    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="שינוי בתרגיל? (אופציונלי, לדוגמה מתח עם רצועה)" value="${esc(wodNotes)}" />
+    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="שינוי בתרגיל? (אופציונלי, לדוגמה מתח עם רצועה)" aria-label="שינוי בתרגיל (אופציונלי)" value="${esc(wodNotes)}" />
     <div class="flex items-center justify-between" style="margin-bottom:16px;">
       ${lastScaled ? `<button data-action="copy-last-scaled" style="color:var(--steel); font-size:12px; text-align:right;">↺ בפעם הקודמת: ${lastScaled.notes ? esc(lastScaled.notes) + " — " : ""}${formatWodEntry(lastScaled)}</button>` : `<span style="color:var(--steel); font-size:12px;">פעם ראשונה שמתאימים את זה</span>`}
     </div>` : ""}
@@ -2717,8 +2729,8 @@ function renderWodHistorySection() {
     ${activeWods().length > 0 ? `
     <div class="section-label">שיאים כלל-זמנים</div>
     <div class="search-box" style="margin:0 0 12px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="wodHistorySearch" dir="auto" placeholder="חיפוש באימונים שלך" value="${esc(wodHistorySearch)}" />
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="wodHistorySearch" dir="auto" placeholder="חיפוש באימונים שלך" aria-label="חיפוש באימונים שלך" value="${esc(wodHistorySearch)}" />
     </div>` : ""}
     <div id="wodHistoryListArea"></div>
   `;
@@ -2726,9 +2738,9 @@ function renderWodHistorySection() {
 
 function renderWodTab() {
   return `
-    <div class="subtabbar">
-      <button class="subtabbtn ${wodSubTab === "log" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="log">רישום</button>
-      <button class="subtabbtn ${wodSubTab === "history" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="history">היסטוריה</button>
+    <div class="subtabbar" role="tablist">
+      <button class="subtabbtn ${wodSubTab === "log" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="log" role="tab" aria-selected="${wodSubTab === "log"}" aria-controls="wodContent">רישום</button>
+      <button class="subtabbtn ${wodSubTab === "history" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="history" role="tab" aria-selected="${wodSubTab === "history"}" aria-controls="wodContent">היסטוריה</button>
     </div>
     <div id="wodContent"></div>
   `;
@@ -2887,12 +2899,62 @@ function applyUpdate() {
   location.reload();
 }
 
+// ---------- Install prompt ----------
+// Chrome/Android fire beforeinstallprompt once, early, and let a page defer
+// and replay it later — that's what lets us show our own banner instead of
+// relying on the browser's own (often buried) install affordance. iOS Safari
+// never fires this event at all, so there the banner simply never appears.
+let deferredInstallPrompt = null;
+const INSTALL_DISMISS_KEY = "haimunia:installDismissed";
+
+function isStandalone() {
+  return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+}
+
+function showInstallBanner() {
+  if (isStandalone()) return;
+  try { if (sessionStorage.getItem(INSTALL_DISMISS_KEY)) return; } catch (e) {}
+  const updateEl = document.getElementById("updateBanner");
+  if (updateEl && updateEl.style.display === "block") return;
+  const el = document.getElementById("installBanner");
+  if (el) el.style.display = "block";
+}
+
+function dismissInstallBanner() {
+  const el = document.getElementById("installBanner");
+  if (el) el.style.display = "none";
+  try { sessionStorage.setItem(INSTALL_DISMISS_KEY, "1"); } catch (e) {}
+}
+
+async function installApp() {
+  dismissInstallBanner();
+  if (!deferredInstallPrompt) return;
+  const evt = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  try {
+    evt.prompt();
+    await evt.userChoice;
+  } catch (e) {}
+}
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  showInstallBanner();
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  dismissInstallBanner();
+});
+
 // ---------- Event delegation ----------
 document.addEventListener("click", (e) => {
   const el = e.target.closest("[data-action]");
   if (!el) return;
   const action = el.dataset.action;
   if (action === "reload-app") { applyUpdate(); }
+  else if (action === "install-app") { installApp(); }
+  else if (action === "dismiss-install-hint") { dismissInstallBanner(); }
   else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
   else if (action === "view-today-calendar") {
     tab = "calendar";
