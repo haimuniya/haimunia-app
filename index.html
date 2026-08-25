@@ -2,6 +2,10 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8" />
+<!-- Stamps data-theme on <html> before first paint, from a stored choice.
+     Must be a separate file, not an inline <script> — script-src 'self'
+     below has no 'unsafe-inline'. Runs synchronously so there's no flash. -->
+<script src="./theme-init.js"></script>
 
 <!--
   Content Security Policy. Defence in depth: even if a string escape is ever
@@ -55,13 +59,41 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700&family=Anton&display=swap" rel="stylesheet" />
 <style>
+  /* Theme tokens, light-first: bare :root is the light palette (the CSS-spec
+     baseline for an un-stamped document). Dark is layered on twice — once for
+     prefers-color-scheme (auto mode) and once for the explicit data-theme
+     stamp (light/dark chosen in the footer) — so the toggle always wins over
+     the OS setting. theme-init.js stamps data-theme="dark" by default so
+     existing users keep today's look until they opt into something else. */
   :root{
+    --bg:#F2F5FA; --surface:#FFFFFF; --surface2:#E9EFF8; --border:#D6DFEC;
+    --chalk:#1C2536; --steel:#68748C; --red:#C2392C; --blue:#2E5AA8;
+    --yellow:#B07E12; --green:#2E7A48; --purple:#7A4FC2; --brass:#A6702E;
+    --teal:#1E7D76;
+    --energy:#C94B29;
+    --color-scheme:light;
+    --stripe-a:var(--energy); --stripe-b:#22345C;
+    --stripe:repeating-linear-gradient(135deg, var(--stripe-a) 0 14px, var(--stripe-b) 14px 28px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#152342; --surface:#1F3057; --surface2:#2A3D6B; --border:#425481;
+      --chalk:#F2ECE1; --steel:#8891A6; --red:#D8453C; --blue:#3E6FD9;
+      --yellow:#E0B23C; --green:#4B9B5F; --purple:#9B6FD9; --brass:#E8B98A;
+      --teal:#3FA7A0;
+      --energy:#E85D3D;
+      --color-scheme:dark;
+      --stripe-a:var(--energy); --stripe-b:#ffffff;
+    }
+  }
+  :root[data-theme="dark"]{
     --bg:#152342; --surface:#1F3057; --surface2:#2A3D6B; --border:#425481;
     --chalk:#F2ECE1; --steel:#8891A6; --red:#D8453C; --blue:#3E6FD9;
     --yellow:#E0B23C; --green:#4B9B5F; --purple:#9B6FD9; --brass:#E8B98A;
     --teal:#3FA7A0;
     --energy:#E85D3D;
-    --stripe:repeating-linear-gradient(135deg, var(--energy) 0 14px, #ffffff 14px 28px);
+    --color-scheme:dark;
+    --stripe-a:var(--energy); --stripe-b:#ffffff;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html,body{ margin:0; padding:0; background:var(--bg); color:var(--chalk); font-family:'Rubik',sans-serif; overscroll-behavior-y:contain; touch-action:pan-y; overflow-x:hidden; width:100%; }
@@ -169,8 +201,12 @@
   .rx-btn.active-scaled{ background:rgba(224,178,60,.15); border-color:var(--yellow); color:var(--yellow); }
   .wod-desc{ color:var(--steel); font-size:12px; margin-top:2px; }
   .text-input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:var(--chalk); font-size:16px; }
-  input[type="date"]{ color-scheme:dark; }
-  input[type="date"]::-webkit-calendar-picker-indicator{ filter:invert(1) brightness(1.4); cursor:pointer; }
+  input[type="date"]{ color-scheme:var(--color-scheme); }
+  input[type="date"]::-webkit-calendar-picker-indicator{ cursor:pointer; }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator{ filter:invert(1) brightness(1.4); }
+  }
+  :root[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator{ filter:invert(1) brightness(1.4); }
   .format-chip{ padding:10px 0; border-radius:12px; border:1px solid var(--border); background:var(--surface); font-weight:700; font-size:13px; color:var(--steel); text-align:center; flex:1; }
   .format-chip.active{ background:rgba(232,93,61,.15); border-color:var(--energy); color:var(--energy); }
   .movecheck-row{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 14px; margin-bottom:6px; text-align:right; }

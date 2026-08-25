@@ -97,7 +97,7 @@ const MOVEMENTS = [
 const STANDARD_REPS = [1, 2, 3, 5, 10];
 const BAR_OPTIONS = [20, 15, 8];
 let barWeight = 20;
-const APP_VERSION = "2.12.1";
+const APP_VERSION = "2.13.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1033,6 +1033,46 @@ function setBarWeight(kg) {
   if (barRow) barRow.outerHTML = renderBarWeightRow();
 }
 
+// Theme preference lives in localStorage, not IndexedDB — it has to be
+// readable synchronously by theme-init.js before first paint, and it isn't
+// user training data, so "clear all data" deliberately leaves it alone.
+const THEME_KEY = "haimunia:theme";
+let themePref = "dark";
+function loadThemePref() {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "light" || stored === "dark" || stored === "auto") themePref = stored;
+  } catch (e) { /* keep the default */ }
+}
+function resolvedTheme() {
+  if (themePref !== "auto") return themePref;
+  return (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+}
+function syncThemeColorMeta() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", resolvedTheme() === "light" ? "#F2F5FA" : "#152342");
+}
+function applyThemePref() {
+  const root = document.documentElement;
+  if (themePref === "auto") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", themePref);
+  syncThemeColorMeta();
+}
+function setThemePref(pref) {
+  if (pref !== "light" && pref !== "dark" && pref !== "auto") return;
+  themePref = pref;
+  try { localStorage.setItem(THEME_KEY, pref); } catch (e) {}
+  applyThemePref();
+  const row = document.getElementById("themeRow");
+  if (row) row.outerHTML = renderThemeRow();
+}
+function renderThemeRow() {
+  const opts = [["dark", "כהה"], ["light", "בהיר"], ["auto", "אוטומטי"]];
+  return `<div id="themeRow" class="flex items-center justify-center gap-8" style="margin-bottom:8px;">
+    ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-theme" data-pref="${val}" style="${themePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;">·</span>')}
+  </div>`;
+}
+
 const LAST_EXPORT_KEY = "boxlog:lastExportAt";
 let lastExportAt = null;
 async function loadLastExport() {
@@ -1558,11 +1598,11 @@ function renderChart(data) {
     label: d.dateLabel,
   }));
   const polyline = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
-  const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isPR ? 5 : 2.5}" fill="${p.isPR ? "#E8B98A" : "#F2ECE1"}" ${p.isPR ? 'stroke="#1F3057" stroke-width="2"' : ""}/>`).join("");
+  const dots = pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${p.isPR ? 5 : 2.5}" fill="${p.isPR ? "var(--brass)" : "var(--chalk)"}" ${p.isPR ? 'stroke="var(--surface)" stroke-width="2"' : ""}/>`).join("");
   const labelY = padTop + plotH + 12;
-  const labels = pts.map((p) => `<text x="${p.x.toFixed(1)}" y="${labelY}" font-size="9" fill="#8891A6" text-anchor="end" transform="rotate(-45 ${p.x.toFixed(1)} ${labelY})">${esc(p.label)}</text>`).join("");
+  const labels = pts.map((p) => `<text x="${p.x.toFixed(1)}" y="${labelY}" font-size="9" fill="var(--steel)" text-anchor="end" transform="rotate(-45 ${p.x.toFixed(1)} ${labelY})">${esc(p.label)}</text>`).join("");
   const svg = `<svg viewBox="0 0 ${w} ${h}" style="${wide ? `width:${w}px;` : "width:100%;"} height:${h}px; display:block;">
-    <polyline points="${polyline}" fill="none" stroke="#E8B98A" stroke-width="2"/>
+    <polyline points="${polyline}" fill="none" stroke="var(--brass)" stroke-width="2"/>
     ${dots}${labels}
   </svg>`;
   return wide ? `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">${svg}</div>` : svg;
@@ -1975,7 +2015,7 @@ function renderHistoryTab() {
     ${activeExercises().length > 0 ? `
     <div class="section-label">שיאים כלל-זמנים</div>
     <div class="search-box" style="margin:0 0 12px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
     </div>` : ""}
 
@@ -2006,6 +2046,8 @@ function renderFooter() {
         <span style="color:var(--border); font-size:11px;">·</span>
         <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
       </div>
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">מראה</div>
+      ${renderThemeRow()}
       ${importMessage ? `<div class="footer-note" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
       ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">מחיקת כל הנתונים</button>` : `
         <div class="flex items-center justify-center gap-10">
@@ -2325,7 +2367,7 @@ function renderWodHistorySection() {
     ${activeWods().length > 0 ? `
     <div class="section-label">שיאים כלל-זמנים</div>
     <div class="search-box" style="margin:0 0 12px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8891A6" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="wodHistorySearch" dir="auto" placeholder="חיפוש באימונים שלך" value="${esc(wodHistorySearch)}" />
     </div>` : ""}
     <div id="wodHistoryListArea"></div>
@@ -2549,6 +2591,7 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "save-set") { saveSet(); }
   else if (action === "set-bar-weight") { setBarWeight(+el.dataset.kg); }
+  else if (action === "set-theme") { setThemePref(el.dataset.pref); }
   else if (action === "delete-entry") { deleteEntry(el.dataset.id); }
   else if (action === "cal-prev") { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendarGrid(); }
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
@@ -2695,6 +2738,13 @@ document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
 
 // ---------- Init ----------
 async function init() {
+  loadThemePref();
+  applyThemePref();
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (themePref === "auto") syncThemeColorMeta();
+    });
+  }
   document.getElementById("dateLabel").textContent = new Date().toLocaleDateString("he-IL", { weekday: "short", day: "numeric", month: "short" });
   await reloadFromDb();
   await loadUserName();
