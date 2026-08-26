@@ -1,3 +1,29 @@
+# Polish the weight-plate medals: gloss, rim, and a visible locked state — 2026-08-26
+
+Reported with a screenshot right after the previous entry shipped: the
+plates "looked uncomplete" — flat, and the locked (not-yet-earned)
+ones were nearly invisible against the app's dark background.
+
+Root cause of the locked-state issue: `.medal-badge.locked
+.medal-shape{ filter:grayscale(1) brightness(.55); opacity:.4; }` was
+tuned for the SVG shield (a mostly light face with a colored rim) —
+applied to a full-bleed solid-color plate photo, it crushed almost to
+nothing. Added a more specific override
+(`.medal-badge.locked .medal-plate.medal-shape`, two classes beats one
+on specificity) with gentler values, scoped to the plates only — the
+shield's own locked treatment is untouched.
+
+For the "flat" complaint: the `<img>` is now wrapped in a
+`.medal-plate` frame — a circular clip with a subtle rim
+(`box-shadow`, dark outer / light inner) and a `.medal-plate-shine`
+diagonal gloss overlay that twinkles on the earned state, echoing the
+shield medals' own `medal-shine`/`medal-rim` treatment so a flat
+product photo reads as a "medal," not a sticker.
+
+4 tests in `test/medals.test.mjs` updated for the new wrapped markup.
+Full suite: 138/138 jsdom tests, all 10 browser-check scripts, green.
+Verified visually with real-browser screenshots before and after.
+
 # Bronze/silver/gold medals render as real weight-plate photos — 2026-08-26
 
 Requested directly: three provided photos (a green "10 KG" plate, a blue

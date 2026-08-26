@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.30.0";
+const APP_VERSION = "2.30.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1171,7 +1171,7 @@ function renderMedal(ach, earned) {
   // filters (grayscale, glow) and sizing apply unchanged — only the shape
   // itself (svg vs img) differs.
   const symbol = ach.tier
-    ? `<img class="medal-shape" src="./assets/medal-${ach.tier}.png" alt="" />`
+    ? `<div class="medal-plate medal-shape"><img src="./assets/medal-${ach.tier}.png" alt="" /><div class="medal-plate-shine" aria-hidden="true"></div></div>`
     : shape === "shield"
     ? `<svg class="medal-shape ${tierClass}" viewBox="0 0 100 112"><use href="#medalShield"/>${glyphUse}</svg>`
     : `<svg class="medal-shape shape-circle ${tierClass}" viewBox="0 0 100 100"><use href="#medalCircle"/>${glyphUse}</svg>`;
@@ -1320,6 +1320,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.30.1", date: "2026-08-26", items: [
+    "מדליות ברונזה/כסף/זהב מבריקות יותר וברורות יותר כשהן עדיין נעולות",
+  ] },
   { version: "2.30.0", date: "2026-08-26", items: [
     "עיטורי ברונזה/כסף/זהב מוצגים עכשיו כמדליות משקולת אמיתיות",
   ] },

@@ -269,10 +269,29 @@
   .medal-badge{ width:72px; text-align:center; flex-shrink:0; }
   .medal-shape{ width:64px; height:70px; margin:0 auto; }
   .medal-shape.shape-circle{ height:64px; }
-  /* Tiered medals render as a square weight-plate photo (img), not the
-     shield SVG's viewBox — force it back to square so the plate isn't
-     stretched into an oval by the shield's taller default box. */
-  img.medal-shape{ height:64px; object-fit:contain; }
+  /* Tiered medals render as a weight-plate photo — a real <img>, wrapped
+     in a circular frame (not the shield SVG's viewBox) with a diagonal
+     gloss sweep and a rim, echoing the shield's own medal-shine/medal-rim
+     treatment so a flat product photo reads as a "medal" and not a sticker. */
+  .medal-plate{
+    width:64px; height:64px; margin:0 auto; border-radius:50%; position:relative;
+    overflow:hidden; box-shadow:0 0 0 1.5px rgba(0,0,0,.35), inset 0 0 0 1.5px rgba(255,255,255,.18);
+  }
+  .medal-plate img{ display:block; width:100%; height:100%; object-fit:cover; }
+  .medal-plate-shine{
+    position:absolute; inset:0; pointer-events:none;
+    background:linear-gradient(115deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,.55) 8%, rgba(255,255,255,0) 30%, rgba(255,255,255,0) 68%, rgba(255,255,255,.22) 82%, rgba(255,255,255,0) 96%);
+  }
+  @media (prefers-reduced-motion: no-preference){
+    .medal-badge.earned .medal-plate-shine{ animation:medalTwinkle 3.2s ease-in-out infinite; }
+  }
+  /* The base .medal-badge.locked .medal-shape rule below was tuned for
+     the SVG shield (mostly light face + a colored rim) — applied to a
+     full-bleed solid-color plate photo on this app's dark background it
+     crushed almost to invisible. Two classes beats one on specificity, so
+     this reliably wins regardless of rule order without touching the
+     shield's own locked treatment. */
+  .medal-badge.locked .medal-plate.medal-shape{ filter:grayscale(.75) brightness(.8) saturate(.6); opacity:.6; }
   .capstone-badge{ width:auto; }
   .capstone-badge .medal-shape{ width:104px; height:104px; }
   .capstone-badge .medal-name{ font-size:14px; }
