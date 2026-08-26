@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.29.0";
+const APP_VERSION = "2.29.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1009,9 +1009,9 @@ const PR_TIERS = [{ tier: "bronze", need: 1 }, { tier: "silver", need: 5 }, { ti
 const STREAK_TIERS = [{ tier: "bronze", need: 4 }, { tier: "silver", need: 12 }, { tier: "gold", need: 26 }];
 const SESSION_MILESTONES = [10, 50, 100, 365];
 const TENURE_MILESTONES = [
-  { id: "month1", days: 30, label: "חודש בבוקס" },
-  { id: "month6", days: 182, label: "חצי שנה בבוקס" },
-  { id: "year1", days: 365, label: "שנה בבוקס" },
+  { id: "month1", days: 30, label: "חודש במועדון" },
+  { id: "month6", days: 182, label: "חצי שנה במועדון" },
+  { id: "year1", days: 365, label: "שנה במועדון" },
 ];
 const TIER_LABELS = { bronze: "ברונזה", silver: "כסף", gold: "זהב" };
 
@@ -1134,7 +1134,7 @@ const ACHIEVEMENTS = [
   ...TENURE_MILESTONES.map((m) => ({
     id: `tenure-${m.id}`, group: "milestone", glyph: "flame",
     name: m.label,
-    rule: `${m.label} מתאריך ההתחלה בבוקס`,
+    rule: `${m.label} מתאריך ההתחלה במועדון`,
     earned: () => { const d = daysSinceBoxStart(); return d !== null && d >= m.days; },
     points: MILESTONE_POINTS,
   })),
@@ -1203,7 +1203,7 @@ function renderAchievementsContent() {
 
   const boxStartPrompt = boxStartDate ? "" : `
     <button data-action="open-profile-from-achievements" class="card flex items-center justify-between gap-10" style="width:100%; text-align:right; margin-bottom:12px;">
-      <span style="font-size:12.5px; color:var(--chalk); font-weight:600;">הוסיפו תאריך התחלה בבוקס כדי לפתוח את עיטורי הוותק</span>
+      <span style="font-size:12.5px; color:var(--chalk); font-weight:600;">הוסיפו תאריך התחלה במועדון כדי לפתוח את עיטורי הוותק</span>
       <span style="color:var(--steel); flex-shrink:0;">${ICONS.chevronsLeft}</span>
     </button>`;
 
@@ -1313,6 +1313,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.29.1", date: "2026-08-26", items: [
+    "\"בוקס\" הוחלף ל\"מועדון\" בכל מקום באפליקציה",
+  ] },
   { version: "2.29.0", date: "2026-08-26", items: [
     "בבניית EMOM: אפשר עכשיו גם תרגילי החזקה בזמן, וגם סבבי מנוחה בסיבוב",
     "תרגילי קלוריות ומטרים (ריצה, חתירה, אופניים) מקבלים עכשיו תווית נכונה במקום \"חזרות\"",

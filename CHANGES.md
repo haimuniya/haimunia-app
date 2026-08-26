@@ -1,3 +1,15 @@
+# Replace "בוקס" with "מועדון" everywhere in the app — 2026-08-26
+
+Requested with a screenshot circling it in the profile edit screen.
+Six occurrences total, all in the tenure-achievement labels/rules and
+the welcome modal's box-start-date question: "חודש בבוקס" / "חצי שנה
+בבוקס" / "שנה בבוקס" (TENURE_MILESTONES labels), the matching achievement
+rule text, the achievements screen's "add a start date" prompt, and the
+welcome modal's own question. All six updated to the grammatically
+correct "במועדון" form. Internal identifiers (`boxStartDate`,
+`welcomeBoxStartInput`, etc.) are untouched — English internal names,
+Hebrew UI text, same split this app already keeps throughout.
+
 # Close out the WOD-section deep-dive: EMOM duration/rest, unit labels, custom-WOD deletion — 2026-08-26
 
 Follow-up to the EMOM weight fix (previous entry below): "it is not only
