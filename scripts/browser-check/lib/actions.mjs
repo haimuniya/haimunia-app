@@ -49,6 +49,26 @@ export async function dismissCelebrationIfOpen(page) {
   return open;
 }
 
+// Fills a stepper-val input and waits for its commit to actually land,
+// instead of the fill()+dispatchEvent("change") pattern used elsewhere in
+// this package (which is a no-op — app.js has no "change" listener on
+// these inputs, only "input" for live typing and "focusout" to commit/
+// clamp). That matters specifically when two stepper fields on the SAME
+// movement row get filled back to back (e.g. reps then weight): committing
+// the first field re-renders the whole row (applyFieldValue -> action ===
+// "builder-movement-*" -> renderWodBuilderMovements()), which replaces the
+// second field's DOM node. A real user's tap-then-type naturally lands on
+// the post-render element; page.fill()/keyboard.type() can race ahead of
+// that render and type into the now-detached old node instead, where the
+// event never reaches app.js's delegated document-level listener. Blurring
+// and waiting here forces the render to finish before the next field is
+// ever queried.
+export async function fillStepper(page, selector, value) {
+  await page.fill(selector, String(value));
+  await page.evaluate((s) => document.querySelector(s)?.blur(), selector);
+  await page.waitForTimeout(100);
+}
+
 export async function consoleErrorCollector(page) {
   const errors = [];
   page.on("console", (msg) => {

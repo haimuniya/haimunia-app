@@ -1,3 +1,74 @@
+# Close out the WOD-section deep-dive: EMOM duration/rest, unit labels, custom-WOD deletion — 2026-08-26
+
+Follow-up to the EMOM weight fix (previous entry below): "it is not only
+on emom" turned out to be right. Deep-dived the whole אימונים section —
+the builder's per-movement fields, the score-type logic (`scoreValue`/
+`bestWodScore`/`formatWodEntry`), and every WOD list (history, picker,
+benchmarks) — and shipped everything that came out of it except one
+item flagged as a design decision, not a bug (see below).
+
+**EMOM movements can now be duration/hold-based**, same reps↔duration
+toggle every other format already had. A new `emomTargetDurations`
+array parallels `emomTargetReps`; `emomMovementTypes` (`"reps"` /
+`"duration"` / `"rest"`, see next item) says which one a given station
+actually means. The log form switches to a seconds stepper for those
+stations, labeled with the movement name — no separate structural
+change needed since `wodEmomReps` already stores raw numbers
+type-agnostically.
+
+**EMOM movements can now be marked as a rest station** — a
+`toggle-builder-movement-rest` chip in the builder that hides the
+reps/duration/weight fields entirely once toggled. The log form skips
+rendering a stepper for a rest station and shows a plain "מנוחה" label
+instead. `saveWod()` and `startEditWodEntry()` both correctly exclude
+rest stations from the saved `emomReps` array (keeping only the real,
+loggable stations) and correctly re-expand a saved compact array back
+to the WOD's full rotation shape when re-editing, so field indices stay
+aligned with the right movement even when a rest station sits between
+two logged ones.
+
+**Calorie/meter movements get a real unit label.** Ten Monostructural
+movements (Run, Row, Bike, Ski Erg, Swim...) and — where logged as reps
+rather than the existing duration toggle — the seven distance-based Odd
+Object carries were all labeled "חזרות" (reps) in the builder and the
+EMOM log form's per-round header, regardless of what they actually
+measure. New `repsFieldLabel()` detects the unit straight from the
+movement's own name suffix ("(Calories)"/"(Meters)") and swaps the
+label to "קלוריות"/"מטרים" accordingly. No data model change — same
+number underneath, just labeled correctly.
+
+**Custom WODs can finally be deleted.** There was no delete or rename
+path for a custom WOD definition at all — every typo or test WOD (this
+session's own "Test EMOM ..." WODs among them) would have stuck around
+in the picker forever. Added a delete button in the picker, custom
+WODs only, and only when `wodEntriesFor(id).length === 0` — deleting a
+WOD *definition* must never be how someone's logged training history
+disappears. `deleteCustomWod()` itself is the authoritative guard, not
+just the UI: it refuses non-custom WODs and anything with entries even
+if called directly.
+
+**Left alone, flagged as a decision not a bug:** `"load"`-scored WODs
+log weight only, no reps — reads as an intentional 1RM/heaviest-lift
+design (every other format keeps weight as a WOD-level prescription
+baked into the description; this is the one format where weight *is*
+the score). Not touching it without an explicit call that it should do
+more.
+
+**Also found and fixed along the way:** a pre-existing Playwright/test
+race, not an app bug — filling two stepper fields on the same builder
+row back to back (e.g. reps then weight) could race the synchronous
+re-render a field's own commit triggers, landing keystrokes on an
+already-detached DOM node. A real user's tap-then-type naturally lands
+on the post-render element, so this never affected real use; the new
+shared `fillStepper()` helper in `scripts/browser-check/lib/actions.mjs`
+blurs and waits between fields so future check scripts don't hit the
+same race.
+
+29 new tests across `test/emom.test.mjs` (extended) and the new
+`test/wod-management.test.mjs`, plus 6 new browser-check assertions in
+`emom.mjs`. Full suite: 134/134 jsdom tests, all 10 browser-check
+scripts, green.
+
 # EMOM movements can carry a prescribed weight — 2026-08-26
 
 Reported with a screenshot: the WOD builder's EMOM screen let you set

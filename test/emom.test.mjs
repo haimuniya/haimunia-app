@@ -198,3 +198,146 @@ test("renderWodLogSection resyncs wodEmomReps when switching to a differently-sh
   const vals = [...window.document.querySelectorAll("[data-action='wod-emom-step'].stepper-val")].map((el) => el.value);
   assert.deepEqual(vals, ["10", "12", "15"], "should prefill from the new WOD's own target reps");
 });
+
+// Deep-dive follow-up to the weight fix: EMOM movements could only ever be
+// reps, with no way to mark a station as a hold (duration) or a rest minute
+// — the same class of "forced into the wrong field" bug as the weight gap,
+// just for two more cases. See the WOD-section audit report.
+test("WOD builder (EMOM): a movement can be switched to duration mode, same toggle as every other format", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.querySelector("[data-action='builder-set-format'][data-format='emom']").click();
+  window.toggleBuilderMovement("Plank Hold");
+
+  const repsStepperBefore = window.document.querySelector("[data-action='builder-movement-reps'][data-field='Plank Hold']");
+  assert.ok(repsStepperBefore, "an EMOM movement should default to a reps stepper");
+
+  window.document.querySelector("[data-action='toggle-builder-movement-type'][data-name='Plank Hold'][data-type='duration']").click();
+  const durationStepper = window.document.querySelector("[data-action='builder-movement-duration'][data-field='Plank Hold']");
+  assert.ok(durationStepper, "switching an EMOM movement to duration mode should show a seconds stepper");
+});
+
+test("createWodFromBuilder (EMOM): a duration-mode movement is captured with its own type and target seconds", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.getElementById("wodBuilderName").value = "Test EMOM Duration";
+  window.document.querySelector("[data-action='builder-set-format'][data-format='emom']").click();
+  window.toggleBuilderMovement("Plank Hold");
+  window.document.querySelector("[data-action='toggle-builder-movement-type'][data-name='Plank Hold'][data-type='duration']").click();
+  window.applyFieldValue("builder-movement-duration", "Plank Hold", 40);
+  window.toggleBuilderMovement("Burpees");
+  window.applyFieldValue("builder-movement-reps", "Burpees", 10);
+  window.createWodFromBuilder();
+
+  const wod = window.allWods().find((w) => w.name === "Test EMOM Duration");
+  assert.ok(wod);
+  assert.deepEqual(wod.emomMovementTypes, ["duration", "reps"]);
+  assert.deepEqual(wod.emomTargetDurations, [40, 0]);
+  assert.ok(wod.desc.includes("40\" Plank Hold") || wod.desc.includes("0:40 Plank Hold"), `generated desc should show the hold time, not a raw rep count — got "${wod.desc}"`);
+});
+
+test("WOD builder (EMOM): a movement can be marked as a rest station, hiding its reps/duration/weight fields", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.querySelector("[data-action='builder-set-format'][data-format='emom']").click();
+  window.toggleBuilderMovement("Wall Balls");
+
+  assert.ok(window.document.querySelector("[data-action='builder-movement-reps'][data-field='Wall Balls']"), "before marking rest, the reps field should show as usual");
+
+  window.document.querySelector("[data-action='toggle-builder-movement-rest'][data-name='Wall Balls']").click();
+  assert.equal(window.document.querySelector("[data-action='builder-movement-reps'][data-field='Wall Balls']"), null, "a rest station should hide its reps stepper");
+  assert.equal(window.document.querySelector("[data-action='builder-movement-weight'][data-field='Wall Balls']"), null, "a rest station should hide its weight stepper too, even though Wall Balls is normally weight-bearing");
+});
+
+test("createWodFromBuilder (EMOM): a rest station is captured with type \"rest\" and shows as \"Rest\" in the description", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.getElementById("wodBuilderName").value = "Test EMOM Rest";
+  window.document.querySelector("[data-action='builder-set-format'][data-format='emom']").click();
+  window.toggleBuilderMovement("Wall Balls");
+  window.applyFieldValue("builder-movement-reps", "Wall Balls", 10);
+  window.toggleBuilderMovement("Burpees");
+  window.document.querySelector("[data-action='toggle-builder-movement-rest'][data-name='Burpees']").click();
+  window.createWodFromBuilder();
+
+  const wod = window.allWods().find((w) => w.name === "Test EMOM Rest");
+  assert.ok(wod);
+  assert.deepEqual(wod.emomMovementTypes, ["reps", "rest"]);
+  assert.ok(wod.desc.includes("Rest"), `generated desc should mention Rest — got "${wod.desc}"`);
+});
+
+test("the log form renders a duration stepper for a hold station and no stepper at all for a rest station", async () => {
+  const window = await bootApp();
+  await window.addCustomWod("Test EMOM Log Types", "emom", "", {
+    emomMinutes: 12,
+    emomMovements: ["Wall Balls", "Plank Hold", "Burpees"],
+    emomMovementTypes: ["reps", "duration", "rest"],
+    emomTargetReps: [10, 0, 0],
+    emomTargetDurations: [0, 40, 0],
+  });
+  window.document.getElementById("tabWodBtn").click();
+
+  const repsStepper = window.document.querySelector("[data-action='wod-emom-step'][data-field='0'].stepper-val");
+  const durationStepper = window.document.querySelector("[data-action='wod-emom-step'][data-field='1'].stepper-val");
+  const restStepper = window.document.querySelector("[data-action='wod-emom-step'][data-field='2'].stepper-val");
+  assert.ok(repsStepper, "the reps station should get a normal editable stepper");
+  assert.equal(repsStepper.value, "10");
+  assert.ok(durationStepper, "the duration station should get an editable stepper too");
+  assert.equal(durationStepper.value, "40", "should prefill from emomTargetDurations, not emomTargetReps (which is meaningless for this station)");
+  assert.equal(restStepper, null, "the rest station should not render any editable stepper");
+  assert.ok(window.document.body.textContent.includes("מנוחה"), "the rest station should still show as a labeled row, just with nothing to fill in");
+});
+
+// Deep-dive follow-up: Monostructural movements (Row/Bike/Ski/Run — measured
+// in calories or meters, never reps) got the same generic "חזרות" label as
+// every rep-counted movement, in both the builder and the EMOM rotation.
+test("WOD builder: a calorie/meter movement's stepper is labeled by its own unit, not a generic \"reps\"", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.querySelector("[data-action='builder-set-format'][data-format='amrap']").click();
+  window.toggleBuilderMovement("Row (Calories)");
+  window.toggleBuilderMovement("Run (Meters)");
+  window.toggleBuilderMovement("Burpees");
+
+  const label = (name) => window.document.querySelector(`[data-action='builder-movement-reps'][data-field='${name}']`)?.closest(".stepper")?.querySelector(".stepper-label")?.textContent;
+  assert.equal(label("Row (Calories)"), "קלוריות");
+  assert.equal(label("Run (Meters)"), "מטרים");
+  assert.equal(label("Burpees"), "חזרות");
+});
+
+test("repsFieldLabel: detects the unit straight from the movement's own name suffix", async () => {
+  const window = await bootApp();
+  assert.equal(window.repsFieldLabel("Row (Calories)"), "קלוריות");
+  assert.equal(window.repsFieldLabel("Assault Bike (Calories)"), "קלוריות");
+  assert.equal(window.repsFieldLabel("Run (Meters)"), "מטרים");
+  assert.equal(window.repsFieldLabel("Shuttle Runs (Meters)"), "מטרים");
+  assert.equal(window.repsFieldLabel("Wall Balls"), "חזרות");
+  assert.equal(window.repsFieldLabel("Back Squat"), "חזרות");
+});
+
+test("saveWod (EMOM): a rest station isn't saved as a stray value, and re-editing restores the real stations at the right indices", async () => {
+  const window = await bootApp();
+  await window.addCustomWod("Test EMOM Rest Save", "emom", "", {
+    emomMinutes: 10,
+    emomMovements: ["Wall Balls", "Burpees", "Box Jumps"],
+    emomMovementTypes: ["reps", "rest", "reps"],
+    emomTargetReps: [12, 0, 8],
+  });
+  const wod = window.allWods().find((w) => w.name === "Test EMOM Rest Save");
+  window.document.getElementById("tabWodBtn").click();
+
+  window.applyFieldValue("wod-emom-step", "0", 12);
+  window.applyFieldValue("wod-emom-step", "2", 9);
+  await window.saveWod();
+
+  const [saved] = window.wodEntriesFor(wod.id);
+  assert.deepEqual(saved.emomReps, [12, 9], "the rest station (index 1) should not appear in the saved reps at all");
+  assert.equal(window.formatWodEntry(saved), "12 · 9", "history/calendar display should never show a stray number for the rest station");
+
+  window.startEditWodEntry(saved.id);
+  const val0 = window.document.querySelector("[data-field='0'][data-action='wod-emom-step'].stepper-val").value;
+  const val2 = window.document.querySelector("[data-field='2'][data-action='wod-emom-step'].stepper-val").value;
+  assert.equal(val0, "12", "re-editing should restore Wall Balls (index 0) correctly, not shifted by the missing rest slot");
+  assert.equal(val2, "9", "re-editing should restore Box Jumps (index 2) correctly too");
+  assert.equal(window.document.querySelector("[data-field='1'][data-action='wod-emom-step'].stepper-val"), null, "the rest station still shouldn't have an editable stepper while editing");
+});

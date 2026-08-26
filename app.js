@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.28.0";
+const APP_VERSION = "2.29.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -332,6 +332,17 @@ function catColor(cat) {
 function catLabel(cat) {
   return Object.prototype.hasOwnProperty.call(CATEGORY_LABELS, cat) ? CATEGORY_LABELS[cat] : String(cat ?? "");
 }
+// A Monostructural movement's own name already says what it's measured in —
+// "Row (Calories)" / "Run (Meters)" — but the builder's reps stepper was
+// always labeled "חזרות" regardless, which reads as nonsense for a calorie
+// or distance piece even though the number underneath is stored correctly.
+// Detected from the name itself rather than added as a new movement field,
+// since every existing Monostructural entry already encodes its own unit.
+function repsFieldLabel(movementName) {
+  if (/\(Calories\)$/.test(movementName)) return "קלוריות";
+  if (/\(Meters\)$/.test(movementName)) return "מטרים";
+  return "חזרות";
+}
 // Accumulator objects keyed by untrusted strings must have no prototype.
 function bag() { return Object.create(null); }
 
@@ -416,12 +427,26 @@ function sanitizeCustomWod(w) {
   // needs to know the movement rotation to render one reps field per
   // movement each time this WOD is attempted. See renderWodLogSection.
   if (scoreType === "emom") {
-    const movements = Array.isArray(w.emomMovements) ? w.emomMovements : [];
-    out.emomMovements = movements.slice(0, LIMITS.emomMovements).map((n) => cleanStr(n, LIMITS.nameLen)).filter(Boolean);
-    const targets = Array.isArray(w.emomTargetReps) ? w.emomTargetReps : [];
-    out.emomTargetReps = out.emomMovements.map((_, i) => Math.round(cleanNum(targets[i], 0, LIMITS.reps, 0)));
-    const weights = Array.isArray(w.emomTargetWeights) ? w.emomTargetWeights : [];
-    out.emomTargetWeights = out.emomMovements.map((_, i) => cleanNum(weights[i], 0, LIMITS.weight, 0));
+    const rawMovements = Array.isArray(w.emomMovements) ? w.emomMovements : [];
+    const rawTypes = Array.isArray(w.emomMovementTypes) ? w.emomMovementTypes : [];
+    const rawReps = Array.isArray(w.emomTargetReps) ? w.emomTargetReps : [];
+    const rawDurations = Array.isArray(w.emomTargetDurations) ? w.emomTargetDurations : [];
+    const rawWeights = Array.isArray(w.emomTargetWeights) ? w.emomTargetWeights : [];
+    // Pair every per-movement array to its original index BEFORE dropping
+    // empty names — filtering emomMovements first and then re-mapping the
+    // other arrays by their new (shifted) position would silently misalign
+    // every movement after the dropped one with the wrong target/weight.
+    const kept = rawMovements.slice(0, LIMITS.emomMovements)
+      .map((n, i) => ({ i, name: cleanStr(n, LIMITS.nameLen) }))
+      .filter((m) => m.name);
+    out.emomMovements = kept.map((m) => m.name);
+    out.emomMovementTypes = kept.map((m) => {
+      const t = rawTypes[m.i];
+      return t === "duration" || t === "rest" ? t : "reps";
+    });
+    out.emomTargetReps = kept.map((m) => Math.round(cleanNum(rawReps[m.i], 0, LIMITS.reps, 0)));
+    out.emomTargetDurations = kept.map((m) => Math.round(cleanNum(rawDurations[m.i], 0, LIMITS.duration, 0)));
+    out.emomTargetWeights = kept.map((m) => cleanNum(rawWeights[m.i], 0, LIMITS.weight, 0));
     out.emomMinutes = Math.round(cleanNum(w.emomMinutes, 1, LIMITS.minutes, 10));
     if (out.emomMovements.length === 0) return null;
   }
@@ -655,6 +680,15 @@ async function dbAddCustomWod(w) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CUSTOMWODSTORE, "readwrite");
     tx.objectStore(CUSTOMWODSTORE).put(w);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function dbDeleteCustomWod(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CUSTOMWODSTORE, "readwrite");
+    tx.objectStore(CUSTOMWODSTORE).delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -1279,6 +1313,11 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.29.0", date: "2026-08-26", items: [
+    "בבניית EMOM: אפשר עכשיו גם תרגילי החזקה בזמן, וגם סבבי מנוחה בסיבוב",
+    "תרגילי קלוריות ומטרים (ריצה, חתירה, אופניים) מקבלים עכשיו תווית נכונה במקום \"חזרות\"",
+    "אפשר למחוק אימון מותאם אישית שעדיין לא נרשם עליו כלום, ישירות מרשימת האימונים",
+  ] },
   { version: "2.28.0", date: "2026-08-26", items: [
     "אפשר עכשיו להוסיף משקל לתרגילים בסבב EMOM (כמו Wall Balls) — לא רק חזרות",
   ] },
@@ -2152,6 +2191,23 @@ async function addCustomWod(name, scoreType, desc, extra) {
   closeWodBuilder();
   render();
 }
+// A custom WOD (unlike a strength exercise) has no rename path — this is
+// the only way to clean up a typo or a one-off test WOD. Refuses to touch
+// one with any logged history: deleting a WOD *definition* should never be
+// how someone's actual training data disappears. The picker only ever
+// shows the delete button when wodEntriesFor(id).length === 0 anyway (see
+// renderWodPickerList), this is the second, authoritative check.
+async function deleteCustomWod(id) {
+  const w = wodById(id);
+  if (!w || w.category !== "Custom") return;
+  if (wodEntriesFor(id).length > 0) return;
+  customWods = customWods.filter((c) => c.id !== id);
+  if (selectedWodId === id) selectedWodId = null;
+  if (wodHistoryId === id) wodHistoryId = null;
+  try { await dbDeleteCustomWod(id); } catch (e) { noteStorageError(e); }
+  renderWodPickerList(document.getElementById("wodPickerSearch")?.value || "");
+  render();
+}
 
 // ---------- WOD builder ----------
 function openWodBuilder(prefillName) {
@@ -2237,46 +2293,49 @@ function renderWodBuilderMovements(query) {
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${items.map((m) => {
         const checked = Object.prototype.hasOwnProperty.call(builderMovements, m.name);
-        const data = builderMovements[m.name] || { reps: 10, weight: 0, type: "reps", durationSeconds: 20 };
+        const data = builderMovements[m.name] || { reps: 10, weight: 0, type: "reps", durationSeconds: 20, isRest: false };
         const isEmom = builderFormat === "emom";
         const hasWeight = WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
-        const isDuration = !isEmom && data.type === "duration";
-        // EMOM movements skip the reps/duration toggle (always reps — the
-        // rotation order itself, shown here, carries the structure) but
-        // still take a prescribed weight for a loaded movement like Wall
-        // Balls or a DB/KB station — same hasWeight check as every other
-        // format. See renderWodLogSection for how it's surfaced there.
+        const isDuration = data.type === "duration";
+        const isRest = isEmom && data.isRest;
+        // A rotation number instead of a checkmark: EMOM movements are
+        // ordered (rotation order = selection order), everything else is an
+        // unordered set that just needs to be on/off.
         const rotationNum = isEmom && checked ? Object.keys(builderMovements).indexOf(m.name) + 1 : null;
         return `
         <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}" role="checkbox" aria-checked="${checked}">
-          <span style="font-weight:600; font-size:14px;">${rotationNum ? `${rotationNum}. ` : ""}${esc(m.name)}</span>
+          <span style="font-weight:600; font-size:14px;">${rotationNum ? `${rotationNum}. ` : ""}${esc(m.name)}${isRest ? " (מנוחה)" : ""}</span>
           <div class="movecheck-box">${checked ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>' : ""}</div>
         </button>
-        ${checked && !isEmom ? `
+        ${checked && isEmom ? `
+        <div class="flex gap-8" style="margin:-2px 0 6px; padding:0 2px;">
+          <button class="format-chip ${isRest ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-rest" data-name="${esc(m.name)}" role="checkbox" aria-checked="${isRest}">מנוחה — סבב ללא תרגיל</button>
+        </div>` : ""}
+        ${checked && !isRest ? `
         <div class="flex gap-8" style="margin:-2px 0 6px; padding:0 2px;" role="radiogroup" aria-label="חזרות או זמן — ${esc(m.name)}">
-          <button class="format-chip ${!isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="reps" role="radio" aria-checked="${!isDuration}">חזרות</button>
+          <button class="format-chip ${!isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="reps" role="radio" aria-checked="${!isDuration}">${esc(repsFieldLabel(m.name))}</button>
           <button class="format-chip ${isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="duration" role="radio" aria-checked="${isDuration}">זמן</button>
         </div>
         <div class="flex" style="gap:8px; margin:0 0 10px; padding:0 2px;">
-          ${isDuration ? renderStepper(m.name, "שניות", data.durationSeconds, 5, 1, "builder-movement-duration") : renderStepper(m.name, "חזרות", data.reps, 1, 0, "builder-movement-reps")}
+          ${isDuration ? renderStepper(m.name, "שניות", data.durationSeconds, 5, 1, "builder-movement-duration") : renderStepper(m.name, repsFieldLabel(m.name) + (isEmom ? " בכל סבב" : ""), data.reps, 1, 0, "builder-movement-reps")}
           ${hasWeight ? renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight") : ""}
-        </div>` : ""}
-        ${checked && isEmom ? `
-        <div class="flex" style="gap:8px; margin:-2px 0 10px; padding:0 2px;">
-          <div style="${hasWeight ? "width:50%;" : "width:100%;"}">${renderStepper(m.name, "חזרות בכל סבב", data.reps, 1, 0, "builder-movement-reps")}</div>
-          ${hasWeight ? `<div style="width:50%;">${renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight")}</div>` : ""}
         </div>` : ""}`;
       }).join("")}
     </div>`).join("");
 }
 function toggleBuilderMovement(name) {
   if (Object.prototype.hasOwnProperty.call(builderMovements, name)) delete builderMovements[name];
-  else builderMovements[name] = { reps: 10, weight: 0, type: "reps", durationSeconds: 20 };
+  else builderMovements[name] = { reps: 10, weight: 0, type: "reps", durationSeconds: 20, isRest: false };
   renderWodBuilderMovements();
 }
 function setBuilderMovementType(name, type) {
   if (!builderMovements[name]) return;
   builderMovements[name].type = type === "duration" ? "duration" : "reps";
+  renderWodBuilderMovements();
+}
+function toggleBuilderMovementRest(name) {
+  if (!builderMovements[name]) return;
+  builderMovements[name].isRest = !builderMovements[name].isRest;
   renderWodBuilderMovements();
 }
 function createWodFromBuilder() {
@@ -2301,10 +2360,19 @@ function createWodFromBuilder() {
       if (hint) { hint.textContent = "יש לבחור לפחות תרגיל אחד לסיבוב"; hint.style.color = "var(--red)"; }
       return;
     }
-    const emomTargetReps = emomMovements.map((n) => builderMovements[n].reps);
-    const emomTargetWeights = emomMovements.map((n) => builderMovements[n].weight || 0);
-    addCustomWod(name, "emom", emomWodDesc(builderEmomMinutes, emomMovements, emomTargetReps, emomTargetWeights), {
-      emomMinutes: builderEmomMinutes, emomMovements, emomTargetReps, emomTargetWeights,
+    // A rest station carries no reps/duration/weight — the type array is
+    // what the log form uses to decide which kind of stepper (or none, for
+    // rest) to render per rotation slot. See renderWodLogSection. Every
+    // field not relevant to a movement's own type is zeroed rather than
+    // left at whatever the builder's default/leftover value was, so a
+    // duration station's meaningless "reps: 10" (never touched, never
+    // shown) doesn't end up stored as if it meant something.
+    const emomMovementTypes = emomMovements.map((n) => builderMovements[n].isRest ? "rest" : builderMovements[n].type === "duration" ? "duration" : "reps");
+    const emomTargetReps = emomMovements.map((n, i) => emomMovementTypes[i] === "reps" ? builderMovements[n].reps : 0);
+    const emomTargetDurations = emomMovements.map((n, i) => emomMovementTypes[i] === "duration" ? (builderMovements[n].durationSeconds || 0) : 0);
+    const emomTargetWeights = emomMovements.map((n, i) => emomMovementTypes[i] === "rest" ? 0 : (builderMovements[n].weight || 0));
+    addCustomWod(name, "emom", emomWodDesc(builderEmomMinutes, emomMovements, emomMovementTypes, emomTargetReps, emomTargetDurations, emomTargetWeights), {
+      emomMinutes: builderEmomMinutes, emomMovements, emomMovementTypes, emomTargetReps, emomTargetDurations, emomTargetWeights,
     });
     return;
   }
@@ -2314,10 +2382,13 @@ function createWodFromBuilder() {
 }
 // Pure by design, same reasoning as builderMovementsToDesc — a compact,
 // human-readable summary of the rotation for the WOD picker/log header.
-function emomWodDesc(minutes, movements, targetReps, targetWeights) {
+function emomWodDesc(minutes, movements, types, targetReps, targetDurations, targetWeights) {
   return `EMOM ${minutes}: ${movements.map((n, i) => {
+    const type = types?.[i] || "reps";
+    if (type === "rest") return "Rest";
     const weight = targetWeights?.[i];
-    return `${targetReps[i]} ${n}${weight ? ` @ ${weight}kg` : ""}`;
+    const suffix = weight ? ` @ ${weight}kg` : "";
+    return type === "duration" ? `${formatDuration(targetDurations?.[i])} ${n}${suffix}` : `${targetReps[i]} ${n}${suffix}`;
   }).join(" / ")}`;
 }
 // Pure by design (no DOM/state reads) so it's directly testable — the
@@ -2349,7 +2420,10 @@ async function saveWod() {
   };
   if (w.scoreType === "time") entry.timeSeconds = wodMinutes * 60 + wodSeconds;
   else if (w.scoreType === "amrap") { entry.rounds = wodRounds; entry.reps = wodReps; }
-  else if (w.scoreType === "emom") entry.emomReps = wodEmomReps.slice();
+  // Rest stations aren't logged — nothing was entered for them, and a
+  // stray leftover number there would show up in formatWodEntry's plain
+  // join(" · ") as if it meant something. Keep only the real stations.
+  else if (w.scoreType === "emom") entry.emomReps = wodEmomReps.filter((_, i) => w.emomMovementTypes?.[i] !== "rest");
   else entry.weight = wodWeight;
   entry.notes = wodNotes.trim() || null;
   entry.scaledWeight = !wodRx ? wodScaledWeight : null;
@@ -2381,7 +2455,16 @@ function startEditWodEntry(id) {
   wodScaledWeight = entry.scaledWeight || 20;
   if (entry.scoreType === "time") { wodMinutes = Math.floor((entry.timeSeconds || 0) / 60); wodSeconds = (entry.timeSeconds || 0) % 60; }
   else if (entry.scoreType === "amrap") { wodRounds = entry.rounds || 0; wodReps = entry.reps || 0; }
-  else if (entry.scoreType === "emom") { wodEmomReps = (entry.emomReps || []).slice(); wodEmomRepsForWodId = entry.wodId; }
+  else if (entry.scoreType === "emom") {
+    // entry.emomReps only ever stores the loggable (non-rest) stations, in
+    // order — re-expand it back to one slot per rotation movement so the
+    // field indices the log form's steppers use (String(i) into
+    // w.emomMovements) line up again. See the matching filter in saveWod().
+    const compact = (entry.emomReps || []).slice();
+    let ci = 0;
+    wodEmomReps = w.emomMovements.map((n, i) => (w.emomMovementTypes?.[i] === "rest" ? 0 : compact[ci++]) ?? 0);
+    wodEmomRepsForWodId = entry.wodId;
+  }
   else wodWeight = entry.weight || 0;
   wodLogDate = entry.date;
   editingWodEntryId = entry.id;
@@ -3431,15 +3514,25 @@ function renderWodLogSection() {
     // target reps, same "starting point, not a blank form" idea as
     // prefill-from-last elsewhere in the app.
     if (wodEmomRepsForWodId !== w.id || wodEmomReps.length !== w.emomMovements.length) {
-      wodEmomReps = w.emomTargetReps.slice();
+      // Duration-type stations prefill from their own target seconds, not
+      // target reps (which is meaningless — never set — for that station).
+      wodEmomReps = w.emomMovements.map((_, i) => (w.emomMovementTypes?.[i] === "duration" ? w.emomTargetDurations?.[i] : w.emomTargetReps[i]) || 0);
       wodEmomRepsForWodId = w.id;
     }
     inputsHtml = `
-    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">EMOM ${w.emomMinutes} — חזרות בכל סבב, לפי תרגיל</div>
+    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">EMOM ${w.emomMinutes} — לפי תרגיל, לכל סבב</div>
     <div class="steppers">
       ${w.emomMovements.map((name, i) => {
+        const type = w.emomMovementTypes?.[i] || "reps";
         const weight = w.emomTargetWeights?.[i];
-        return renderStepper(String(i), `${i + 1}. ${name}${weight ? ` (${weight} ק"ג)` : ""}`, wodEmomReps[i], 1, 0, "wod-emom-step");
+        const weightSuffix = weight ? ` (${weight} ק"ג)` : "";
+        if (type === "rest") {
+          return `<div class="stepper" style="opacity:.7;"><span class="stepper-label">${i + 1}. מנוחה</span></div>`;
+        }
+        if (type === "duration") {
+          return renderStepper(String(i), `${i + 1}. ${name}${weightSuffix} — שניות`, wodEmomReps[i], 5, 0, "wod-emom-step");
+        }
+        return renderStepper(String(i), `${i + 1}. ${name}${weightSuffix} — ${repsFieldLabel(name)}`, wodEmomReps[i], 1, 0, "wod-emom-step");
       }).join("")}
     </div>`;
   } else {
@@ -3842,14 +3935,25 @@ function renderWodPickerList(query) {
   list.innerHTML = addRow + `<div style="height:12px;"></div>` + cats.map((cat) => `
     <div class="cat-group">
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
-      ${byCategory[cat].map((w) => `
-        <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${esc(w.id)}">
-          <div>
-            <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
-            ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
-          </div>
-          ${selectedWodId === w.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
-        </button>`).join("")}
+      ${byCategory[cat].map((w) => {
+        // Only a custom WOD nobody has ever logged is deletable — this is
+        // the only cleanup path for a typo/test WOD (there's no way to
+        // rename one), and blocking it once real history exists means
+        // deleting a WOD definition can never silently orphan or wipe
+        // logged entries. See dbDeleteCustomWod/deleteCustomWod.
+        const deletable = cat === "Custom" && wodEntriesFor(w.id).length === 0;
+        return `
+        <div class="flex items-center gap-6" style="margin-bottom:8px;">
+          <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${esc(w.id)}" style="flex:1; margin-bottom:0;">
+            <div>
+              <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
+              ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
+            </div>
+            ${selectedWodId === w.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
+          </button>
+          ${deletable ? `<button data-action="delete-custom-wod" data-id="${esc(w.id)}" aria-label="מחיקת ${esc(w.name)}" style="color:var(--steel); padding:8px; flex:none;">${ICONS.trash}</button>` : ""}
+        </div>`;
+      }).join("")}
     </div>`).join("");
 }
 
@@ -4030,6 +4134,7 @@ document.addEventListener("click", (e) => {
     closeWodPicker();
     renderWodContent();
   }
+  else if (action === "delete-custom-wod") { deleteCustomWod(el.dataset.id); }
   else if (action === "open-wod-builder") { openWodBuilder(el.dataset.name || ""); }
   else if (action === "close-wod-builder") {
     if (el.id === "wodBuilderOverlay" && e.target !== el) return;
@@ -4038,6 +4143,7 @@ document.addEventListener("click", (e) => {
   else if (action === "builder-set-format") { builderFormat = el.dataset.format; renderWodBuilderFormats(); renderWodBuilderMovements(); }
   else if (action === "toggle-builder-movement") { toggleBuilderMovement(el.dataset.name); }
   else if (action === "toggle-builder-movement-type") { setBuilderMovementType(el.dataset.name, el.dataset.type); }
+  else if (action === "toggle-builder-movement-rest") { toggleBuilderMovementRest(el.dataset.name); }
   else if (action === "add-builder-movement-tag") {
     const name = cleanStr(el.dataset.name, LIMITS.nameLen), category = el.dataset.category;
     if (!name) return;
