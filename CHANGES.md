@@ -1,3 +1,27 @@
+# Fix the square glow around earned weight-plate medals — 2026-08-26
+
+Reported with a screenshot right after the gloss/rim polish shipped:
+"the square can be seen... it looks like a kid drew it." The earned
+glow (`filter:drop-shadow(...)`) and the circular clip
+(`border-radius:50%; overflow:hidden;`) were on the same element — a
+known cross-browser inconsistency where `drop-shadow()` doesn't
+reliably respect its own element's overflow clip, so the glow traced
+the plate's square bounding box instead of its circular clipped shape.
+
+Split them onto two nested elements: `.medal-shape.medal-shape-plate`
+(outer, gets the locked/earned filter) wraps `.medal-plate` (inner,
+does the circular clip + rim + gloss sweep). The outer element has no
+clipping of its own, so `drop-shadow` traces the actual rendered
+(already-circular) content instead of a bounding box. Same technique
+already proven for the `capstone-badge` glow, which never had this bug
+because it was never combined with a clip on the same node.
+
+1 new test locks in the two-element split specifically (not just the
+visual result) so this can't silently regress back onto one element.
+Full suite: 139/139 jsdom tests, all 10 browser-check scripts, green.
+Verified visually — the earned bronze glow is now a clean circular
+halo.
+
 # Polish the weight-plate medals: gloss, rim, and a visible locked state — 2026-08-26
 
 Reported with a screenshot right after the previous entry shipped: the

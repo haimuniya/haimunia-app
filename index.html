@@ -269,12 +269,22 @@
   .medal-badge{ width:72px; text-align:center; flex-shrink:0; }
   .medal-shape{ width:64px; height:70px; margin:0 auto; }
   .medal-shape.shape-circle{ height:64px; }
-  /* Tiered medals render as a weight-plate photo — a real <img>, wrapped
-     in a circular frame (not the shield SVG's viewBox) with a diagonal
-     gloss sweep and a rim, echoing the shield's own medal-shine/medal-rim
-     treatment so a flat product photo reads as a "medal" and not a sticker. */
+  .medal-shape.medal-shape-plate{ height:64px; }
+  /* Tiered medals render as a weight-plate photo — a real <img> — with a
+     circular frame, a diagonal gloss sweep, and a rim, echoing the
+     shield's own medal-shine/medal-rim treatment so a flat product photo
+     reads as a "medal" and not a sticker.
+     Two nested elements, not one: .medal-shape-plate (outer, gets the
+     locked/earned filter — grayscale, glow, etc.) and .medal-plate
+     (inner, does the circular overflow:hidden clip + rim). Combining the
+     clip and the glow filter on the SAME element is a known cross-browser
+     bug — filter:drop-shadow() doesn't reliably respect its own element's
+     overflow:hidden clip, so the glow traced the plate's square bounding
+     box instead of its circular clipped shape ("the square can be seen").
+     Splitting them avoids the combination entirely. */
+  .medal-shape-plate{ width:100%; height:100%; }
   .medal-plate{
-    width:64px; height:64px; margin:0 auto; border-radius:50%; position:relative;
+    width:100%; height:100%; border-radius:50%; position:relative;
     overflow:hidden; box-shadow:0 0 0 1.5px rgba(0,0,0,.35), inset 0 0 0 1.5px rgba(255,255,255,.18);
   }
   .medal-plate img{ display:block; width:100%; height:100%; object-fit:cover; }
@@ -291,7 +301,7 @@
      crushed almost to invisible. Two classes beats one on specificity, so
      this reliably wins regardless of rule order without touching the
      shield's own locked treatment. */
-  .medal-badge.locked .medal-plate.medal-shape{ filter:grayscale(.75) brightness(.8) saturate(.6); opacity:.6; }
+  .medal-badge.locked .medal-shape.medal-shape-plate{ filter:grayscale(.75) brightness(.8) saturate(.6); opacity:.6; }
   .capstone-badge{ width:auto; }
   .capstone-badge .medal-shape{ width:104px; height:104px; }
   .capstone-badge .medal-name{ font-size:14px; }
