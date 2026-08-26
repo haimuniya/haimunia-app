@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.27.0";
+const APP_VERSION = "2.27.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1274,6 +1274,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.27.1", date: "2026-08-26", items: [
+    "תיקון: אפשר עכשיו להגיע ל\"כל האימונים שלי\" גם כשלא נבחר אימון עדיין",
+  ] },
   { version: "2.27.0", date: "2026-08-26", items: [
     "טאב האימונים כבר לא נפתח עם אימון קבוע (Fran) — עכשיו בוחרים בעצמכם: יצירת אימון או בנצ'מרק",
   ] },
@@ -3353,6 +3356,7 @@ function renderWodLogSection() {
           <span style="font-weight:700; font-size:14px;">בנצ'מרק</span>
         </button>
       </div>
+      <button data-action="open-wod-picker" style="background:none; border:none; color:var(--steel); font-size:13px; text-decoration:underline; padding:4px;">כל האימונים שלי</button>
     </div>`;
   }
   const best = formatWodBest(selectedWodId);
@@ -3888,14 +3892,6 @@ document.addEventListener("click", (e) => {
   else if (action === "install-app") { installApp(); }
   else if (action === "dismiss-install-hint") { dismissInstallBanner(); }
   else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
-  else if (action === "view-today-calendar") {
-    tab = "calendar";
-    const t = new Date();
-    calYear = t.getFullYear();
-    calMonth = t.getMonth();
-    calSelectedDate = todayISO();
-    render();
-  }
   else if (action === "view-log-date-calendar") {
     tab = "calendar";
     const d = new Date(logDate + "T00:00:00");

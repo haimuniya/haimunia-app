@@ -1,3 +1,23 @@
+# Full-codebase audit: wiring fixes — 2026-08-26
+
+Ran a full audit (wiring/dead-code, security, logic/state-consistency,
+regression + coverage) across the whole app. Security came back clean.
+Three wiring issues found and fixed here; the higher-severity
+logic/state findings (an edit-then-navigate-then-save path that can
+silently overwrite the wrong entry's identity, on both the strength and
+WOD sides) are tracked separately, pending sign-off before touching
+`saveSet()`/`saveWod()`.
+
+- The WOD tab's new empty state (previous entry below) accidentally
+  orphaned the full "כל האימונים שלי" picker — the only way to browse
+  and reselect an existing *custom* WOD with search — since it only
+  rendered after something was already selected. Added a direct link to
+  it from the empty state, wired to the existing `open-wod-picker`
+  action.
+- Removed a dead click-dispatcher branch (`view-today-calendar` — no
+  markup anywhere ever set that action).
+- Removed an orphaned CSS class (`.flex-1`, zero usages).
+
 # The WOD tab no longer defaults to a random benchmark — 2026-08-26
 
 Reported with a screenshot: opening רישום showed "Fran" already loaded and
