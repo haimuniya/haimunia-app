@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.25.1";
+const APP_VERSION = "2.26.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1270,6 +1270,10 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.26.0", date: "2026-08-26", items: [
+    "אפשר עכשיו לשנות את גודל הטקסט בכל האפליקציה — בתחתית המסך, ליד הגדרות המראה",
+    "לוגו ואייקון חדשים לאפליקציה",
+  ] },
   { version: "2.25.1", date: "2026-08-26", items: [
     "תיקון: הקשה ישירה על מספר בכל שדה באפליקציה איפסה אותו במקום לאפשר הקלדה — עכשיו אפשר פשוט להקליד",
   ] },
@@ -1793,6 +1797,38 @@ function renderThemeRow() {
   const opts = [["dark", "כהה"], ["light", "בהיר"], ["auto", "אוטומטי"]];
   return `<div id="themeRow" class="flex items-center justify-center gap-8" role="radiogroup" aria-label="מראה" style="margin-bottom:8px;">
     ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-theme" data-pref="${val}" role="radio" aria-checked="${themePref === val}" style="${themePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;" aria-hidden="true">·</span>')}
+  </div>`;
+}
+
+// Text size, same reasoning and mechanism as theme above — localStorage
+// (not IndexedDB) so theme-init.js can apply it synchronously before first
+// paint, no flash of the default size. Zoom lives on <html> via CSS custom
+// property, see index.html; this just toggles the attribute that selects it.
+const TEXT_SCALE_KEY = "haimunia:textScale";
+let textScalePref = "normal";
+function loadTextScalePref() {
+  try {
+    const stored = localStorage.getItem(TEXT_SCALE_KEY);
+    if (stored === "normal" || stored === "large" || stored === "xlarge") textScalePref = stored;
+  } catch (e) { /* keep the default */ }
+}
+function applyTextScalePref() {
+  const root = document.documentElement;
+  if (textScalePref === "normal") root.removeAttribute("data-text-scale");
+  else root.setAttribute("data-text-scale", textScalePref);
+}
+function setTextScalePref(pref) {
+  if (pref !== "normal" && pref !== "large" && pref !== "xlarge") return;
+  textScalePref = pref;
+  try { localStorage.setItem(TEXT_SCALE_KEY, pref); } catch (e) {}
+  applyTextScalePref();
+  const row = document.getElementById("textScaleRow");
+  if (row) row.outerHTML = renderTextScaleRow();
+}
+function renderTextScaleRow() {
+  const opts = [["normal", "רגיל"], ["large", "גדול"], ["xlarge", "גדול מאוד"]];
+  return `<div id="textScaleRow" class="flex items-center justify-center gap-8" role="radiogroup" aria-label="גודל טקסט" style="margin-bottom:8px;">
+    ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-text-scale" data-pref="${val}" role="radio" aria-checked="${textScalePref === val}" style="${textScalePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;" aria-hidden="true">·</span>')}
   </div>`;
 }
 
@@ -3105,6 +3141,8 @@ function renderFooter() {
         <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
       </div>
       <div class="footer-note" style="margin-bottom:8px;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל שם, היסטוריית משקל גוף ויומן אימונים מלא — שמרו אותו במקום בטוח</div>
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">גודל טקסט</div>
+      ${renderTextScaleRow()}
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">מראה</div>
       ${renderThemeRow()}
       ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
@@ -3882,6 +3920,7 @@ document.addEventListener("click", (e) => {
   else if (action === "save-set") { saveSet(); }
   else if (action === "set-bar-weight") { setBarWeight(+el.dataset.kg); }
   else if (action === "set-theme") { setThemePref(el.dataset.pref); }
+  else if (action === "set-text-scale") { setTextScalePref(el.dataset.pref); }
   else if (action === "delete-entry") { deleteEntry(el.dataset.id); }
   else if (action === "cal-prev") { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendarGrid(); }
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
@@ -4055,6 +4094,8 @@ document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
 async function init() {
   loadThemePref();
   applyThemePref();
+  loadTextScalePref();
+  applyTextScalePref();
   if (window.matchMedia) {
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
       if (themePref === "auto") syncThemeColorMeta();

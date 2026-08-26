@@ -15,4 +15,12 @@
   if (t === "light" || t === "dark") {
     document.documentElement.setAttribute("data-theme", t);
   }
+  var s = "normal";
+  try {
+    var storedScale = localStorage.getItem("haimunia:textScale");
+    if (storedScale) s = storedScale;
+  } catch (e) {}
+  if (s === "large" || s === "xlarge") {
+    document.documentElement.setAttribute("data-text-scale", s);
+  }
 })();

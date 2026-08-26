@@ -83,7 +83,20 @@
     --color-scheme:light;
     --stripe-a:var(--energy); --stripe-b:#22345C;
     --stripe:repeating-linear-gradient(135deg, var(--stripe-a) 0 14px, var(--stripe-b) 14px 28px);
+    --text-scale:1;
   }
+  /* Text size preference — zoom (not font-size) so it scales every literal
+     px value already baked into this app's markup/inline styles, not just
+     text declared in rem. Applied to <html> so it covers position:fixed
+     modals too: zoom doesn't establish a new containing block the way
+     transform would, so a fixed overlay's inset:0 still measures against
+     the real viewport (covers the screen correctly) while everything
+     rendered inside it still scales with the rest of the page. Applied via
+     theme-init.js before first paint, same as the theme attribute, so
+     there's no flash of the wrong size on load. */
+  html[data-text-scale="large"]{ --text-scale:1.2; }
+  html[data-text-scale="xlarge"]{ --text-scale:1.45; }
+  html{ zoom:var(--text-scale); }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
       --bg:#152342; --surface:#1F3057; --surface2:#2A3D6B; --border:#425481;
