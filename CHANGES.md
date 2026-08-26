@@ -1,3 +1,36 @@
+# Full-codebase audit: fix the high-severity edit-then-navigate corruption bug — 2026-08-26
+
+The logic/state-consistency pass of the same audit (previous entry below)
+found the highest-severity issue: editing a strength or WOD entry, then
+picking a different exercise/WOD *without* cancelling the edit first, then
+saving, silently overwrote the original entry's identity in place —
+`saveSet()`/`saveWod()` keep the edited entry's `id`/timestamp but write
+the newly-picked exercise/WOD's data onto it. No warning, no duplicate,
+just corrupted history.
+
+Root cause: `editingEntryId`/`editingWodEntryId` weren't cleared by any of
+the paths that change `selectedId`/`selectedWodId` mid-edit —
+`choosePickedMovement()` (and `addMovement()`, which routes through it),
+`select-benchmark`, `pick-wod`, the WOD picker's Enter-to-exact-match
+shortcut, and `addCustomWod()`'s both branches (creating a new WOD or
+reusing one that already exists by name). Fixed with two small guards —
+`endEntryEditIfActive()` and `endWodEditIfActive()` — called at every one
+of those sites: picking something else mid-edit now cancels the edit and
+starts a fresh entry, instead of corrupting the one being edited.
+
+Also fixed the accompanying moderate-severity finding: the EMOM
+reps-resync at `renderWodLogSection()` only checked array *length*
+against the newly-selected WOD, so swapping between two different EMOM
+WODs with the same movement count left the previous WOD's reps on screen
+against the new WOD's labels. Now keyed off the WOD's own id
+(`wodEmomRepsForWodId`), not just length — also reset on "clear all
+data" for the same reason.
+
+New test file `test/edit-navigation-guard.test.mjs` (3 tests) reproduces
+all three scenarios against the pre-fix code (verified via `git stash`)
+before confirming the fix. Full suite: 86/86 jsdom tests, all 10
+browser-check scripts, green.
+
 # Full-codebase audit: wiring fixes — 2026-08-26
 
 Ran a full audit (wiring/dead-code, security, logic/state-consistency,

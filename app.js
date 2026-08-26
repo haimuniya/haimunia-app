@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.27.1";
+const APP_VERSION = "2.27.2";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -851,8 +851,11 @@ let selectedWodId = null;
 let wodMinutes = 3, wodSeconds = 0, wodRounds = 5, wodReps = 0, wodWeight = 20;
 // EMOM-only: one rep count per movement in the selected WOD's rotation,
 // index-aligned with its emomMovements — kept in sync with that WOD's own
-// movement count by renderWodLogSection whenever it renders.
+// identity by renderWodLogSection whenever it renders (wodEmomRepsForWodId
+// tracks which WOD wodEmomReps was last built for; a length-only check would
+// miss swapping between two different EMOM WODs with the same movement count).
 let wodEmomReps = [];
+let wodEmomRepsForWodId = null;
 let wodRx = true;
 let wodScaledWeight = 20;
 let wodNotes = "";
@@ -1274,6 +1277,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.27.2", date: "2026-08-26", items: [
+    "תיקון: מעבר לתרגיל או אימון אחר באמצע עריכה יכול היה לדרוס בטעות רישום קיים — עכשיו זה מתחיל רישום חדש כמו שצריך",
+  ] },
   { version: "2.27.1", date: "2026-08-26", items: [
     "תיקון: אפשר עכשיו להגיע ל\"כל האימונים שלי\" גם כשלא נבחר אימון עדיין",
   ] },
@@ -1574,6 +1580,15 @@ function cancelEditEntry() {
   editingEntryId = null;
   logDate = todayISO();
   render();
+}
+// Picking a different exercise while an edit is in flight must not let the
+// in-progress edit's id/date carry over onto the newly-picked exercise —
+// otherwise saving silently overwrites the original entry with the new
+// exercise's data under its old id/timestamp. Mirrors endWodEditIfActive().
+function endEntryEditIfActive() {
+  if (!editingEntryId) return;
+  editingEntryId = null;
+  logDate = todayISO();
 }
 async function deleteEntry(id) {
   entries = entries.filter((e) => e.id !== id);
@@ -2048,6 +2063,8 @@ async function clearAllData() {
   editingEntryId = null;
   wodLogDate = todayISO();
   editingWodEntryId = null;
+  wodEmomReps = [];
+  wodEmomRepsForWodId = null;
   confirmClear = false;
   renderUserGreeting();
   render();
@@ -2112,7 +2129,7 @@ async function addCustomWod(name, scoreType, desc, extra) {
   if (!trimmed) return;
   if (!WOD_SCORE_TYPES.includes(scoreType)) return;
   const existing = allWods().find((w) => w.name.toLowerCase() === trimmed.toLowerCase());
-  if (existing) { selectedWodId = existing.id; closeWodPicker(); closeWodBuilder(); render(); return; }
+  if (existing) { endWodEditIfActive(); selectedWodId = existing.id; closeWodPicker(); closeWodBuilder(); render(); return; }
   const id = uid("customwod");
   // extra carries scoreType-specific structured fields (currently just EMOM's
   // movement rotation — see sanitizeCustomWod) that, unlike every other
@@ -2120,6 +2137,7 @@ async function addCustomWod(name, scoreType, desc, extra) {
   const wod = { id, name: trimmed, category: "Custom", scoreType, desc: cleanStr(desc, LIMITS.notesLen), ...(extra || {}) };
   customWods.push(wod);
   try { await dbAddCustomWod(wod); } catch (e) { noteStorageError(e); }
+  endWodEditIfActive();
   selectedWodId = id;
   closeWodPicker();
   closeWodBuilder();
@@ -2348,7 +2366,7 @@ function startEditWodEntry(id) {
   wodScaledWeight = entry.scaledWeight || 20;
   if (entry.scoreType === "time") { wodMinutes = Math.floor((entry.timeSeconds || 0) / 60); wodSeconds = (entry.timeSeconds || 0) % 60; }
   else if (entry.scoreType === "amrap") { wodRounds = entry.rounds || 0; wodReps = entry.reps || 0; }
-  else if (entry.scoreType === "emom") wodEmomReps = (entry.emomReps || []).slice();
+  else if (entry.scoreType === "emom") { wodEmomReps = (entry.emomReps || []).slice(); wodEmomRepsForWodId = entry.wodId; }
   else wodWeight = entry.weight || 0;
   wodLogDate = entry.date;
   editingWodEntryId = entry.id;
@@ -2361,6 +2379,17 @@ function cancelEditWodEntry() {
   wodLogDate = todayISO();
   wodNotes = "";
   render();
+}
+// Selecting a different WOD (benchmark, picker, or a freshly-built one)
+// while an edit is in flight must not let the in-progress edit's id/date
+// carry over onto the newly-selected WOD's score fields — otherwise saving
+// silently overwrites the original entry with the new WOD's data under its
+// old id/timestamp. Same fix as endEntryEditIfActive() on the strength side.
+function endWodEditIfActive() {
+  if (!editingWodEntryId) return;
+  editingWodEntryId = null;
+  wodLogDate = todayISO();
+  wodNotes = "";
 }
 async function deleteWodEntry(id) {
   wodEntries = wodEntries.filter((e) => e.id !== id);
@@ -3380,10 +3409,16 @@ function renderWodLogSection() {
   } else if (w.scoreType === "emom") {
     // Resync to this WOD's own rotation whenever it doesn't already match —
     // covers first-ever render, switching from a differently-shaped EMOM,
-    // and switching in from a non-EMOM WOD. Prefills from the WOD's own
+    // and switching in from a non-EMOM WOD. Keyed on WOD id, not just
+    // length — two different EMOM WODs can have the same movement count,
+    // and a length-only check would leave the previous WOD's reps on
+    // screen against the new WOD's labels. Prefills from the WOD's own
     // target reps, same "starting point, not a blank form" idea as
     // prefill-from-last elsewhere in the app.
-    if (wodEmomReps.length !== w.emomMovements.length) wodEmomReps = w.emomTargetReps.slice();
+    if (wodEmomRepsForWodId !== w.id || wodEmomReps.length !== w.emomMovements.length) {
+      wodEmomReps = w.emomTargetReps.slice();
+      wodEmomRepsForWodId = w.id;
+    }
     inputsHtml = `
     <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">EMOM ${w.emomMinutes} — חזרות בכל סבב, לפי תרגיל</div>
     <div class="steppers">
@@ -3693,6 +3728,7 @@ function openPicker(target) {
 // the normal exercise selection, or the active ladder's superset partner.
 function choosePickedMovement(id) {
   if (pickerTarget === "partner") { setLadderPartner(id); return; }
+  endEntryEditIfActive();
   selectedId = id;
   syncLogEntryTypeToSelection();
   endLadder();
@@ -3963,13 +3999,14 @@ document.addEventListener("click", (e) => {
   else if (action === "do-clear") { clearAllData(); }
   else if (action === "cancel-clear") { confirmClear = false; render(); }
   else if (action === "switch-wod-subtab") { switchWodSubtab(el.dataset.subtab); }
-  else if (action === "select-benchmark") { selectedWodId = el.dataset.id; switchWodSubtab("log"); }
+  else if (action === "select-benchmark") { endWodEditIfActive(); selectedWodId = el.dataset.id; switchWodSubtab("log"); }
   else if (action === "open-wod-picker") { openWodPicker(); }
   else if (action === "close-wod-picker") {
     if (el.id === "wodPickerOverlay" && e.target !== el) return;
     closeWodPicker();
   }
   else if (action === "pick-wod") {
+    endWodEditIfActive();
     selectedWodId = el.dataset.id;
     wodNotes = "";
     closeWodPicker();
@@ -4113,7 +4150,7 @@ document.getElementById("wodPickerSearch").addEventListener("keydown", (e) => {
   const q = e.target.value.trim();
   if (!q) return;
   const exact = allWods().find((w) => w.name.toLowerCase() === q.toLowerCase());
-  if (exact) { selectedWodId = exact.id; closeWodPicker(); renderWodContent(); }
+  if (exact) { endWodEditIfActive(); selectedWodId = exact.id; closeWodPicker(); renderWodContent(); }
   else openWodBuilder(q);
 });
 
