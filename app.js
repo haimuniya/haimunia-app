@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.26.0";
+const APP_VERSION = "2.26.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1809,7 +1809,7 @@ let textScalePref = "normal";
 function loadTextScalePref() {
   try {
     const stored = localStorage.getItem(TEXT_SCALE_KEY);
-    if (stored === "normal" || stored === "large" || stored === "xlarge") textScalePref = stored;
+    if (stored === "normal" || stored === "large") textScalePref = stored;
   } catch (e) { /* keep the default */ }
 }
 function applyTextScalePref() {
@@ -1818,7 +1818,7 @@ function applyTextScalePref() {
   else root.setAttribute("data-text-scale", textScalePref);
 }
 function setTextScalePref(pref) {
-  if (pref !== "normal" && pref !== "large" && pref !== "xlarge") return;
+  if (pref !== "normal" && pref !== "large") return;
   textScalePref = pref;
   try { localStorage.setItem(TEXT_SCALE_KEY, pref); } catch (e) {}
   applyTextScalePref();
@@ -1826,7 +1826,7 @@ function setTextScalePref(pref) {
   if (row) row.outerHTML = renderTextScaleRow();
 }
 function renderTextScaleRow() {
-  const opts = [["normal", "רגיל"], ["large", "גדול"], ["xlarge", "גדול מאוד"]];
+  const opts = [["normal", "רגיל"], ["large", "גדול"]];
   return `<div id="textScaleRow" class="flex items-center justify-center gap-8" role="radiogroup" aria-label="גודל טקסט" style="margin-bottom:8px;">
     ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-text-scale" data-pref="${val}" role="radio" aria-checked="${textScalePref === val}" style="${textScalePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;" aria-hidden="true">·</span>')}
   </div>`;

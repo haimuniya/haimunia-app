@@ -95,7 +95,6 @@
      theme-init.js before first paint, same as the theme attribute, so
      there's no flash of the wrong size on load. */
   html[data-text-scale="large"]{ --text-scale:1.2; }
-  html[data-text-scale="xlarge"]{ --text-scale:1.45; }
   html{ zoom:var(--text-scale); }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){

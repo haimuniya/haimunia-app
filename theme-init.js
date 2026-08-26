@@ -20,7 +20,7 @@
     var storedScale = localStorage.getItem("haimunia:textScale");
     if (storedScale) s = storedScale;
   } catch (e) {}
-  if (s === "large" || s === "xlarge") {
+  if (s === "large") {
     document.documentElement.setAttribute("data-text-scale", s);
   }
 })();

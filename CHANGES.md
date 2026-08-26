@@ -1,3 +1,20 @@
+# Remove the גדול מאוד (xlarge) text-size option — 2026-08-26
+
+Direct feedback the same day it shipped: 1.45x was too big. Dropped it
+from `loadTextScalePref`/`setTextScalePref`'s valid values, the footer's
+options list, and the `--text-scale` CSS rule — just רגיל/גדול (1x/1.2x)
+now. No migration needed: the validation already treats any unrecognized
+stored value as invalid and falls back to normal, so a device that had
+already picked xlarge just quietly reverts on next load rather than
+erroring.
+
+Also worth noting for anyone reading this after an "icon didn't update"
+report: confirmed the deployed `icon-192.png` is correct on the server
+(fetched it directly, byte count matches the new file) — a stale icon on
+an already-installed iOS home screen is a platform limitation, not a
+deploy issue. iOS snapshots the icon at "Add to Home Screen" time and
+never re-checks it; the only fix is removing and re-adding the shortcut.
+
 # Text-size preference, new app icon — 2026-08-26
 
 Two pieces of direct user feedback.
