@@ -119,6 +119,67 @@ test("startEditWodEntry (EMOM): restores the per-movement rep counts for editing
   assert.deepEqual(rows[0].emomReps, [11, 7]);
 });
 
+// Reported bug: the builder hid the weight stepper for every EMOM movement,
+// even loaded ones like Wall Balls or a DB/KB station — EMOM movements got
+// treated as reps-only regardless of category, unlike every other format
+// (which already showed weight for WOD_MOVE_CATEGORIES_WITH_WEIGHT). Fixed
+// by applying the same hasWeight check to EMOM instead of forcing it off.
+test("WOD builder: a weight-bearing EMOM movement (Odd Object) shows a weight stepper, a bodyweight one (Gymnastics) does not", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.querySelector("[data-action='builder-set-format'][data-format='emom']").click();
+  window.toggleBuilderMovement("Wall Balls"); // Odd Object — weight-bearing
+  window.toggleBuilderMovement("Burpees"); // Gymnastics — bodyweight
+
+  const wallBallWeightStepper = window.document.querySelector("[data-action='builder-movement-weight'][data-field='Wall Balls']");
+  const burpeeWeightStepper = window.document.querySelector("[data-action='builder-movement-weight'][data-field='Burpees']");
+  assert.ok(wallBallWeightStepper, "a loaded EMOM movement should offer a weight stepper");
+  assert.equal(burpeeWeightStepper, null, "a bodyweight EMOM movement should not offer a weight stepper");
+});
+
+test("createWodFromBuilder (EMOM): captures per-movement weight, bakes it into the generated description", async () => {
+  const window = await bootApp();
+  window.openWodBuilder();
+  window.document.getElementById("wodBuilderName").value = "Test EMOM Weighted";
+  window.document.querySelector("[data-action='builder-set-format'][data-format='emom']").click();
+  window.toggleBuilderMovement("Wall Balls");
+  window.toggleBuilderMovement("Burpees");
+  window.applyFieldValue("builder-movement-reps", "Wall Balls", 10);
+  window.applyFieldValue("builder-movement-weight", "Wall Balls", 9);
+  window.applyFieldValue("builder-movement-reps", "Burpees", 8);
+  window.createWodFromBuilder();
+
+  const wod = window.allWods().find((w) => w.name === "Test EMOM Weighted");
+  assert.ok(wod);
+  assert.deepEqual(wod.emomTargetWeights, [9, 0], "Wall Balls should carry its weight, Burpees (never given one) should default to 0");
+  assert.ok(wod.desc.includes("Wall Balls @ 9kg"), `generated desc should bake in the weight — got "${wod.desc}"`);
+  assert.ok(!wod.desc.includes("Burpees @"), "a movement with no weight set should not get a stray \"@ 0kg\"");
+});
+
+test("sanitizeCustomWod: emomTargetWeights round-trips, clamps, and pads/truncates to match the movement list like emomTargetReps", async () => {
+  const window = await bootApp();
+  const out = window.sanitizeCustomWod({
+    id: "w1", name: "Weighted EMOM", scoreType: "emom",
+    emomMovements: ["Wall Balls", "Burpees"], emomTargetReps: [10, 8],
+    emomTargetWeights: [9], emomMinutes: 10,
+  });
+  assert.deepEqual(out.emomTargetWeights, [9, 0], "a shorter weights array should pad to match the movement count, not misalign");
+});
+
+test("the log form shows the prescribed weight next to a loaded EMOM movement, and omits it for an unweighted one", async () => {
+  const window = await bootApp();
+  await window.addCustomWod("Test EMOM Log Weight", "emom", "", {
+    emomMinutes: 10, emomMovements: ["Wall Balls", "Burpees"], emomTargetReps: [10, 8], emomTargetWeights: [9, 0],
+  });
+  window.document.getElementById("tabWodBtn").click();
+
+  const labels = [...window.document.querySelectorAll(".steppers .stepper-label, .stepper-label")].map((el) => el.textContent);
+  const wallBallLabel = labels.find((l) => l.includes("Wall Balls"));
+  const burpeeLabel = labels.find((l) => l.includes("Burpees"));
+  assert.ok(wallBallLabel?.includes("9"), `Wall Balls' label should show its prescribed weight — got "${wallBallLabel}"`);
+  assert.ok(burpeeLabel && !/\(\d/.test(burpeeLabel), `Burpees has no weight and should not show a stray "(0 ק"ג)" — got "${burpeeLabel}"`);
+});
+
 test("renderWodLogSection resyncs wodEmomReps when switching to a differently-shaped EMOM WOD", async () => {
   const window = await bootApp();
   await window.addCustomWod("Test EMOM Shape A", "emom", "", { emomMinutes: 10, emomMovements: ["Wall Balls"], emomTargetReps: [15] });

@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.27.3";
+const APP_VERSION = "2.28.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -420,6 +420,8 @@ function sanitizeCustomWod(w) {
     out.emomMovements = movements.slice(0, LIMITS.emomMovements).map((n) => cleanStr(n, LIMITS.nameLen)).filter(Boolean);
     const targets = Array.isArray(w.emomTargetReps) ? w.emomTargetReps : [];
     out.emomTargetReps = out.emomMovements.map((_, i) => Math.round(cleanNum(targets[i], 0, LIMITS.reps, 0)));
+    const weights = Array.isArray(w.emomTargetWeights) ? w.emomTargetWeights : [];
+    out.emomTargetWeights = out.emomMovements.map((_, i) => cleanNum(weights[i], 0, LIMITS.weight, 0));
     out.emomMinutes = Math.round(cleanNum(w.emomMinutes, 1, LIMITS.minutes, 10));
     if (out.emomMovements.length === 0) return null;
   }
@@ -1277,6 +1279,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.28.0", date: "2026-08-26", items: [
+    "אפשר עכשיו להוסיף משקל לתרגילים בסבב EMOM (כמו Wall Balls) — לא רק חזרות",
+  ] },
   { version: "2.27.3", date: "2026-08-26", items: [
     "תיקון קטן: מחיקת כל הנתונים מכבה עכשיו גם סולם פעיל, כדי שלא יישאר \"תקוע\" פעיל",
   ] },
@@ -2234,12 +2239,13 @@ function renderWodBuilderMovements(query) {
         const checked = Object.prototype.hasOwnProperty.call(builderMovements, m.name);
         const data = builderMovements[m.name] || { reps: 10, weight: 0, type: "reps", durationSeconds: 20 };
         const isEmom = builderFormat === "emom";
-        const hasWeight = !isEmom && WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
+        const hasWeight = WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
         const isDuration = !isEmom && data.type === "duration";
-        // EMOM movements are reps-only (no weight/duration toggle) — the
-        // rotation order itself (shown here) carries the structure, and
-        // keeping every station the same simple shape keeps the log form
-        // straightforward too. See renderWodLogSection.
+        // EMOM movements skip the reps/duration toggle (always reps — the
+        // rotation order itself, shown here, carries the structure) but
+        // still take a prescribed weight for a loaded movement like Wall
+        // Balls or a DB/KB station — same hasWeight check as every other
+        // format. See renderWodLogSection for how it's surfaced there.
         const rotationNum = isEmom && checked ? Object.keys(builderMovements).indexOf(m.name) + 1 : null;
         return `
         <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}" role="checkbox" aria-checked="${checked}">
@@ -2256,8 +2262,9 @@ function renderWodBuilderMovements(query) {
           ${hasWeight ? renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight") : ""}
         </div>` : ""}
         ${checked && isEmom ? `
-        <div style="width:50%; margin:-2px 0 10px; padding:0 2px;">
-          ${renderStepper(m.name, "חזרות בכל סבב", data.reps, 1, 0, "builder-movement-reps")}
+        <div class="flex" style="gap:8px; margin:-2px 0 10px; padding:0 2px;">
+          <div style="${hasWeight ? "width:50%;" : "width:100%;"}">${renderStepper(m.name, "חזרות בכל סבב", data.reps, 1, 0, "builder-movement-reps")}</div>
+          ${hasWeight ? `<div style="width:50%;">${renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight")}</div>` : ""}
         </div>` : ""}`;
       }).join("")}
     </div>`).join("");
@@ -2295,8 +2302,9 @@ function createWodFromBuilder() {
       return;
     }
     const emomTargetReps = emomMovements.map((n) => builderMovements[n].reps);
-    addCustomWod(name, "emom", emomWodDesc(builderEmomMinutes, emomMovements, emomTargetReps), {
-      emomMinutes: builderEmomMinutes, emomMovements, emomTargetReps,
+    const emomTargetWeights = emomMovements.map((n) => builderMovements[n].weight || 0);
+    addCustomWod(name, "emom", emomWodDesc(builderEmomMinutes, emomMovements, emomTargetReps, emomTargetWeights), {
+      emomMinutes: builderEmomMinutes, emomMovements, emomTargetReps, emomTargetWeights,
     });
     return;
   }
@@ -2306,8 +2314,11 @@ function createWodFromBuilder() {
 }
 // Pure by design, same reasoning as builderMovementsToDesc — a compact,
 // human-readable summary of the rotation for the WOD picker/log header.
-function emomWodDesc(minutes, movements, targetReps) {
-  return `EMOM ${minutes}: ${movements.map((n, i) => `${targetReps[i]} ${n}`).join(" / ")}`;
+function emomWodDesc(minutes, movements, targetReps, targetWeights) {
+  return `EMOM ${minutes}: ${movements.map((n, i) => {
+    const weight = targetWeights?.[i];
+    return `${targetReps[i]} ${n}${weight ? ` @ ${weight}kg` : ""}`;
+  }).join(" / ")}`;
 }
 // Pure by design (no DOM/state reads) so it's directly testable — the
 // builder's per-movement reps/weight/duration fields are never stored as
@@ -3426,7 +3437,10 @@ function renderWodLogSection() {
     inputsHtml = `
     <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">EMOM ${w.emomMinutes} — חזרות בכל סבב, לפי תרגיל</div>
     <div class="steppers">
-      ${w.emomMovements.map((name, i) => renderStepper(String(i), `${i + 1}. ${name}`, wodEmomReps[i], 1, 0, "wod-emom-step")).join("")}
+      ${w.emomMovements.map((name, i) => {
+        const weight = w.emomTargetWeights?.[i];
+        return renderStepper(String(i), `${i + 1}. ${name}${weight ? ` (${weight} ק"ג)` : ""}`, wodEmomReps[i], 1, 0, "wod-emom-step");
+      }).join("")}
     </div>`;
   } else {
     inputsHtml = `<div class="steppers">

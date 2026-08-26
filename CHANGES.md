@@ -1,3 +1,31 @@
+# EMOM movements can carry a prescribed weight — 2026-08-26
+
+Reported with a screenshot: the WOD builder's EMOM screen let you set
+reps per rotation movement (e.g. "10 Wall Balls") but had no way to
+attach a weight, even for movements that are always loaded — Wall
+Balls, D-Ball Cleans, any Dumbbell/Kettlebell/Weightlifting station.
+
+Root cause: `hasWeight` in `renderWodBuilderMovements()` was
+unconditionally forced to `false` whenever `builderFormat === "emom"`,
+regardless of the movement's own category — every other format already
+checked `WOD_MOVE_CATEGORIES_WITH_WEIGHT` (Weightlifting / Dumbbell /
+Kettlebell / Odd Object) correctly. Removed the EMOM-only override so
+it uses the same category check as everything else.
+
+Weight is a fixed prescription per movement, the same way it already
+worked for every non-EMOM format — baked into the generated free-text
+description (`emomWodDesc()`, now `"10 Wall Balls @ 9kg"`) and into a
+new structured `emomTargetWeights` array on the WOD record (parallel to
+`emomTargetReps`, same clamp/pad-to-length handling in
+`sanitizeCustomWod`) so the log form can show it as a label next to
+each movement's reps stepper. Not logged per attempt — same as every
+other format, the load itself doesn't change round to round or entry
+to entry, only the reps you complete against it do.
+
+5 new tests in `test/emom.test.mjs`, verified against the pre-fix code
+via `git stash` before confirming the fix. Full suite: 122/122 jsdom
+tests, all 10 browser-check scripts, green.
+
 # Full-codebase audit: close out the remaining findings — 2026-08-26
 
 Last round of the audit (previous two entries below): the remaining
