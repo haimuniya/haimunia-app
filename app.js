@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.26.1";
+const APP_VERSION = "2.27.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -843,7 +843,11 @@ let calSelectedDate = todayISO();
 let wodEntries = [];
 let customWods = [];
 let wodSubTab = "log";
-let selectedWodId = WOD_LIBRARY[0].id;
+// null until the user deliberately picks or builds one — see the empty
+// state in renderWodLogSection(). Never defaults to WOD_LIBRARY[0] (that
+// used to silently pre-load "Fran" on every fresh load, which read as
+// "this is already my workout" rather than a real choice).
+let selectedWodId = null;
 let wodMinutes = 3, wodSeconds = 0, wodRounds = 5, wodReps = 0, wodWeight = 20;
 // EMOM-only: one rep count per movement in the selected WOD's rotation,
 // index-aligned with its emomMovements — kept in sync with that WOD's own
@@ -1270,6 +1274,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.27.0", date: "2026-08-26", items: [
+    "טאב האימונים כבר לא נפתח עם אימון קבוע (Fran) — עכשיו בוחרים בעצמכם: יצירת אימון או בנצ'מרק",
+  ] },
   { version: "2.26.0", date: "2026-08-26", items: [
     "אפשר עכשיו לשנות את גודל הטקסט בכל האפליקציה — בתחתית המסך, ליד הגדרות המראה",
     "לוגו ואייקון חדשים לאפליקציה",
@@ -2028,7 +2035,7 @@ async function clearAllData() {
   }
   selectedId = MOVEMENTS[0].id;
   historyId = null;
-  selectedWodId = WOD_LIBRARY[0].id;
+  selectedWodId = null;
   wodHistoryId = null;
   bwWeight = 70;
   barWeight = 20;
@@ -2290,6 +2297,7 @@ function builderMovementsToDesc(movements) {
 
 async function saveWod() {
   const w = wodById(selectedWodId);
+  if (!w) return; // no WOD chosen yet — the empty state has no save button, but defend anyway
   if (!isFinite(wodMinutes) || !isFinite(wodSeconds) || !isFinite(wodRounds) || !isFinite(wodReps) || !isFinite(wodWeight) || !isFinite(wodScaledWeight)) return;
   if (w.scoreType === "emom" && !wodEmomReps.every((r) => isFinite(r))) return;
   const editId = editingWodEntryId;
@@ -3324,6 +3332,29 @@ function render() {
 // ---------- WOD tab ----------
 function renderWodLogSection() {
   const w = wodById(selectedWodId);
+  // No WOD chosen yet (selectedWodId starts null — see its declaration) —
+  // a benchmark used to be the default here just because it happened to be
+  // WOD_LIBRARY[0], which read as "Fran is somehow already my workout"
+  // rather than something deliberately picked. Prompt for a real choice
+  // instead of silently pre-loading one.
+  if (!w) {
+    return `
+    <div class="flex col items-center" style="padding:40px 16px 24px; gap:16px; text-align:center;">
+      ${ICONS.dumbbell}
+      <div>
+        <div style="font-weight:800; font-size:16px; margin-bottom:4px;">בחרו אימון להתחלה</div>
+        <div style="color:var(--steel); font-size:13px;">בנו אימון משלכם, או התחילו מבנצ'מרק קבוע</div>
+      </div>
+      <div class="flex items-center gap-10" style="width:100%; max-width:320px;">
+        <button data-action="open-wod-builder" data-name="" class="movement-btn" style="flex:1; justify-content:center; border-color:var(--energy); margin-bottom:0;">
+          <span style="font-weight:700; font-size:14px; color:var(--energy);">+ יצירת אימון</span>
+        </button>
+        <button data-action="switch-wod-subtab" data-subtab="benchmarks" class="movement-btn" style="flex:1; justify-content:center; margin-bottom:0;">
+          <span style="font-weight:700; font-size:14px;">בנצ'מרק</span>
+        </button>
+      </div>
+    </div>`;
+  }
   const best = formatWodBest(selectedWodId);
   const isToday = wodLogDate === todayISO();
   const dayWods = wodEntries.filter((e) => e.date === wodLogDate);

@@ -29,7 +29,22 @@ await dismissWelcomeModal(page);
 
 await page.click("#tabWodBtn");
 await page.waitForTimeout(200);
-await page.click(".subtabbtn[data-subtab='benchmarks']");
+
+// A fresh load has no WOD pre-selected — renderWodLogSection's empty state
+// should prompt for one instead of silently loading WOD_LIBRARY[0] (used
+// to always be Fran, which read as "this is already my workout").
+const noLogForm = await page.evaluate(() => !document.getElementById("wodLogDateInput"));
+check("no WOD pre-selected on a fresh load — the log subtab shows the empty-state prompt", noLogForm);
+// The pill and the empty-state button share the same data-action/data-subtab
+// (both drive switchWodSubtab), so scope to .movement-btn to mean the
+// empty-state one specifically, not the always-present subtabbar pill.
+const emptyStateBenchmarkBtn = "button.movement-btn[data-action='switch-wod-subtab'][data-subtab='benchmarks']";
+const buildBtnVisible = await page.locator("[data-action='open-wod-builder']").isVisible();
+const benchmarkBtnVisible = await page.locator(emptyStateBenchmarkBtn).isVisible();
+check("empty state offers both יצירת אימון and בנצ'מרק", buildBtnVisible && benchmarkBtnVisible, `build=${buildBtnVisible} benchmark=${benchmarkBtnVisible}`);
+
+// Reach the benchmarks tab via that same empty-state button, not just the pill.
+await page.click(emptyStateBenchmarkBtn);
 await page.waitForTimeout(200);
 
 const pillActive = await page.evaluate(() => document.querySelector(".subtabbtn[data-subtab='benchmarks']").classList.contains("active"));

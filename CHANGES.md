@@ -1,3 +1,24 @@
+# The WOD tab no longer defaults to a random benchmark — 2026-08-26
+
+Reported with a screenshot: opening רישום showed "Fran" already loaded and
+ready to log, which read as "this is already my workout" rather than
+something deliberately chosen. Root cause: `selectedWodId` initialized to
+`WOD_LIBRARY[0].id` — always Fran, since it's simply the first entry in
+that array — and reset to it on every fresh page load (never persisted,
+so this happened on literally every visit, not just first install).
+
+`selectedWodId` now starts `null` and stays that way until the user
+actually picks or builds something. `renderWodLogSection()` gained an
+empty-state branch for that case: "בחרו אימון להתחלה" with two buttons —
+יצירת אימון (straight into the builder) and בנצ'מרק (the בנצ'מרקים
+sub-tab). Both of the old picker-then-builder detours in the browser-check
+scripts got simplified to the new direct button now that it exists.
+
+The "clear all data" reset was also still setting the same
+`WOD_LIBRARY[0]` default — changed to `null` there too for consistency.
+`saveWod()` picked up a defensive `if (!w) return;` guard, even though the
+empty state has no save button to reach it through.
+
 # Remove the גדול מאוד (xlarge) text-size option — 2026-08-26
 
 Direct feedback the same day it shipped: 1.45x was too big. Dropped it

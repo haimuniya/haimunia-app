@@ -21,6 +21,10 @@ test("switching WOD subtabs moves the pill highlight, not just the content", asy
   assert.equal(isActive("log"), true, "log (רישום) is the default subtab and should start highlighted");
   assert.equal(isActive("history"), false);
   assert.equal(isActive("benchmarks"), false);
+  // No WOD chosen yet — the log subtab shows the empty-state prompt, not a
+  // pre-loaded benchmark. Pick one so there's an actual log form to assert
+  // the highlight-following behavior against below.
+  await window.addCustomWod("Test Subtab Pill WOD", "load", "");
 
   window.document.querySelector(".subtabbtn[data-subtab='history']").click();
   assert.equal(isActive("history"), true, "clicking היסטוריה should highlight it");
@@ -31,6 +35,16 @@ test("switching WOD subtabs moves the pill highlight, not just the content", asy
   assert.equal(isActive("log"), true, "clicking רישום again should move the highlight back");
   assert.equal(isActive("history"), false);
   assert.ok(window.document.getElementById("wodLogDateInput"), "content underneath should have switched back to the log form");
+});
+
+test("the log subtab shows an empty-state prompt (not a pre-loaded benchmark) until a WOD is chosen", async () => {
+  const window = await bootApp();
+  window.document.getElementById("tabWodBtn").click();
+  assert.equal(window.document.getElementById("wodLogDateInput"), null, "no log form until something is actually chosen");
+  const buildBtn = window.document.querySelector("[data-action='open-wod-builder']");
+  const benchmarkBtn = window.document.querySelector("[data-action='switch-wod-subtab'][data-subtab='benchmarks']");
+  assert.ok(buildBtn, "the empty state should offer building a workout");
+  assert.ok(benchmarkBtn, "the empty state should offer browsing benchmarks");
 });
 
 test("Benchmarks sub-tab lists only WOD_LIBRARY entries (Girls/Heroes), grouped by category", async () => {

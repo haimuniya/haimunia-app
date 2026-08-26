@@ -28,8 +28,8 @@ await dismissWelcomeModal(page);
 
 await page.click("#tabWodBtn");
 await page.waitForTimeout(200);
-await page.click("[data-action='open-wod-picker']");
-await page.waitForTimeout(200);
+// No WOD is pre-selected on a fresh load anymore — its own direct build
+// button in the empty state replaces the old picker-then-builder detour.
 await page.click("[data-action='open-wod-builder']");
 await page.waitForSelector("#wodBuilderOverlay.open", { timeout: 5000 });
 
