@@ -269,6 +269,10 @@
   .medal-badge{ width:72px; text-align:center; flex-shrink:0; }
   .medal-shape{ width:64px; height:70px; margin:0 auto; }
   .medal-shape.shape-circle{ height:64px; }
+  /* Tiered medals render as a square weight-plate photo (img), not the
+     shield SVG's viewBox — force it back to square so the plate isn't
+     stretched into an oval by the shield's taller default box. */
+  img.medal-shape{ height:64px; object-fit:contain; }
   .capstone-badge{ width:auto; }
   .capstone-badge .medal-shape{ width:104px; height:104px; }
   .capstone-badge .medal-name{ font-size:14px; }

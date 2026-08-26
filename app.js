@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.29.1";
+const APP_VERSION = "2.30.0";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1165,7 +1165,14 @@ function renderMedal(ach, earned) {
   const glyphUse = shape === "shield"
     ? `<use href="#glyph${glyphId}" transform="translate(19,16) scale(0.62)"/>`
     : `<use href="#glyph${glyphId}" transform="translate(15,15) scale(0.7)"/>`;
-  const symbol = shape === "shield"
+  // Tiered medals (pr/streak — the only groups with a bronze/silver/gold
+  // tier) render as the weight-plate artwork instead of the shield SVG.
+  // Same medal-shape class either way, so the existing locked/earned
+  // filters (grayscale, glow) and sizing apply unchanged — only the shape
+  // itself (svg vs img) differs.
+  const symbol = ach.tier
+    ? `<img class="medal-shape" src="./assets/medal-${ach.tier}.png" alt="" />`
+    : shape === "shield"
     ? `<svg class="medal-shape ${tierClass}" viewBox="0 0 100 112"><use href="#medalShield"/>${glyphUse}</svg>`
     : `<svg class="medal-shape shape-circle ${tierClass}" viewBox="0 0 100 100"><use href="#medalCircle"/>${glyphUse}</svg>`;
   // title is a nice-to-have for desktop; it never shows on a touch screen,
@@ -1313,6 +1320,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.30.0", date: "2026-08-26", items: [
+    "עיטורי ברונזה/כסף/זהב מוצגים עכשיו כמדליות משקולת אמיתיות",
+  ] },
   { version: "2.29.1", date: "2026-08-26", items: [
     "\"בוקס\" הוחלף ל\"מועדון\" בכל מקום באפליקציה",
   ] },

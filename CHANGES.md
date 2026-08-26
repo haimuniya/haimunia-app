@@ -1,3 +1,30 @@
+# Bronze/silver/gold medals render as real weight-plate photos — 2026-08-26
+
+Requested directly: three provided photos (a green "10 KG" plate, a blue
+"20 KG" plate, a gray "5 KG" plate) replace the SVG shield glyph for
+every tiered achievement (the pr and streak groups — the only ones with
+a bronze/silver/gold tier). Final mapping, after one correction:
+bronze = gray/5kg, silver = green/10kg, gold = blue/20kg.
+
+Processed with a throwaway Playwright/canvas script (same approach as
+the app icon generation earlier this session — no image-editing tool
+available): auto-detected each plate's bounding box, trimmed the
+padding, and re-exported as a clean 320x320 PNG (`assets/medal-bronze
+.png`/`-silver.png`/`-gold.png`, ~28KB each).
+
+`renderMedal()` now renders `<img class="medal-shape" src="./assets/
+medal-${tier}.png">` for any tiered achievement instead of the `<svg>`
+shield — same class, so the existing locked (grayscale) and earned
+(colored glow) CSS filters apply unchanged, no new rules needed beyond
+one `img.medal-shape` override forcing the box back to square (the
+shield's box was taller than wide; these plates are square photos).
+Non-tiered medals (milestone, rx, capstone) are untouched.
+
+4 new tests in `test/medals.test.mjs`. Full suite: 138/138 jsdom
+tests, all 10 browser-check scripts, green. Verified visually via a
+real-browser screenshot of an earned bronze badge before and after the
+mapping correction.
+
 # Replace "בוקס" with "מועדון" everywhere in the app — 2026-08-26
 
 Requested with a screenshot circling it in the profile edit screen.
