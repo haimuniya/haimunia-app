@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const scripts = ["boot-smoke.mjs", "ladder.mjs", "update-flow.mjs", "duration.mjs", "wod-builder-duration.mjs", "superset.mjs", "emom.mjs", "wod-extras.mjs"];
+const scripts = ["boot-smoke.mjs", "ladder.mjs", "update-flow.mjs", "duration.mjs", "wod-builder-duration.mjs", "superset.mjs", "emom.mjs", "wod-extras.mjs", "benchmarks.mjs"];
 
 for (const script of scripts) {
   console.log(`\n${"=".repeat(60)}\n${script}\n${"=".repeat(60)}`);

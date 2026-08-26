@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.24.1";
+const APP_VERSION = "2.25.1";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -340,7 +340,7 @@ const LIMITS = {
   nameLen: 80, notesLen: 300, idLen: 128, importItems: 20000,
   weight: 1000, reps: 1000, sets: 100, minutes: 999, seconds: 59,
   rounds: 9999, bodyweight: 500, measurement: 300, duration: 3600,
-  emomMovements: 20, partnerTag: 40,
+  emomMovements: 20,
 };
 const FIELD_MAX = {
   weight: LIMITS.weight, reps: LIMITS.reps, sets: LIMITS.sets,
@@ -493,8 +493,6 @@ function sanitizeWodEntry(e) {
     const notes = cleanStr(e.notes, LIMITS.notesLen);
     out.notes = notes || null;
   }
-  // Applies regardless of Rx/Scaled — a partner WOD is a partner WOD either way.
-  out.partnerTag = cleanStr(e.partnerTag, LIMITS.partnerTag) || null;
   return out;
 }
 function sanitizeBodyweight(e) {
@@ -854,14 +852,11 @@ let wodEmomReps = [];
 let wodRx = true;
 let wodScaledWeight = 20;
 let wodNotes = "";
-// Free-text tag for a partner WOD ("with Dana", a team name, ...) — per
-// entry (who you partnered with varies attempt to attempt), unlike
-// timeCapSeconds below which describes the WOD itself.
-let wodPartnerTag = "";
 let wodLogDate = todayISO();
 let editingWodEntryId = null;
 let wodHistoryId = null;
 let wodHistorySearch = "";
+let wodBenchmarksSearch = "";
 let wodBuilderOpen = false;
 let builderFormat = null;
 let builderMovements = bag();
@@ -1271,13 +1266,21 @@ function closeCelebration() {
 // Short, user-facing changelog — deliberately separate from CHANGES.md,
 // which is developer-facing, technical, and in English. Only add an entry
 // here when something a member would actually notice shipped; not every
-// version bump needs one. Same list backs both the auto-shown "what's new"
-// popup and the bell icon's persistent history — see openNotifications().
+// version bump needs one. Backs both the auto-shown "what's new" popup and
+// the bell — once an entry's been seen it disappears from the list (see
+// renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.25.1", date: "2026-08-26", items: [
+    "תיקון: הקשה ישירה על מספר בכל שדה באפליקציה איפסה אותו במקום לאפשר הקלדה — עכשיו אפשר פשוט להקליד",
+  ] },
+  { version: "2.25.0", date: "2026-08-25", items: [
+    "טאב חדש \"בנצ'מרקים\" באימונים — כל אימוני ה-Girls וה-Heroes הקבועים, במקום אחד",
+    "ההתראות בפעמון נעלמות אחרי שרואים אותן, במקום להצטבר",
+  ] },
   { version: "2.24.0", date: "2026-08-25", items: [
     "אפשר לרשום סופרסט — שני תרגילים לסירוגין תחת אותו סולם, עם תווית בלוק (A/B/C/D) לתוכניות מסודרות",
     "פורמט EMOM חדש באימונים: בונים סבב תרגילים מתחלף ורושמים חזרות לכל תרגיל בנפרד",
-    "אפשר להוסיף מגבלת זמן ותג פרטנר לאימונים",
+    "אפשר להוסיף מגבלת זמן לאימונים",
   ] },
   { version: "2.23.0", date: "2026-08-25", items: [
     "אפשר לרשום גם תרגילי החזקה בזמן (כמו פלאנק או תלייה) — לא רק משקל וחזרות",
@@ -1314,16 +1317,17 @@ function unseenReleaseNotes() {
 function renderNotificationsList() {
   const el = document.getElementById("notificationsList");
   if (!el) return;
-  if (!RELEASE_NOTES.length) {
-    el.innerHTML = `<div class="empty">אין עדכונים עדיין</div>`;
+  // Only what's genuinely new — this must run before openNotifications()
+  // marks them seen, otherwise the list would always render empty.
+  const unseen = unseenReleaseNotes();
+  if (!unseen.length) {
+    el.innerHTML = `<div class="empty">אין עדכונים חדשים</div>`;
     return;
   }
-  const unseen = new Set(unseenReleaseNotes().map((r) => r.version));
-  el.innerHTML = RELEASE_NOTES.slice().reverse().map((r) => `
+  el.innerHTML = unseen.slice().reverse().map((r) => `
     <div class="cat-group">
       <div class="cat-head flex items-center gap-8">
         <span class="cat-name mono" style="direction:ltr; unicode-bidi:isolate;">${esc(r.version)}</span>
-        ${unseen.has(r.version) ? `<span style="background:var(--energy); color:#fff; font-size:10px; font-weight:800; border-radius:10px; padding:2px 8px;">חדש</span>` : ""}
         <span style="color:var(--steel); font-size:11px; margin-inline-start:auto;">${esc(fmtDate(r.date))}</span>
       </div>
       <ul style="margin:6px 0 4px; padding-inline-start:20px; color:var(--chalk); font-size:13.5px; line-height:1.6;">
@@ -2269,7 +2273,6 @@ async function saveWod() {
   else entry.weight = wodWeight;
   entry.notes = wodNotes.trim() || null;
   entry.scaledWeight = !wodRx ? wodScaledWeight : null;
-  entry.partnerTag = cleanStr(wodPartnerTag, LIMITS.partnerTag) || null;
 
   // EMOM has no cross-attempt scoring (yet) — see bestWodScore/scoreValue.
   const val = scoreValue(entry);
@@ -2281,7 +2284,6 @@ async function saveWod() {
   wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
   try { await dbPutWodEntry(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   wodNotes = "";
-  wodPartnerTag = "";
   editingWodEntryId = null;
   wodLogDate = todayISO();
   if (isPR) flashWodPR();
@@ -2296,7 +2298,6 @@ function startEditWodEntry(id) {
   selectedWodId = entry.wodId;
   wodRx = entry.rx;
   wodNotes = entry.notes || "";
-  wodPartnerTag = entry.partnerTag || "";
   wodScaledWeight = entry.scaledWeight || 20;
   if (entry.scoreType === "time") { wodMinutes = Math.floor((entry.timeSeconds || 0) / 60); wodSeconds = (entry.timeSeconds || 0) % 60; }
   else if (entry.scoreType === "amrap") { wodRounds = entry.rounds || 0; wodReps = entry.reps || 0; }
@@ -2312,7 +2313,6 @@ function cancelEditWodEntry() {
   editingWodEntryId = null;
   wodLogDate = todayISO();
   wodNotes = "";
-  wodPartnerTag = "";
   render();
 }
 async function deleteWodEntry(id) {
@@ -2868,7 +2868,7 @@ function renderCalDetail() {
             <div class="flex items-center gap-8">
               ${e.isPR ? ICONS.flame : ""}
               <span style="font-weight:700; font-size:14px;">${esc(w ? w.name : "?")}</span>
-              <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}${e.partnerTag ? ` · ${esc(e.partnerTag)}` : ""}</span>
+              <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}</span>
             </div>
             <div class="flex items-center gap-10">
               <span class="mono" style="color:var(--steel); font-size:13px;">${formatWodEntry(e)}</span>
@@ -3384,8 +3384,6 @@ function renderWodLogSection() {
       <button class="rx-btn ${!wodRx ? "active-scaled" : ""}" data-action="set-rx" data-rx="0" role="radio" aria-checked="${!wodRx}">Scaled</button>
     </div>
 
-    <input id="wodPartnerTagInput" class="text-input" dir="auto" maxlength="${LIMITS.partnerTag}" style="margin-bottom:16px;" placeholder="עם פרטנר? (אופציונלי, לדוגמה עם דנה)" aria-label="שם הפרטנר (אופציונלי)" value="${esc(wodPartnerTag)}" />
-
     ${!wodRx ? `
     <div class="steppers" style="margin-bottom:16px;">
       ${renderStepper("wodScaledWeight", "משקל מותאם (ק\"ג)", wodScaledWeight, 2.5, 0, "wod-step")}
@@ -3452,7 +3450,7 @@ function renderWodDetailCard(w) {
               <div class="flex items-center gap-8">
                 ${e.isPR ? ICONS.flame : ""}
                 <span style="color:var(--steel); font-size:12px;">${fmtDate(e.date)}</span>
-                <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}${e.partnerTag ? ` · ${esc(e.partnerTag)}` : ""}</span>
+                <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}</span>
               </div>
               <span class="mono" style="font-size:13px;">${formatWodEntry(e)}</span>
             </div>
@@ -3502,25 +3500,79 @@ function renderWodHistorySection() {
   `;
 }
 
+// Built-in benchmarks (WOD_LIBRARY — Girls/Heroes) as their own browsable
+// section, separate from custom WODs. Picking one selects it and drops
+// straight into the log form, same as picking a WOD from the picker does.
+function renderWodBenchmarksListArea() {
+  const area = document.getElementById("wodBenchmarksListArea");
+  if (!area) return;
+  const q = wodBenchmarksSearch.trim().toLowerCase();
+  const filtered = WOD_LIBRARY.filter((w) => w.name.toLowerCase().includes(q));
+  const byCategory = bag();
+  filtered.forEach((w) => { (byCategory[w.category] = byCategory[w.category] || []).push(w); });
+  if (Object.keys(byCategory).length === 0) {
+    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא בנצ'מרק התואם ל-"${esc(wodBenchmarksSearch)}"</div>`;
+    return;
+  }
+  const order = ["Girls", "Heroes"];
+  const cats = Object.keys(byCategory).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  area.innerHTML = cats.map((cat) => `
+    <div class="cat-group">
+      <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
+      ${byCategory[cat].map((w) => `
+        <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="select-benchmark" data-id="${esc(w.id)}">
+          <div>
+            <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
+            ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
+          </div>
+          ${selectedWodId === w.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
+        </button>`).join("")}
+    </div>`).join("");
+}
+function renderWodBenchmarksSection() {
+  return `
+    <div class="search-box" style="margin:0 0 12px;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="wodBenchmarksSearch" dir="auto" placeholder="חיפוש בבנצ'מרקים" aria-label="חיפוש בבנצ'מרקים" value="${esc(wodBenchmarksSearch)}" />
+    </div>
+    <div id="wodBenchmarksListArea"></div>
+  `;
+}
+
 function renderWodTab() {
   return `
     <div class="subtabbar" role="tablist">
       <button class="subtabbtn ${wodSubTab === "log" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="log" role="tab" aria-selected="${wodSubTab === "log"}" aria-controls="wodContent">רישום</button>
       <button class="subtabbtn ${wodSubTab === "history" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="history" role="tab" aria-selected="${wodSubTab === "history"}" aria-controls="wodContent">היסטוריה</button>
+      <button class="subtabbtn ${wodSubTab === "benchmarks" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="benchmarks" role="tab" aria-selected="${wodSubTab === "benchmarks"}" aria-controls="wodContent">בנצ'מרקים</button>
     </div>
     <div id="wodContent"></div>
   `;
 }
 
+// The pill buttons live in renderWodTab(), which only runs on a full
+// top-level tab switch — renderWodContent() alone only swaps #wodContent's
+// innerHTML, so this also has to sync the pills' own active/aria state
+// directly, or the highlight stays stuck on whichever subtab was active
+// when the WOD tab was first opened even though the content moves.
+function switchWodSubtab(subtab) {
+  wodSubTab = subtab;
+  document.querySelectorAll(".subtabbar .subtabbtn").forEach((btn) => {
+    const active = btn.dataset.subtab === wodSubTab;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", String(active));
+  });
+  renderWodContent();
+}
 function renderWodContent() {
   const el = document.getElementById("wodContent");
   if (!el) return;
-  el.innerHTML = wodSubTab === "log" ? renderWodLogSection() : renderWodHistorySection();
+  el.innerHTML = wodSubTab === "log" ? renderWodLogSection()
+    : wodSubTab === "history" ? renderWodHistorySection()
+    : renderWodBenchmarksSection();
   if (wodSubTab === "log") {
     const notesInput = document.getElementById("wodNotesInput");
     if (notesInput) notesInput.addEventListener("input", (e) => { wodNotes = cleanStr(e.target.value, LIMITS.notesLen); });
-    const partnerInput = document.getElementById("wodPartnerTagInput");
-    if (partnerInput) partnerInput.addEventListener("input", (e) => { wodPartnerTag = cleanStr(e.target.value, LIMITS.partnerTag); });
     const dateInput = document.getElementById("wodLogDateInput");
     if (dateInput) dateInput.addEventListener("change", (e) => {
       wodLogDate = clampLogDate(e.target.value);
@@ -3531,6 +3583,11 @@ function renderWodContent() {
     renderWodHistoryListArea();
     const search = document.getElementById("wodHistorySearch");
     if (search) search.addEventListener("input", (e) => { wodHistorySearch = cleanStr(e.target.value, LIMITS.nameLen); renderWodHistoryListArea(); });
+  }
+  if (wodSubTab === "benchmarks") {
+    renderWodBenchmarksListArea();
+    const search = document.getElementById("wodBenchmarksSearch");
+    if (search) search.addEventListener("input", (e) => { wodBenchmarksSearch = cleanStr(e.target.value, LIMITS.nameLen); renderWodBenchmarksListArea(); });
   }
 }
 
@@ -3806,6 +3863,16 @@ document.addEventListener("click", (e) => {
   else if (action === "add-movement") { addMovement(el.dataset.name, el.dataset.category); }
   else if (action === "focus-picker-search") { document.getElementById("pickerSearch").focus(); }
   else if (action === "step" || action === "wod-step" || action === "bw-step" || action === "builder-movement-reps" || action === "builder-movement-weight" || action === "builder-movement-duration" || action === "builder-emom-minutes" || action === "builder-time-cap" || action === "wod-emom-step" || action === "measure-step") {
+    // The stepper's own <input> carries the same data-action as its +/-
+    // buttons (so the generic getFieldValue/setFieldState plumbing works for
+    // both), but a tap on the number itself must never fall into this
+    // arithmetic branch — el.dataset.dir would be undefined there, so
+    // dir*step became NaN, clampField() floored that to the field's min,
+    // and the resulting re-render tore out the input mid-tap. That's what
+    // made typing a number feel broken: the first tap reset it to 0 and
+    // stole focus before a keystroke could land. Only the actual +/- button
+    // elements carry stepper-btn — the input never should.
+    if (!el.classList.contains("stepper-btn")) return;
     const field = el.dataset.field, dir = +el.dataset.dir, step = +el.dataset.step, min = +el.dataset.min;
     const current = getFieldValue(action, field);
     const base = (typeof current === "number" && isFinite(current)) ? current : 0;
@@ -3829,20 +3896,8 @@ document.addEventListener("click", (e) => {
   else if (action === "ask-clear") { confirmClear = true; render(); }
   else if (action === "do-clear") { clearAllData(); }
   else if (action === "cancel-clear") { confirmClear = false; render(); }
-  else if (action === "switch-wod-subtab") {
-    wodSubTab = el.dataset.subtab;
-    // The pill buttons themselves live in renderWodTab(), which only runs
-    // on a full top-level tab switch — renderWodContent() alone only swaps
-    // #wodContent's innerHTML, so without this the highlighted pill stayed
-    // stuck on whichever subtab was active when the WOD tab was first
-    // opened, even though the content underneath switched correctly.
-    document.querySelectorAll(".subtabbar .subtabbtn").forEach((btn) => {
-      const active = btn.dataset.subtab === wodSubTab;
-      btn.classList.toggle("active", active);
-      btn.setAttribute("aria-selected", String(active));
-    });
-    renderWodContent();
-  }
+  else if (action === "switch-wod-subtab") { switchWodSubtab(el.dataset.subtab); }
+  else if (action === "select-benchmark") { selectedWodId = el.dataset.id; switchWodSubtab("log"); }
   else if (action === "open-wod-picker") { openWodPicker(); }
   else if (action === "close-wod-picker") {
     if (el.id === "wodPickerOverlay" && e.target !== el) return;

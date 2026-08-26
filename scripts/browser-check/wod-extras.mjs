@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Lower-priority sub-task: a reference-only time cap on a WOD, and a
-// free-text partner tag per attempt. Neither is scored/enforced.
+// Lower-priority sub-task: a reference-only time cap on a WOD. Never
+// scored or enforced.
 //
 // Usage:
 //   node wod-extras.mjs                 # local working tree
@@ -46,8 +46,7 @@ await page.waitForTimeout(300);
 const capText = await page.evaluate(() => document.body.textContent);
 check("log view shows the time cap after creating the WOD", capText.includes("מגבלת זמן: 20:00"));
 
-// Log an attempt with a partner tag.
-await page.fill("#wodPartnerTagInput", "עם דנה");
+// Log an attempt against the capped WOD.
 await page.fill("[data-field='wodMinutes'].stepper-val", "18");
 await page.dispatchEvent("[data-field='wodMinutes'].stepper-val", "change");
 await page.click("[data-action='save-wod']");
@@ -57,7 +56,7 @@ await dismissCelebrationIfOpen(page);
 await page.click("#tabCalendarBtn");
 await page.waitForTimeout(200);
 const calText = (await page.evaluate(() => document.getElementById("calDetail")?.textContent || "")).replace(/\s+/g, " ").trim();
-check("calendar day view shows the partner tag next to Rx/Scaled", calText.includes("עם דנה"), calText);
+check("calendar day view shows the logged attempt", calText.includes("Test Capped WOD"), calText);
 
 check("no console errors", errors.length === 0, errors.join(" | "));
 

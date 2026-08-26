@@ -1,3 +1,59 @@
+# Fix: tapping a stepper's number reset it instead of letting you type — 2026-08-26
+
+Reported with two screenshots of the EMOM builder's per-movement reps
+field, but the root cause was in the one shared click dispatcher every
+numeric stepper in the app goes through, so it affected all of them —
+weight/reps/sets in the Log tab, WOD score fields, bodyweight,
+measurements, everything.
+
+The stepper's `<input>` carries the same `data-action` as its own +/-
+buttons (that's how `getFieldValue`/`setFieldState` work for both). The
+click dispatcher's "step" branch matched on `data-action` alone, with no
+check for *which* element was actually clicked — so a tap on the number
+itself fell into the same `dir * step` arithmetic as a real +/- press,
+except the input has no `data-dir`, so `dir` was `NaN`, `clampField()`
+floored that to the field's min, and the resulting re-render tore the
+input out from under the tap before a keystroke could land. One tap
+reset the field to 0 and stole focus — indistinguishable from "you can't
+type a number in here" from the outside.
+
+Fixed with a one-line guard: only an element carrying the `stepper-btn`
+class (the +/- buttons, never the input) reaches the arithmetic. Typing
+now works everywhere a number can be entered.
+
+# Add a Benchmarks sub-tab to the WOD tab — 2026-08-25
+
+A third sub-tab under אימונים, alongside רישום/היסטוריה: בנצ'מרקים lists the
+built-in Girls/Heroes WODs (`WOD_LIBRARY`) grouped by category, with a
+search box, deliberately excluding custom WODs — this is specifically for
+browsing the fixed named benchmarks, not everything a box has ever logged.
+Picking one selects it and switches straight to the log subtab
+(`switchWodSubtab`, extracted from the previous round's subtab-highlight
+fix so both the manual pill click and this new picker path stay in sync).
+Reused the exact category-grouped list markup from the WOD picker
+(`.cat-group`/`.cat-head`/`.movement-btn`) rather than inventing a new
+pattern.
+
+# Remove the partner tag; notifications now clear once seen — 2026-08-25
+
+Two pieces of direct user feedback:
+
+- **Removed the partner-tag field.** Not relevant to how this app is used —
+  a session note per day (already shipped) covers "how did it feel"
+  without a redundant per-WOD field. Pulled `partnerTag` out of
+  `sanitizeWodEntry`, `saveWod`/`startEditWodEntry`, the log form, and both
+  display sites (calendar day view, History tab's recent-attempts list).
+  Old entries that already have a stored `partnerTag` from the brief window
+  it was live just quietly stop surfacing it on the next load — sanitizers
+  rebuild every record field-by-field, so nothing crashes or needs a
+  migration. Time cap is untouched (kept, wasn't part of the complaint).
+- **Notifications now disappear once seen.** They used to accumulate into
+  a permanent history (the bell listed every past release, unseen ones
+  marked "חדש"). Now `renderNotificationsList()` only ever renders what's
+  currently unseen — once you've opened the bell (or gotten the auto-popup
+  on a version bump), that entry is just gone, not archived. Same single
+  list still backs both the auto-popup and the manual bell tap.
+
 # Fix: WOD tab's רישום/היסטוריה pill highlight not following the subtab — 2026-08-25
 
 Reported by the user with a screenshot: after switching WOD subtabs,

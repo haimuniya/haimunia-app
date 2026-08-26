@@ -54,8 +54,14 @@ await page.click("[data-action='open-notifications']");
 await page.waitForTimeout(200);
 const notifOpen = await page.evaluate(() => document.getElementById("notificationsOverlay").classList.contains("open"));
 check("bell opens the notifications overlay", notifOpen);
-const notifHasEntry = await page.evaluate(() => document.getElementById("notificationsList").textContent.includes("."));
-check("notifications list actually renders a version entry", notifHasEntry);
+// Notifications now disappear once seen instead of sticking around as a
+// permanent history — a fresh install already has lastSeenVersion set to
+// the current APP_VERSION (nothing to catch up on), so tapping the bell
+// here should show the empty state, not some entries left over from an
+// older design. The "shown then disappears after being seen" round-trip
+// itself is covered in test/roadmap-features.test.mjs.
+const notifShowsEmpty = await page.evaluate(() => document.getElementById("notificationsList").textContent.includes("אין עדכונים חדשים"));
+check("notifications list shows the empty state, not stale entries, for a fresh install", notifShowsEmpty);
 await page.screenshot({ path: `${outDir}/roadmap-02-notifications.png` });
 await page.click("[data-action='close-notifications']");
 await page.waitForTimeout(150);

@@ -15,6 +15,24 @@ test("compareVersions orders semver-like strings numerically, not lexicographica
   assert.ok(window.compareVersions("2.10.0", "2.9.0") > 0, "10 > 9 numerically, not as strings");
 });
 
+test("notifications disappear from the list once seen, instead of sticking around as a permanent history", async () => {
+  const window = await bootApp();
+  await window.dbSetSetting("haimunia:lastSeenVersion", "0.0.0");
+  await window.loadLastSeenVersion();
+  assert.ok(window.unseenReleaseNotes().length > 0, "there should be unseen release notes relative to a very old lastSeenVersion");
+
+  window.openNotifications();
+  const firstOpenText = window.document.getElementById("notificationsList").textContent;
+  assert.ok(!firstOpenText.includes("אין עדכונים"), "the first open should show the unseen entries, not the empty state");
+  window.closeNotifications();
+
+  // openNotifications() marks everything as seen as a side effect — reopening
+  // right after should show nothing new, not the same entries again.
+  window.openNotifications();
+  const secondOpenText = window.document.getElementById("notificationsList").textContent;
+  assert.ok(secondOpenText.includes("אין עדכונים חדשים"), "reopening after being seen should show the empty state, not the old entries");
+});
+
 test("a fresh install skips the what's-new popup and shows onboarding only after the first welcome", async () => {
   const window = await bootApp();
   // bootApp() starts from a genuinely empty IndexedDB, so this is exactly
