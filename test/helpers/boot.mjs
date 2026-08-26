@@ -45,6 +45,33 @@ export async function bootApp() {
   window.confirm = () => true;
   window.alert = () => {};
 
+  // jsdom doesn't implement URL.createObjectURL/revokeObjectURL either —
+  // exportData()'s real download path needs them to exist, not to actually
+  // produce a working blob: URL (nothing in a test environment can click
+  // through a real download anyway).
+  if (!window.URL.createObjectURL) window.URL.createObjectURL = () => "blob:test-url";
+  if (!window.URL.revokeObjectURL) window.URL.revokeObjectURL = () => {};
+
+  // A real browser never navigates for an <a download> click — it saves the
+  // file instead. jsdom doesn't know that distinction and tries to
+  // "navigate" to the blob: URL, which it doesn't support either, logging
+  // a noisy (and here, harmless) "Not implemented: navigation" error. Skip
+  // jsdom's navigation entirely for download links, same as a real browser.
+  const origAnchorClick = window.HTMLAnchorElement.prototype.click;
+  window.HTMLAnchorElement.prototype.click = function () {
+    if (this.hasAttribute("download")) return;
+    return origAnchorClick.call(this);
+  };
+
+  // exportData()'s only long timer is a 30s "give the download a moment
+  // before revoking the blob: URL" cleanup — harmless in a real tab, but a
+  // real 30s Node timer that keeps a short-lived test process alive until
+  // it fires. Every other setTimeout in the app is well under 10s (UI
+  // delays: focus, flash messages). Clamp only the ones at or above that,
+  // so this doesn't change the timing any test actually depends on.
+  const origSetTimeout = window.setTimeout;
+  window.setTimeout = (fn, delay, ...args) => (delay >= 10000 ? origSetTimeout(fn, 10, ...args) : origSetTimeout(fn, delay, ...args));
+
   const appJs = readFileSync(appJsPath, "utf8");
   window.eval(appJs);
 

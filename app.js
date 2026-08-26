@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.27.2";
+const APP_VERSION = "2.27.3";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1277,6 +1277,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.27.3", date: "2026-08-26", items: [
+    "תיקון קטן: מחיקת כל הנתונים מכבה עכשיו גם סולם פעיל, כדי שלא יישאר \"תקוע\" פעיל",
+  ] },
   { version: "2.27.2", date: "2026-08-26", items: [
     "תיקון: מעבר לתרגיל או אימון אחר באמצע עריכה יכול היה לדרוס בטעות רישום קיים — עכשיו זה מתחיל רישום חדש כמו שצריך",
   ] },
@@ -2061,6 +2064,7 @@ async function clearAllData() {
   measureAddOpen = false;
   logDate = todayISO();
   editingEntryId = null;
+  endLadder(); // otherwise a ladder active at the moment of wiping would keep advertising itself against an emptied entries array
   wodLogDate = todayISO();
   editingWodEntryId = null;
   wodEmomReps = [];

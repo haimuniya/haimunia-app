@@ -1,3 +1,53 @@
+# Full-codebase audit: close out the remaining findings — 2026-08-26
+
+Last round of the audit (previous two entries below): the remaining
+low-severity finding, plus all eight test-coverage gaps the regression
+pass flagged as having zero automated coverage.
+
+**Fixed:** `clearAllData()` reset 21 pieces of state but not the five
+`ladderMode`/`ladderGroupId`/`ladderPrimaryId`/`ladderPartnerId`/
+`ladderBlockLabel` variables — clearing all data while a ladder was
+active left the toggle showing "active" against a groupId pointing at
+nothing. Now calls the existing `endLadder()`. Cosmetic only, never data
+corruption (`currentLadderRounds()` just rendered "0 rounds").
+
+**New test coverage** (32 new tests across 8 files, driving the real app
+through its own exposed functions and dispatcher actions, same as the
+rest of this suite — nothing reimplemented):
+- `test/achievements.test.mjs` — the achievements modal and the
+  post-save celebration popup (badge unlocks, plain PRs, locked-vs-earned
+  rendering).
+- `test/calendar.test.mjs` — month navigation (`cal-prev`/`cal-next`,
+  including the January→December year wrap), day selection, and the
+  logged-entry dot marker.
+- `test/bodyweight-measurements.test.mjs` — the History tab's bodyweight
+  and custom-measurement sections: same-day overwrite, case-insensitive
+  duplicate type names, and cleanup on delete.
+- `test/theme.test.mjs` — mirrors the existing text-scale tests for the
+  sibling theme mechanism, including "auto" mode and the
+  `meta[theme-color]` sync.
+- `test/wod-history-chart.test.mjs` — confirms `renderWodDetailCard()`
+  actually skips the PR-trend chart for EMOM (no single comparable
+  score) while every other score type still gets one.
+- `test/import-export-ui.test.mjs` — drives the real footer buttons
+  through the click dispatcher, not `importDataFromFile()` directly as
+  the existing `import.test.mjs` does. Required three small,
+  test-only jsdom stubs in `test/helpers/boot.mjs` (documented there):
+  `URL.createObjectURL`/`revokeObjectURL` (unimplemented in jsdom), a
+  no-navigate shim for `<a download>` clicks (jsdom tries to "navigate"
+  to the blob: URL otherwise), and clamping the rare 10s+ `setTimeout`
+  down to near-zero (`exportData()`'s cleanup timer is a real 30s
+  Node timer that would otherwise keep every test run waiting on it).
+- `test/install-prompt.test.mjs` — the `beforeinstallprompt`/install
+  banner handshake: showing the banner, replaying the deferred native
+  prompt, the session-scoped dismiss, and `appinstalled` clearing state.
+- `test/roadmap-features.test.mjs` — one new test asserting the
+  onboarding overlay's actual content (all four tab walkthroughs), not
+  just its open/dismiss timing as before.
+
+Full suite: 118/118 jsdom tests (up from 86), all 10 browser-check
+scripts, and `roadmap.mjs`, green.
+
 # Full-codebase audit: fix the high-severity edit-then-navigate corruption bug — 2026-08-26
 
 The logic/state-consistency pass of the same audit (previous entry below)

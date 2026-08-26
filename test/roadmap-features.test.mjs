@@ -46,6 +46,26 @@ test("a fresh install skips the what's-new popup and shows onboarding only after
   assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), true, "onboarding should appear right after the first-ever welcome");
 });
 
+// Coverage gap closed (full-codebase audit): the tests above only ever
+// checked onboarding's open/closed timing, never its actual content — a
+// typo or a dropped screen in the static markup would have sailed through
+// green. onboardingOverlay's four screens are static HTML (index.html),
+// not JS-rendered, so this reads them straight off the real DOM.
+test("onboarding walks through all four tabs, and its own button closes it", async () => {
+  const window = await bootApp();
+  window.saveWelcomeForm("בודק");
+
+  const text = window.document.getElementById("onboardingOverlay").textContent;
+  for (const label of ["רישום", "התקדמות", "לוח שנה", "אימונים"]) {
+    assert.ok(text.includes(label), `onboarding should walk through the ${label} tab`);
+  }
+
+  const closeBtn = window.document.querySelector("#onboardingOverlay [data-action='close-onboarding']");
+  assert.ok(closeBtn, "onboarding should have its own dismiss button, not rely on an overlay-click-to-close");
+  closeBtn.click();
+  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false);
+});
+
 test("editing the profile later (not the first-time welcome) does not re-trigger onboarding", async () => {
   const window = await bootApp();
   window.saveWelcomeForm("בודק"); // first time — opens onboarding
