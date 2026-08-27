@@ -97,3 +97,18 @@ test("a tiered medal still gets the locked/earned CSS classes on the surrounding
   // override that keeps it visible instead of crushed to near-invisible.
   assert.ok(found.querySelector(".medal-shape.medal-shape-plate"));
 });
+
+// jsdom doesn't compute layout/percentages, so the previous tests above
+// couldn't have caught this: the plate frame rendered as a 72x64 oval,
+// not a circle, because .medal-shape-plate's own width:100%/height:100%
+// tied in specificity with the plain .medal-shape width:64px rule, and
+// only height had a higher-specificity override — width fell through to
+// whichever rule happened to come last in the stylesheet. Checking the
+// source text directly for the fix: both dimensions pinned in the same,
+// higher-specificity rule, so neither can independently lose a
+// specificity tie-break to .medal-shape-plate's 100%/100%.
+import fs from "node:fs";
+test("the plate frame's width and height are pinned together at matching specificity, so neither can independently resolve to 100% and produce an oval", () => {
+  const html = fs.readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /\.medal-shape\.medal-shape-plate\{\s*width:64px;\s*height:64px;\s*\}/, "width and height must both be set in the .medal-shape.medal-shape-plate rule (specificity 0,2,0), not left to fall through to the lower-specificity .medal-shape-plate{width:100%;height:100%} rule");
+});

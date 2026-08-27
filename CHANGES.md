@@ -1,3 +1,26 @@
+# Fix the medal frame rendering as an oval, and offline medal images — 2026-08-27
+
+Found by an independent code review of the previous square-glow fix, not
+by a user report. Two real bugs from the same commit:
+
+The "circular" plate frame was actually a 72x64 oval in both the
+achievements modal and the celebration popup. `.medal-shape-plate`'s own
+`width:100%;height:100%` tied in CSS specificity with the plain
+`.medal-shape{width:64px}` rule, so source order — not intent — decided
+the winner, while a separate higher-specificity rule pinned only the
+height to 64px. Width and height are now pinned together in that same
+rule, so neither can independently fall through. New test checks the
+source text directly, since jsdom doesn't compute layout percentages.
+
+The three medal PNGs were never added to the service worker's precache
+list — every tiered medal broke offline (broken image) even though every
+other app asset kept working. Added to `ASSETS`, with a regression test.
+
+Also tightened the plate's rim color to match the SVG shield's rim
+opacity exactly, instead of two independent near-identical values.
+
+141/141 tests pass.
+
 # Fix the square glow around earned weight-plate medals — 2026-08-26
 
 Reported with a screenshot right after the gloss/rim polish shipped:

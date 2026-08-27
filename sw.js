@@ -2,7 +2,7 @@
 // Version is the single source of truth for the cache name — bumping
 // APP_VERSION in app.js is what ships an update. Don't edit SW_VERSION by
 // hand: run `npm run sync-version` (see app.js) to copy it here.
-const SW_VERSION = "2.30.2";
+const SW_VERSION = "2.30.3";
 const CACHE = `haimunia-v${SW_VERSION}`;
 
 // Everything the app shell needs to boot with no network.
@@ -20,6 +20,9 @@ const ASSETS = [
   "./assets/icon-barbell.png",
   "./assets/icon-chevrons.png",
   "./assets/logo-full.png",
+  "./assets/medal-bronze.png",
+  "./assets/medal-silver.png",
+  "./assets/medal-gold.png",
   "./assets/fonts/rubik-400-latin.woff2",
   "./assets/fonts/rubik-400-hebrew.woff2",
   "./assets/fonts/rubik-600-latin.woff2",
