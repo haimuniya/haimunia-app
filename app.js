@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.30.3";
+const APP_VERSION = "2.30.4";
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1320,6 +1320,10 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.30.4", date: "2026-08-30", items: [
+    "תיקון: גרף ההתקדמות הציג ירידה מזויפת ביום עם כמה סטים (למשל סולם יורד) — עכשיו הוא מציג את השיא של כל יום, לא כל סט בנפרד",
+    "לפעמים הטלפון לא שומר את נתוני האפליקציה (כמו השם שלכם) בין פתיחות — זה קורה בעיקר כשלא מתקינים את האפליקציה למסך הבית. אם זה קורה לכם, כדאי להתקין דרך שיתוף ⬆️ ואז \"הוספה למסך הבית\". יש רעיון לשיפור או נתקלתם בבעיה? תפנו אלינו.",
+  ] },
   { version: "2.30.2", date: "2026-08-26", items: [
     "תיקון: הזוהר סביב מדליה שנפתחה כבר לא נראה מרובע",
   ] },
@@ -2808,10 +2812,19 @@ function renderDetailCard(m) {
   const isDuration = hEntries[0].type === "duration";
   if (isDuration) return renderDurationDetailCard(m, hEntries.filter((e) => e.type === "duration"));
   let max = -Infinity;
-  const chartData = hEntries.filter((e) => e.type !== "duration").slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).map((e) => {
-    const isPR = e.est1RM >= max;
-    if (e.est1RM > max) max = e.est1RM;
-    return { dateLabel: fmtDate(e.date), est1RM: e.est1RM, isPR };
+  // One point per day — that day's best est1RM, not every individual set. A
+  // descending ladder (heavy/low-reps first, lighter/higher-reps after) logs
+  // several sets on the same date; plotting each one made the chart show a
+  // false decline within a single day instead of the day's actual best.
+  const bestByDate = new Map();
+  for (const e of hEntries) {
+    if (e.type === "duration") continue;
+    if (!bestByDate.has(e.date) || e.est1RM > bestByDate.get(e.date)) bestByDate.set(e.date, e.est1RM);
+  }
+  const chartData = [...bestByDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, est1RM]) => {
+    const isPR = est1RM >= max;
+    if (est1RM > max) max = est1RM;
+    return { dateLabel: fmtDate(date), est1RM, isPR };
   });
   const prPoints = chartData.filter((d) => d.isPR);
   const trend = prPoints.length >= 2 ? +(prPoints[prPoints.length - 1].est1RM - prPoints[prPoints.length - 2].est1RM).toFixed(1) : null;
@@ -2836,10 +2849,16 @@ function renderDetailCard(m) {
 // STANDARD_REPS grid (a rep-record table means nothing for a timed hold).
 function renderDurationDetailCard(m, durationEntries) {
   let max = -Infinity;
-  const chartData = durationEntries.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts).map((e) => {
-    const isPR = e.durationSeconds >= max;
-    if (e.durationSeconds > max) max = e.durationSeconds;
-    return { dateLabel: fmtDate(e.date), est1RM: e.durationSeconds, isPR };
+  // Same one-point-per-day rule as renderDetailCard: a day's best hold, not
+  // every individual attempt.
+  const bestByDate = new Map();
+  for (const e of durationEntries) {
+    if (!bestByDate.has(e.date) || e.durationSeconds > bestByDate.get(e.date)) bestByDate.set(e.date, e.durationSeconds);
+  }
+  const chartData = [...bestByDate.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, durationSeconds]) => {
+    const isPR = durationSeconds >= max;
+    if (durationSeconds > max) max = durationSeconds;
+    return { dateLabel: fmtDate(date), est1RM: durationSeconds, isPR };
   });
   const prPoints = chartData.filter((d) => d.isPR);
   const trendSec = prPoints.length >= 2 ? prPoints[prPoints.length - 1].est1RM - prPoints[prPoints.length - 2].est1RM : null;
@@ -4023,6 +4042,16 @@ const INSTALL_DISMISS_KEY = "haimunia:installDismissed";
 function isStandalone() {
   return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
 }
+// iPhone/iPad Safari never fires beforeinstallprompt, so it's the one
+// platform where a member can go on using the app as a plain browser tab (or
+// an in-app browser opened from a shared WhatsApp/Instagram link) forever,
+// unaware that's why their data and name keep disappearing — those contexts
+// don't reliably keep IndexedDB/localStorage between opens the way an
+// installed standalone PWA does. Detected separately so the banner can swap
+// to manual Share-sheet instructions instead of a button that would no-op.
+function isIOS() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent) && !window.MSStream;
+}
 
 function showInstallBanner() {
   if (isStandalone()) return;
@@ -4030,7 +4059,17 @@ function showInstallBanner() {
   const updateEl = document.getElementById("updateBanner");
   if (updateEl && updateEl.style.display === "block") return;
   const el = document.getElementById("installBanner");
-  if (el) el.style.display = "block";
+  if (!el) return;
+  const btn = document.getElementById("installBannerActionBtn");
+  const subtitle = document.getElementById("installBannerSubtitle");
+  if (isIOS()) {
+    if (btn) btn.style.display = "none";
+    if (subtitle) subtitle.textContent = "כדי שהנתונים שלכם יישמרו: הקישו על שיתוף ⬆️ ואז \"הוספה למסך הבית\"";
+  } else {
+    if (btn) btn.style.display = "";
+    if (subtitle) subtitle.textContent = "גישה מהירה ישירות ממסך הבית";
+  }
+  el.style.display = "block";
 }
 
 function dismissInstallBanner() {
@@ -4342,6 +4381,23 @@ async function init() {
 
   if (userName === null) openWelcomeModal();
   else if (unseenReleaseNotes().length) openNotifications();
+
+  // iOS never fires beforeinstallprompt (that's what drives showInstallBanner
+  // for Chrome/Android elsewhere), so it needs its own nudge — otherwise an
+  // iPhone user who never used the Share-sheet "Add to Home Screen" step
+  // just keeps using a plain Safari tab (or an ephemeral in-app browser from
+  // a shared link), where IndexedDB/localStorage aren't reliably kept
+  // between opens. That's what "the app keeps forgetting my name" usually
+  // is on iOS, not a bug in how the data itself is saved.
+  if (isIOS()) showInstallBanner();
+
+  // Best-effort: ask the browser not to evict this origin's storage under
+  // disk pressure. Support varies (Safari doesn't implement it) and it can
+  // silently no-op even where it exists, so this reduces the odds of losing
+  // saved data — it doesn't guarantee persistence on its own.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
 
   if ("serviceWorker" in navigator) {
     // The SW no longer calls skipWaiting() on install, so a new version parks
