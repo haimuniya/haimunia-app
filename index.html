@@ -388,6 +388,141 @@
   .whats-new-chip{ width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .whats-new-label{ font-weight:800; font-size:13.5px; color:var(--chalk); }
   .whats-new-desc{ color:var(--steel); font-size:12px; margin-top:1px; }
+
+  /* ---- Log ("רישום") screen ----
+     Everything below is scoped under .log-screen — the wrapper renderLogTab()
+     emits — because this screen leans on shared primitives (.exercise-select,
+     .stat-card, .bar-wrap, .steppers, .rx-btn) that the WOD and history tabs
+     also use. Two-class selectors let the log screen get its own treatment
+     without touching how those same components look anywhere else.
+
+     The motif: the gym's orange/white diagonal stripe (--stripe, the accent
+     wall in the box) appears exactly twice — as the rail on the exercise hero
+     and as the cap on the set-builder card — so it reads as brand punctuation
+     rather than wallpaper. Anton carries the read-only numbers that matter
+     (exercise name, 1RM, bar load); editable fields stay in JetBrains Mono,
+     which is the better face to type digits into. */
+  .log-screen{ --log-gap:14px; }
+
+  /* Exercise hero — the screen's anchor: what am I about to log? */
+  .log-screen .exercise-select{
+    position:relative; overflow:hidden; gap:12px;
+    padding:14px 16px; padding-inline-start:22px;
+    border-radius:20px; margin-bottom:var(--log-gap);
+    transition:opacity .15s;
+  }
+  .log-screen .exercise-select::before{
+    content:""; position:absolute; inset-block:0; inset-inline-start:0; width:8px;
+    background-image:var(--stripe);
+  }
+  .log-screen .exercise-select:active{ opacity:.85; }
+  .log-screen .ex-sel-body{ min-width:0; text-align:right; }
+  .log-screen .ex-sel-kicker{ color:var(--steel); font-size:10.5px; font-weight:800; letter-spacing:1.1px; margin-bottom:4px; }
+  .log-screen .ex-sel-name-row{ display:flex; align-items:center; gap:9px; }
+  /* Movement names are English by product rule, which is exactly what Anton
+     is for. A Hebrew custom name falls outside Anton's unicode-range and
+     lands on Rubik automatically — hence the explicit fallback. */
+  .log-screen .ex-sel-name{
+    font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:25px;
+    line-height:1.15; letter-spacing:.2px; color:var(--chalk);
+    direction:ltr; unicode-bidi:isolate; overflow-wrap:anywhere;
+  }
+  .log-screen .ex-sel-change{
+    flex-shrink:0; align-self:center; display:flex; align-items:center; gap:6px;
+    background:var(--surface2); border:1px solid var(--border); border-radius:999px;
+    padding:7px 12px; color:var(--steel); font-size:12px; font-weight:700; white-space:nowrap;
+  }
+  /* Nothing picked yet: the hero asks instead of asserting. */
+  .log-screen .exercise-select.is-unchosen{
+    background:linear-gradient(180deg, rgba(232,93,61,.14), rgba(232,93,61,.04));
+    border-color:var(--energy);
+  }
+  .log-screen .exercise-select.is-unchosen .ex-sel-kicker{ color:var(--energy); }
+  .log-screen .ex-sel-prompt{ font-weight:900; font-size:22px; line-height:1.2; color:var(--chalk); }
+  .log-screen .exercise-select.is-unchosen .ex-sel-change{ background:var(--energy); border-color:var(--energy); color:#1a0d08; }
+
+  /* Placeholder standing in for the stats/history the hero can't show yet —
+     dashed on purpose, so it reads as "waiting for you", not as a broken card. */
+  .log-screen .log-empty-hint{
+    display:flex; align-items:center; gap:12px; margin-bottom:var(--log-gap);
+    background:var(--surface); border:1px dashed var(--border); border-radius:16px; padding:14px 16px;
+  }
+  .log-screen .log-empty-icon{ display:inline-flex; flex-shrink:0; }
+  .log-screen .log-empty-icon svg{ stroke:var(--energy); opacity:.8; }
+  .log-screen .log-empty-title{ font-weight:800; font-size:13.5px; color:var(--chalk); }
+  .log-screen .log-empty-sub{ color:var(--steel); font-size:12px; line-height:1.5; margin-top:3px; }
+
+  /* Segmented control, matching .subtabbar's pattern elsewhere in the app. */
+  .log-screen .rx-toggle{
+    gap:4px; margin-bottom:var(--log-gap); padding:4px;
+    background:var(--surface2); border:1px solid var(--border); border-radius:16px;
+  }
+  .log-screen .rx-btn{ padding:11px 0; border-radius:12px; border:1px solid transparent; background:transparent; box-shadow:none; }
+  .log-screen .rx-btn.active-type{ background:var(--surface); border-color:var(--energy); color:var(--energy); box-shadow:var(--shadow-sm); }
+  .log-screen .log-daterow{ margin-bottom:var(--log-gap); }
+
+  /* Scoreboard tiles. The stripe caps the record cards; the plain last-session
+     card keeps a neutral cap so the two are distinguishable at a glance. */
+  .log-screen .stat-row{ gap:10px; margin-bottom:var(--log-gap); }
+  .log-screen .stat-card{
+    position:relative; overflow:hidden; padding:13px 14px 11px; border-radius:16px;
+    background:linear-gradient(180deg, var(--surface), var(--surface2));
+  }
+  .log-screen .stat-card::before{ content:""; position:absolute; inset-inline:0; top:0; height:3px; background:var(--border); }
+  .log-screen .stat-card.stat-hero::before{ background-image:var(--stripe); }
+  .log-screen .stat-label{ font-size:10.5px; font-weight:800; letter-spacing:.4px; }
+  .log-screen .stat-value{
+    font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:22px;
+    line-height:1.15; letter-spacing:.3px; margin-top:4px;
+  }
+
+  .log-screen .recent-wrap{ margin-bottom:var(--log-gap); }
+  .log-screen .recent-head{
+    display:flex; align-items:center; gap:8px; margin-bottom:8px;
+    color:var(--steel); font-size:11px; font-weight:800; letter-spacing:.6px;
+  }
+  .log-screen .recent-head::after{ content:""; flex:1; height:1px; background:var(--border); }
+  .log-screen .recent-chip{
+    display:inline-flex; align-items:baseline; gap:7px;
+    background:var(--surface); border:1px solid var(--border); border-radius:999px;
+    padding:6px 12px; font-size:12.5px; font-weight:700; box-shadow:var(--shadow-sm);
+  }
+  .log-screen .recent-chip-date{ color:var(--steel); font-size:11px; }
+  .log-screen .recent-chip-val{ color:var(--chalk); }
+
+  /* One card for the whole "build the set" job — bar weight, barbell, steppers
+     and the estimate readout — instead of four free-floating boxes. */
+  .log-screen .set-builder{
+    position:relative; overflow:hidden; margin-bottom:var(--log-gap);
+    background:var(--surface); border:1px solid var(--border); border-radius:20px;
+    padding:16px 14px 0; box-shadow:var(--shadow-card);
+  }
+  .log-screen .set-builder::before{ content:""; position:absolute; inset-inline:0; top:0; height:4px; background-image:var(--stripe); }
+  .log-screen .set-builder .bar-wrap{ background:var(--surface2); border-radius:14px; margin-bottom:12px; box-shadow:none; }
+  /* Duration mode renders no barbell — collapse the stage instead of leaving
+     an empty bordered sliver. */
+  .log-screen .set-builder .bar-wrap.is-empty{ background:none; border:none; margin-bottom:0; }
+  .log-screen .set-builder .barbell{ padding:12px 0 10px; }
+  .log-screen .steppers{ gap:10px; margin-bottom:12px; }
+  .log-screen .stepper-label{ font-size:10.5px; font-weight:800; letter-spacing:.3px; }
+  .log-screen .stepper-box{ border-radius:14px; }
+  .log-screen .stepper-btn{ height:46px; color:var(--energy); }
+  .log-screen .stepper-val{ font-size:18px; }
+  .log-screen .bar-center{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:15px; letter-spacing:.3px; }
+  /* Footer strip of the builder card — bleeds to its edges, so the estimate
+     reads as the card's result line rather than another floating label. */
+  .log-screen .est-line{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    margin:0 -14px; padding:11px 14px; text-align:center;
+    background:var(--surface2); border-top:1px solid var(--border);
+    color:var(--steel); font-size:12px; font-weight:700;
+  }
+  .log-screen .est-line b{
+    font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:19px;
+    letter-spacing:.4px; color:var(--energy); direction:ltr; unicode-bidi:isolate;
+  }
+  .log-screen .movement-btn{ border-radius:16px; }
+  .log-screen .empty{ padding:18px 0 6px; }
 </style>
 </head>
 <body>

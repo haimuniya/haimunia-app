@@ -843,6 +843,15 @@ const VALID_TABS = ["add", "history", "calendar", "wod"];
 const urlTab = new URLSearchParams(location.search).get("tab");
 let tab = VALID_TABS.includes(urlTab) ? urlTab : "add";
 let selectedId = MOVEMENTS[0].id;
+// selectedId always has to point at SOMETHING (every save needs an exercise
+// id), so it starts on MOVEMENTS[0] — which happened to render as "Back Squat
+// is already selected" on every single load, for every user, complete with
+// that exercise's real stats and history. This flag separates "the id the
+// form will use if you save right now" from "the user actually told us what
+// they're doing": until it flips, the log screen prompts for a choice instead
+// of presenting one. Session-scoped on purpose — a new load is a new workout,
+// so it is never persisted.
+let movementExplicitlyChosen = false;
 let weight = 20, reps = 5, sets = 1;
 // "reps" (weight×reps×sets, the original/default) or "duration" (a timed
 // hold/carry — see sanitizeEntry). durationSeconds is that mode's own value,
@@ -1723,6 +1732,9 @@ function startEditEntry(id) {
   const entry = entries.find((e) => e.id === id);
   if (!entry) return;
   selectedId = entry.exerciseId;
+  // Opening a real past set for editing is as explicit a choice as picking
+  // from the picker — the form is now unambiguously about that exercise.
+  movementExplicitlyChosen = true;
   logEntryType = entry.type === "duration" ? "duration" : "reps";
   weight = entry.weight;
   reps = entry.reps;
@@ -2218,6 +2230,7 @@ async function clearAllData() {
     noteStorageError(e);
   }
   selectedId = MOVEMENTS[0].id;
+  movementExplicitlyChosen = false; // back to "nothing chosen yet", same as a cold load
   historyId = null;
   selectedWodId = null;
   wodHistoryId = null;
@@ -2753,36 +2766,61 @@ function renderLogTab() {
   const isToday = logDate === todayISO();
   const dayEntries = entries.filter((e) => e.date === logDate);
   const dayLabel = isToday ? "היום" : fmtDate(logDate);
+  // Until the user has actually picked something (see movementExplicitlyChosen),
+  // the header prompts instead of naming a movement — and the blocks that show
+  // one specific movement's numbers stay out of the way rather than
+  // contradicting the prompt with Back Squat's real history.
+  const chosen = movementExplicitlyChosen && !!selected;
 
   return `
+  <div class="log-screen">
     ${editingEntryId ? `
     <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:12px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
       <span style="color:var(--brass); font-weight:700; font-size:13px;">עריכת סט קיים</span>
       <button data-action="cancel-edit-entry" style="color:var(--steel); font-size:12px; text-decoration:underline;">ביטול</button>
     </div>` : ""}
 
+    ${chosen ? `
     <button class="exercise-select" data-action="open-picker">
-      <div class="flex items-center gap-8">
-        <div class="dot" style="background:${esc(catColor(selected.category))}"></div>
-        <span style="font-weight:800; font-size:16px;">${esc(selected.name)}</span>
+      <div class="ex-sel-body">
+        <div class="ex-sel-kicker">התרגיל שנבחר</div>
+        <div class="ex-sel-name-row">
+          <div class="dot" style="background:${esc(catColor(selected.category))}"></div>
+          <span class="ex-sel-name">${esc(selected.name)}</span>
+        </div>
       </div>
-      <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
-    </button>
+      <span class="ex-sel-change">שינוי${ICONS.chevronsLeft}</span>
+    </button>` : `
+    <button class="exercise-select is-unchosen" data-action="open-picker">
+      <div class="ex-sel-body">
+        <div class="ex-sel-kicker">רישום סט חדש</div>
+        <div class="ex-sel-prompt">מה עשינו היום?</div>
+      </div>
+      <span class="ex-sel-change">בחירת תרגיל${ICONS.chevronsLeft}</span>
+    </button>`}
 
     <div class="rx-toggle" role="radiogroup" aria-label="סוג רישום">
       <button class="rx-btn ${!isDuration ? "active-type" : ""}" data-action="set-log-entry-type" data-type="reps" role="radio" aria-checked="${!isDuration}">משקל וחזרות</button>
       <button class="rx-btn ${isDuration ? "active-type" : ""}" data-action="set-log-entry-type" data-type="duration" role="radio" aria-checked="${isDuration}"><span style="display:inline-flex; width:16px; height:16px; vertical-align:-3px; margin-left:4px;">${ICONS.stopwatchIcon}</span>החזקה בזמן</button>
     </div>
 
-    <div class="flex items-center gap-8" style="margin-bottom:12px;">
+    <div class="flex items-center gap-8 log-daterow">
       <input type="date" id="logDateInput" value="${esc(logDate)}" max="${todayISO()}" aria-label="תאריך רישום הסט" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
       ${logDate !== todayISO() ? `<button data-action="reset-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
     </div>
 
+    ${!chosen ? `
+    <div class="log-empty-hint">
+      <span class="log-empty-icon">${ICONS.dumbbell}</span>
+      <div>
+        <div class="log-empty-title">עדיין לא בחרתם תרגיל</div>
+        <div class="log-empty-sub">הקישו על הכרטיס למעלה — כאן יופיעו השיא, האימון האחרון וההיסטוריה שלכם</div>
+      </div>
+    </div>` : `
     ${(est || bestHold || last) ? `
     <div class="stat-row">
-      ${est ? `<div class="stat-card"><div class="stat-label">1RM משוער</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
-      ${bestHold ? `<div class="stat-card"><div class="stat-label">שיא החזקה</div><div class="stat-value mono" style="color:var(--brass);">${formatDuration(bestHold)}</div></div>` : ""}
+      ${est ? `<div class="stat-card stat-hero"><div class="stat-label">1RM משוער</div><div class="stat-value mono" style="color:var(--brass);">${est} kg</div></div>` : ""}
+      ${bestHold ? `<div class="stat-card stat-hero"><div class="stat-label">שיא החזקה</div><div class="stat-value mono" style="color:var(--brass);">${formatDuration(bestHold)}</div></div>` : ""}
       ${last ? `<button data-action="prefill-last" class="stat-card" style="text-align:right;" aria-label="מילוי הנתונים מהאימון האחרון — ${isDuration ? formatDuration(last.durationSeconds) : `${last.weight} על ${last.reps}`}">
         <div class="flex items-center justify-between gap-6">
           <span class="stat-label">אימון אחרון</span>
@@ -2796,30 +2834,32 @@ function renderLogTab() {
       const recent = recentEntriesFor(selectedId);
       if (recent.length === 0) return "";
       return `
-      <div style="margin-bottom:12px;">
-        <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">ב-14 הימים האחרונים</div>
+      <div class="recent-wrap">
+        <div class="recent-head">ב-14 הימים האחרונים</div>
         <div class="flex wrap gap-8">
-          ${recent.map((e) => `<span class="mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel);">${esc(fmtDate(e.date))}: <span style="color:var(--chalk);">${esc(entrySummary(e))}</span></span>`).join("")}
+          ${recent.map((e) => `<span class="recent-chip"><span class="recent-chip-date mono">${esc(fmtDate(e.date))}</span><span class="recent-chip-val mono">${esc(entrySummary(e))}</span></span>`).join("")}
         </div>
       </div>`;
-    })()}
+    })()}`}
 
-    ${isDuration ? "" : renderBarWeightRow()}
+    <section class="set-builder">
+      ${isDuration ? "" : renderBarWeightRow()}
 
-    <div class="bar-wrap" id="barWrap">
-      <div class="pr-flash" id="prFlash" style="display:none;">${ICONS.flame}<span>שיא חדש!</span></div>
-      ${isDuration ? "" : `<div id="barbellVisual">${renderBarbell(weight)}</div>`}
-    </div>
+      <div class="bar-wrap${isDuration ? " is-empty" : ""}" id="barWrap">
+        <div class="pr-flash" id="prFlash" style="display:none;">${ICONS.flame}<span>שיא חדש!</span></div>
+        ${isDuration ? "" : `<div id="barbellVisual">${renderBarbell(weight)}</div>`}
+      </div>
 
-    <div class="steppers">
-      ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, isDuration ? 0 : barWeight)}
-      ${isDuration ? renderStepper("durationSeconds", "משך (שניות)", durationSeconds, 5, 1) : renderStepper("reps", "חזרות", reps, 1, 1)}
-      ${renderStepper("sets", "סטים", sets, 1, 1)}
-    </div>
+      <div class="steppers">
+        ${renderStepper("weight", "משקל (ק\"ג)", weight, 2.5, isDuration ? 0 : barWeight)}
+        ${isDuration ? renderStepper("durationSeconds", "משך (שניות)", durationSeconds, 5, 1) : renderStepper("reps", "חזרות", reps, 1, 1)}
+        ${renderStepper("sets", "סטים", sets, 1, 1)}
+      </div>
 
-    ${isDuration
-      ? `<div class="est-line">‹ משך ההחזקה: <b id="durationLineValue">${formatDuration(durationSeconds)}</b></div>`
-      : `<div class="est-line">‹ הסט הזה מעריך 1RM של <b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>`}
+      ${isDuration
+        ? `<div class="est-line"><span>משך ההחזקה</span><b id="durationLineValue">${formatDuration(durationSeconds)}</b></div>`
+        : `<div class="est-line"><span>הסט הזה מעריך 1RM של</span><b id="estLineValue">${estimate1RM(weight, reps)} kg</b></div>`}
+    </section>
 
     ${(() => {
       const rounds = ladderMode ? currentLadderRounds() : [];
@@ -2878,6 +2918,7 @@ function renderLogTab() {
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">צפייה ביום${ICONS.chevronsLeft}</span>
     </button>`}
+  </div>
   `;
 }
 
@@ -3465,7 +3506,10 @@ function renderSettingsModalBody() {
             <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">ביטול</button>
           </div>`}
       </div>
-      <div class="footer-note" style="text-align:center; margin-top:14px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
+      <div style="text-align:center; margin-top:14px;">
+        <a href="mailto:haimuniya@gmail.com" class="link-btn" style="font-size:13px;">יצירת קשר / דיווח על תקלה</a>
+      </div>
+      <div class="footer-note" style="text-align:center; margin-top:8px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
     </div>`;
 }
 function openSettingsModal() {
@@ -3597,8 +3641,14 @@ function render() {
       const selected = movementById(selectedId);
       content = renderLogTab();
       if (selected) {
-        const prefix = editingEntryId ? "עדכון סט — " : ladderMode ? `הוספת סט ${currentLadderRounds().length + 1} ל${ladderPartnerId ? "סופרסט" : "סולם"} — ` : "רישום סט — ";
-        document.getElementById("saveBtnLabel").textContent = prefix + selected.name;
+        const prefix = editingEntryId ? "עדכון סט" : ladderMode ? `הוספת סט ${currentLadderRounds().length + 1} ל${ladderPartnerId ? "סופרסט" : "סולם"}` : "רישום סט";
+        // Same rule as the log screen's header (see movementExplicitlyChosen):
+        // don't name an exercise the user never picked, or the button would
+        // still read "רישום סט — Back Squat" under a header asking what they
+        // trained. The button saves against selectedId exactly as before —
+        // only the name it has no business asserting yet drops off the label.
+        document.getElementById("saveBtnLabel").textContent =
+          movementExplicitlyChosen ? `${prefix} — ${selected.name}` : prefix;
       }
     } else if (tab === "history") {
       content = renderHistoryTab();
@@ -4038,6 +4088,7 @@ function choosePickedMovement(id) {
   if (pickerTarget === "partner") { setLadderPartner(id); return; }
   endEntryEditIfActive();
   selectedId = id;
+  movementExplicitlyChosen = true;
   syncLogEntryTypeToSelection();
   endLadder();
 }
