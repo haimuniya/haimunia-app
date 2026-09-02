@@ -37,7 +37,7 @@ test("bestEst1RMByExercise() matches bestEst1RM() per exercise across a mixed se
   assert.equal(map.get(deadlift.id), window.bestEst1RM(deadlift.id));
 });
 
-test("a duration-only exercise reports null from both bestEst1RM() and bestEst1RMByExercise(), matching renderHistoryListArea's existing display", async () => {
+test("a duration-only exercise reports null from both bestEst1RM() and bestEst1RMByExercise(), and its History row shows its best hold instead of a fake weight", async () => {
   const window = await bootApp();
   await window.addMovement("Test Perf Plank", "Other");
   window.setLogEntryType("duration");
@@ -52,10 +52,39 @@ test("a duration-only exercise reports null from both bestEst1RM() and bestEst1R
   const map = window.bestEst1RMByExercise();
   assert.equal(map.get(plank.id), undefined, "the map has no entry at all for a duration-only exercise");
 
-  // renderHistoryListArea() renders `${bestMap.get(m.id) ?? null} kg` for
-  // exactly this reason — `?? null` turns the map's `undefined` back into
-  // the same "null kg" bestEst1RM() itself would have produced directly.
+  // The History row used to interpolate that `undefined` straight into the
+  // markup and print the literal string "null kg". A hold-only movement has a
+  // best hold, not a best weight — show that.
   window.document.getElementById("tabHistoryBtn").click();
   const row = window.document.querySelector(`[data-action='select-history'][data-id='${plank.id}']`);
-  assert.ok(row.textContent.includes("null kg"));
+  assert.ok(!row.textContent.includes("null"), `no "null" should reach the screen, got: ${row.textContent.trim()}`);
+  assert.ok(row.textContent.includes(window.formatDuration(45)), "the row should show the best hold");
+});
+
+test("bestDurationByExercise() matches bestDurationFor() per exercise, and skips rep-only movements", async () => {
+  const window = await bootApp();
+
+  await window.addMovement("Test Hold Carry", "Other");
+  window.setLogEntryType("duration");
+  window.applyFieldValue("step", "durationSeconds", 30);
+  window.applyFieldValue("step", "sets", 1);
+  await window.saveSet();
+  window.applyFieldValue("step", "durationSeconds", 75);
+  await window.saveSet();
+
+  await window.addMovement("Test Hold Squat", "Squat");
+  window.setLogEntryType("reps");
+  window.applyFieldValue("step", "weight", 90);
+  window.applyFieldValue("step", "reps", 5);
+  window.applyFieldValue("step", "sets", 1);
+  await window.saveSet();
+
+  const allMovements = await window.dbLoadMovements();
+  const carry = allMovements.find((m) => m.name === "Test Hold Carry");
+  const squat = allMovements.find((m) => m.name === "Test Hold Squat");
+
+  const map = window.bestDurationByExercise();
+  assert.equal(map.get(carry.id), window.bestDurationFor(carry.id));
+  assert.equal(map.get(carry.id), 75);
+  assert.equal(map.get(squat.id), undefined, "a rep-only movement has no hold record at all");
 });

@@ -986,6 +986,20 @@ function bestEst1RMByExercise() {
   }
   return map;
 }
+// Duration counterpart to bestEst1RMByExercise(), and for the same reason:
+// the History list needs a best-hold per exercise, and calling
+// bestDurationFor() once per row re-scans the whole entries array each time.
+// Exercises with no duration entry at all are simply absent from the map,
+// exactly like their est1RM counterpart.
+function bestDurationByExercise() {
+  const map = new Map();
+  for (const e of entries) {
+    if (e.type !== "duration") continue;
+    const cur = map.get(e.exerciseId);
+    if (cur === undefined || e.durationSeconds > cur) map.set(e.exerciseId, e.durationSeconds);
+  }
+  return map;
+}
 function repRecordFor(id, repCount, excludeId) {
   const list = entriesFor(id, excludeId).filter((e) => e.reps === repCount);
   return list.length ? Math.max(...list.map((e) => e.weight)) : null;
@@ -2232,6 +2246,10 @@ async function clearAllData() {
   selectedId = MOVEMENTS[0].id;
   movementExplicitlyChosen = false; // back to "nothing chosen yet", same as a cold load
   historyId = null;
+  // Without this a query typed before the wipe survives it, so the moment the
+  // first new set is logged the History list comes back pre-filtered by a
+  // search for data that no longer exists — an empty list with no obvious cause.
+  historySearch = "";
   selectedWodId = null;
   wodHistoryId = null;
   bwWeight = 70;
@@ -2942,6 +2960,28 @@ function renderStepper(field, label, value, step, min, action) {
     </div>`;
 }
 
+// Shared header strip for both detail cards: how much work is actually behind
+// the chart on the left, the PR-to-PR trend chip on the right. The exercise
+// name deliberately isn't repeated here — the row this card hangs off already
+// carries it, one line above.
+function historyDetailHead(list, trendHtml) {
+  const days = new Set(list.map((e) => e.date)).size;
+  const sets = list.reduce((s, e) => s + e.sets, 0);
+  return `
+      <div class="history-detail-head">
+        <span class="history-meta"><b class="mono history-num">${days}</b> ${days === 1 ? "יום אימון" : "ימי אימון"} · <b class="mono history-num">${sets}</b> ${sets === 1 ? "סט" : "סטים"}</span>
+        ${trendHtml}
+      </div>`;
+}
+// Both detail cards derive their trend from consecutive PR points, and PR
+// points are non-decreasing by construction (a point is a PR only when it
+// matches or beats the running max) — so the trend is never negative, only
+// positive or flat. Rendering it goes through here so that stays stated once.
+function historyTrendChip(delta, format, label) {
+  if (delta === null) return "";
+  return `<span class="history-trend">${delta > 0 ? ICONS.up : ICONS.flat}<span class="mono history-num">${delta > 0 ? "+" : ""}${format(Math.abs(delta))}</span> ${label}</span>`;
+}
+
 function renderDetailCard(m) {
   const hEntries = entriesFor(m.id);
   if (hEntries.length === 0) return "";
@@ -2950,6 +2990,7 @@ function renderDetailCard(m) {
   // the chart/PR-table meaningful instead of averaging two unrelated units.
   const isDuration = hEntries[0].type === "duration";
   if (isDuration) return renderDurationDetailCard(m, hEntries.filter((e) => e.type === "duration"));
+  const repEntries = hEntries.filter((e) => e.type !== "duration");
   let max = -Infinity;
   // One point per day — that day's best est1RM, not every individual set. A
   // descending ladder (heavy/low-reps first, lighter/higher-reps after) logs
@@ -2968,16 +3009,13 @@ function renderDetailCard(m) {
   const prPoints = chartData.filter((d) => d.isPR);
   const trend = prPoints.length >= 2 ? +(prPoints[prPoints.length - 1].est1RM - prPoints[prPoints.length - 2].est1RM).toFixed(1) : null;
   return `
-    <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
-      <div class="flex items-center justify-between" style="margin-bottom:12px;">
-        <span style="font-weight:800; font-size:15px;">${esc(m.name)}</span>
-        ${trend !== null ? `<span class="flex items-center gap-6" style="font-weight:700; font-size:12px;">${trend > 0 ? ICONS.up : trend < 0 ? ICONS.down : ICONS.flat}<span class="mono">${trend > 0 ? "+" : ""}${trend} kg</span> 1RM משוער</span>` : ""}
-      </div>
+    <div class="history-detail">
+      ${historyDetailHead(repEntries, historyTrendChip(trend, (v) => `${v} kg`, "1RM משוער"))}
       ${renderChart(chartData)}
       <div class="rep-table">
         ${STANDARD_REPS.map((r) => {
           const rec = repRecordFor(m.id, r);
-          return `<div class="rep-cell"><div class="rep-cell-label">${r}RM</div><div class="rep-cell-val mono" style="color:${rec ? "var(--chalk)" : "var(--border)"};">${rec ?? "—"}</div></div>`;
+          return `<div class="rep-cell${rec ? "" : " empty"}"><div class="rep-cell-label">${r}RM</div><div class="rep-cell-val mono history-num">${rec ?? "—"}</div></div>`;
         }).join("")}
       </div>
     </div>`;
@@ -3003,13 +3041,10 @@ function renderDurationDetailCard(m, durationEntries) {
   const trendSec = prPoints.length >= 2 ? prPoints[prPoints.length - 1].est1RM - prPoints[prPoints.length - 2].est1RM : null;
   const best = bestDurationFor(m.id);
   return `
-    <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
-      <div class="flex items-center justify-between" style="margin-bottom:12px;">
-        <span style="font-weight:800; font-size:15px;">${esc(m.name)}</span>
-        ${trendSec !== null ? `<span class="flex items-center gap-6" style="font-weight:700; font-size:12px;">${trendSec > 0 ? ICONS.up : trendSec < 0 ? ICONS.down : ICONS.flat}<span class="mono">${trendSec > 0 ? "+" : ""}${formatDuration(Math.abs(trendSec))}</span> שיא החזקה</span>` : ""}
-      </div>
+    <div class="history-detail">
+      ${historyDetailHead(durationEntries, historyTrendChip(trendSec, formatDuration, "שיא החזקה"))}
       ${renderChart(chartData)}
-      ${best ? `<div class="rep-table"><div class="rep-cell"><div class="rep-cell-label">שיא החזקה</div><div class="rep-cell-val mono" style="color:var(--chalk);">${formatDuration(best)}</div></div></div>` : ""}
+      ${best ? `<div class="rep-table"><div class="rep-cell"><div class="rep-cell-label">שיא החזקה</div><div class="rep-cell-val mono history-num">${formatDuration(best)}</div></div></div>` : ""}
     </div>`;
 }
 
@@ -3017,29 +3052,58 @@ function renderHistoryListArea() {
   const area = document.getElementById("historyListArea");
   if (!area) return;
   const q = historySearch.trim().toLowerCase();
-  const active = activeExercises().filter((m) => m.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
-  if (activeExercises().length === 0) {
-    area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">רשמו סט כדי להתחיל לראות התקדמות</span></div>`;
+  const all = activeExercises();
+  const active = all.filter((m) => m.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
+  if (all.length === 0) {
+    area.innerHTML = `
+      <div class="history-empty">
+        ${ICONS.dumbbell}
+        <div class="history-empty-title">עוד אין כאן היסטוריה</div>
+        <div class="history-empty-hint">רשמו סט ראשון וההתקדמות תתחיל להיבנות כאן — שיאים, גרף וטבלת שיאים לכל תרגיל</div>
+        <button class="history-empty-cta" data-action="switch-tab" data-tab="add">לרישום סט</button>
+      </div>`;
     return;
   }
   if (active.length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(historySearch)}"</div>`;
+    area.innerHTML = `
+      <div class="history-empty">
+        ${ICONS.dumbbell}
+        <div class="history-empty-title">אין תרגיל תואם</div>
+        <div class="history-empty-hint">לא נמצא תרגיל התואם ל-"${esc(historySearch)}". שמות התרגילים נשמרים באנגלית — נסו לחפש Squat או Press.</div>
+        <button class="history-empty-cta" data-action="clear-history-search">ניקוי החיפוש</button>
+      </div>`;
     return;
   }
+  // Two single-pass maps rather than a per-row lookup that re-scans `entries`
+  // (this list re-renders on every keystroke in the search box).
   const bestMap = bestEst1RMByExercise();
-  area.innerHTML = active.map((m) => {
-    const row = `
-      <button class="exercise-row ${historyId === m.id ? "active" : ""}" data-action="select-history" data-id="${esc(m.id)}" style="${historyId === m.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
-        <div class="flex items-center gap-8">
-          <span style="display:inline-flex; transition:transform .2s; transform:rotate(${historyId === m.id ? "90deg" : "180deg"});">${ICONS.chevron}</span>
-          <div class="dot" style="background:${esc(catColor(m.category))}"></div>
-          <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
-        </div>
-        <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${bestMap.get(m.id) ?? null} kg</span>
-      </button>`;
-    const detail = historyId === m.id ? renderDetailCard(m) + `<div style="height:8px;"></div>` : "";
-    return row + detail;
-  }).join("");
+  const holdMap = bestDurationByExercise();
+  area.innerHTML = `<div class="history-list">${active.map((m) => {
+    const open = historyId === m.id;
+    const best = bestMap.get(m.id);
+    const hold = holdMap.get(m.id);
+    // An exercise logged only as holds (a plank, a carry) has no est1RM at
+    // all — bestEst1RMByExercise() has no entry for it. It used to render the
+    // literal string "null kg" here; show the thing it actually has a record
+    // in instead, and fall back to a neutral dash rather than a fake number.
+    const bestHtml = best !== undefined
+      ? `<span class="history-best mono history-num">${best} kg</span>`
+      : hold !== undefined
+        ? `<span class="history-best mono history-num">${formatDuration(hold)}</span>`
+        : `<span class="history-best none">—</span>`;
+    return `
+      <div class="history-entry${open ? " open" : ""}">
+        <button class="exercise-row${open ? " active" : ""}" data-action="select-history" data-id="${esc(m.id)}" aria-expanded="${open}">
+          <div class="flex items-center gap-8">
+            <span class="history-chev${open ? " open" : ""}" aria-hidden="true">${ICONS.chevron}</span>
+            <div class="dot" style="background:${esc(catColor(m.category))}"></div>
+            <span class="history-name">${esc(m.name)}</span>
+          </div>
+          ${bestHtml}
+        </button>
+        ${open ? renderDetailCard(m) : ""}
+      </div>`;
+  }).join("")}</div>`;
 }
 
 // ---------- Calendar tab ----------
@@ -3409,27 +3473,41 @@ function renderMeasureArea() {
 function renderHistoryTab() {
   const now = new Date();
   const monthPrefix = localISODate(now).slice(0, 7);
-  const prCountThisMonth = entries.filter((e) => e.isPR && e.date.startsWith(monthPrefix)).length;
+  // "PRs" and "sessions" here mean the same thing the calendar's day dots and
+  // the header streak already mean by them: a WOD attempt is a session, and a
+  // WOD PR is a PR. Counting only `entries` made a week of nothing but WODs
+  // report 0 אימונים השבוע while the streak flame next to it said otherwise.
+  const prCountThisMonth = entries.filter((e) => e.isPR && e.date.startsWith(monthPrefix)).length
+    + wodEntries.filter((e) => e.isPR && e.date.startsWith(monthPrefix)).length;
   const start = new Date(now); start.setDate(now.getDate() - now.getDay());
   const startISO = localISODate(start);
-  const sessionsThisWeek = new Set(entries.filter((e) => e.date >= startISO).map((e) => e.date)).size;
+  const sessionDates = new Set();
+  for (const e of entries) if (e.date >= startISO) sessionDates.add(e.date);
+  for (const e of wodEntries) if (e.date >= startISO) sessionDates.add(e.date);
+  const sessionsThisWeek = sessionDates.size;
   const totalSetsLogged = entries.reduce((sum, e) => sum + e.sets, 0);
+  const hasHistory = activeExercises().length > 0;
 
   return `
-    <div class="stat-row">
-      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="color:var(--brass); font-size:20px;">${prCountThisMonth}</div><div class="stat-label">שיאים החודש</div></div>
-      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${sessionsThisWeek}</div><div class="stat-label">אימונים השבוע</div></div>
-      <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">סטים שנרשמו</div></div>
+    <div class="history-tab">
+      <div class="history-stats">
+        <div class="history-stat"><div class="history-stat-value pr">${prCountThisMonth}</div><div class="stat-label">שיאים החודש</div></div>
+        <div class="history-stat"><div class="history-stat-value">${sessionsThisWeek}</div><div class="stat-label">אימונים השבוע</div></div>
+        <div class="history-stat"><div class="history-stat-value">${totalSetsLogged}</div><div class="stat-label">סטים שנרשמו</div></div>
+      </div>
+
+      ${hasHistory ? `
+      <div class="section-label history-section-label">שיאים כלל-זמנים</div>
+      <div class="search-box history-search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" aria-label="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
+        ${historySearch ? `<button data-action="clear-history-search" class="history-search-clear" aria-label="ניקוי החיפוש">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>` : ""}
+      </div>` : ""}
+
+      <div id="historyListArea"></div>
     </div>
-
-    ${activeExercises().length > 0 ? `
-    <div class="section-label">שיאים כלל-זמנים</div>
-    <div class="search-box" style="margin:0 0 12px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="historySearch" dir="auto" placeholder="חיפוש בתרגילים שלך" aria-label="חיפוש בתרגילים שלך" value="${esc(historySearch)}" />
-    </div>` : ""}
-
-    <div id="historyListArea"></div>
 
     <div id="bodyweightArea"></div>
 
@@ -4391,6 +4469,9 @@ document.addEventListener("click", (e) => {
     saveSessionNote(el.dataset.date, text ? text.value : "");
   }
   else if (action === "select-history") { historyId = historyId === el.dataset.id ? null : el.dataset.id; renderHistoryListArea(); }
+  // Full render (not just the list) because the search box's own markup — the
+  // input's value and the clear button itself — is built by renderHistoryTab.
+  else if (action === "clear-history-search") { historySearch = ""; render(); }
   else if (action === "export-data") { exportData(); }
   else if (action === "import-data") { triggerImport(); }
   else if (action === "ask-clear") { confirmClear = true; render(); }
