@@ -259,6 +259,67 @@
   .history-tab .history-empty-hint{ color:var(--steel); font-size:12.5px; line-height:1.55; max-width:300px; }
   .history-tab .history-empty-cta{ margin-top:4px; font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:15px; letter-spacing:.5px; color:var(--energy); border:1px solid var(--energy); border-radius:12px; padding:9px 22px; transition:opacity .15s; }
   .history-tab .history-empty-cta:active{ opacity:.7; }
+
+  /* ---- Body metrics: the History tab's bodyweight + measurements cards ----
+     Everything here is scoped under .body-metrics (the wrapper both
+     renderBodyweightArea() and renderMeasureArea() emit) so it can restyle
+     the same base ideas — collapsible head, chart, entry form, recent list —
+     without touching .exercise-row / .chart-card / .log-row, which other
+     screens still render with. One gap value drives the whole rhythm.
+     The orange stripe appears exactly twice on this screen: as a rail down
+     the leading edge of whichever card is open, and as a tick before the
+     "מדדי גוף" section title. */
+  .body-metrics{ --bm-gap:12px; margin-bottom:16px; }
+  .bm-block{ background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow-card); margin-bottom:8px; overflow:hidden; transition:border-color .15s; }
+  .bm-block.open{ border-color:var(--brass); }
+  /* Stripe use 1 of 2 — brand punctuation on the open card only. */
+  .bm-block.open .bm-head{ position:relative; }
+  .bm-block.open .bm-head::before{ content:""; position:absolute; inset-inline-start:0; top:0; bottom:0; width:5px; background-image:var(--stripe); }
+  .bm-head{ width:100%; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px; text-align:start; }
+  .bm-block.open .bm-head{ background:var(--surface2); padding-inline-start:20px; }
+  .bm-head-main{ display:flex; align-items:center; gap:8px; min-width:0; }
+  .bm-head-title{ font-weight:700; font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bm-chev{ display:inline-flex; flex-shrink:0; transition:transform .2s; }
+  /* Anton for the read-only headline number; the unit stays in Rubik so the
+     Hebrew ס"מ has real glyphs. The .mono wrapper is kept only for its
+     direction:ltr isolation, exactly as every other mixed-numeric run. */
+  .body-metrics .bm-head-val{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:20px; line-height:1; color:var(--brass); flex-shrink:0; }
+  .body-metrics .bm-unit{ font-family:'Rubik',sans-serif; font-weight:600; font-size:11px; color:var(--steel); margin-inline-start:4px; }
+  .bm-head-empty{ color:var(--steel); font-size:12px; flex-shrink:0; }
+  .bm-detail{ display:flex; flex-direction:column; gap:var(--bm-gap); padding:var(--bm-gap) 16px 16px; border-top:1px solid var(--border); }
+  .bm-meta{ display:flex; align-items:center; gap:6px; color:var(--steel); font-size:12px; }
+  /* Read-only date: keeps .mono only for its LTR isolation inside the RTL
+     line — JetBrains Mono stays reserved for the editable stepper inputs. */
+  .body-metrics .bm-meta-date{ font-family:'Rubik',sans-serif; font-size:12px; color:var(--chalk); font-weight:600; }
+  .bm-meta .bm-del-type{ margin-inline-start:auto; }
+  .bm-chart{ background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:10px 8px; }
+  /* Empty/too-thin-to-chart state: an invitation, not a blank hole. */
+  .bm-empty{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; text-align:center; padding:20px 14px; border:1px dashed var(--border); border-radius:14px; color:var(--steel); font-size:12.5px; line-height:1.5; }
+  .bm-empty svg{ color:var(--border); }
+  .bm-form{ display:flex; flex-direction:column; gap:10px; }
+  .body-metrics .bm-steppers{ margin-bottom:0; }
+  .body-metrics .bm-save{ max-width:none; font-size:17px; padding:14px 0; box-shadow:0 6px 20px rgba(232,93,61,.32); }
+  .bm-warn{ color:var(--red); font-size:12px; font-weight:600; text-align:center; }
+  .bm-log{ display:flex; flex-direction:column; gap:6px; padding-top:var(--bm-gap); border-top:1px solid var(--border); }
+  .bm-log-title{ color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:2px; }
+  .bm-log-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:8px 12px; }
+  .bm-log-date{ color:var(--steel); font-size:12px; }
+  .bm-log-end{ display:flex; align-items:center; gap:8px; }
+  .body-metrics .bm-log-val{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:15px; line-height:1; }
+  .bm-del{ color:var(--steel); padding:4px; display:inline-flex; border-radius:8px; transition:color .15s; }
+  .bm-del:active{ color:var(--red); }
+  /* Stripe use 2 of 2 — a short tick leading the section title. */
+  .bm-section-title{ display:flex; align-items:center; gap:8px; color:var(--steel); font-size:12px; font-weight:700; letter-spacing:.5px; margin:4px 0 10px; }
+  .bm-section-title::before{ content:""; width:18px; height:5px; border-radius:3px; background-image:var(--stripe); flex-shrink:0; }
+  .bm-add{ width:100%; display:flex; align-items:center; justify-content:center; gap:8px; background:transparent; border:1px dashed var(--brass); border-radius:14px; padding:13px 14px; color:var(--brass); font-weight:700; font-size:14px; margin-bottom:8px; transition:background .15s; }
+  .bm-add:active{ background:var(--surface2); }
+  .bm-add-plus{ font-size:18px; line-height:1; }
+  .bm-add-form{ background:var(--surface); border:1px solid var(--brass); border-radius:14px; padding:12px; margin-bottom:8px; display:flex; flex-direction:column; gap:10px; box-shadow:var(--shadow-card); }
+  .bm-add-actions{ display:flex; align-items:center; gap:8px; }
+  .bm-add-actions .bm-save{ flex:1; }
+  .bm-cancel{ color:var(--steel); font-size:13px; font-weight:600; padding:10px; }
+  .bm-hint{ color:var(--steel); font-size:12.5px; line-height:1.5; text-align:center; padding:2px 8px 4px; }
+
   /* Nested inside #bottomNavWrap now (see index.html) — no longer its own
      independently-fixed element, so no bottom offset of its own to keep in
      sync with .tabbar's. */

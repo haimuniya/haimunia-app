@@ -94,3 +94,56 @@ test("deleting a measure type removes it and its logged measurements", async () 
   assert.ok(!(await window.dbLoadMeasureTypes()).some((t) => t.id === type.id), "the type itself should be gone");
   assert.ok(!(await window.dbLoadMeasurements()).some((e) => e.typeId === type.id), "its measurements should be cleaned up too, not left orphaned");
 });
+
+test("a non-positive bodyweight is refused, with a reason, instead of writing a 0 kg entry", async () => {
+  const window = await bootApp();
+  window.document.getElementById("tabHistoryBtn").click();
+  window.document.querySelector("[data-action='toggle-bodyweight']").click();
+
+  window.applyFieldValue("bw-step", "bwWeight", 0);
+  window.document.querySelector("[data-action='save-bw']").click();
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal((await window.dbLoadBodyweight()).length, 0, "0 kg must never reach storage — it owns the headline number and cannot be deleted once the day rolls over");
+  const card = window.document.getElementById("bodyweightArea");
+  assert.ok(card.querySelector(".bm-warn"), "the card should say why the save did nothing rather than looking dead");
+
+  // A real weight afterwards still saves, and clears the warning.
+  window.applyFieldValue("bw-step", "bwWeight", 77);
+  window.document.querySelector("[data-action='save-bw']").click();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal((await window.dbLoadBodyweight()).length, 1);
+  assert.ok(!window.document.getElementById("bodyweightArea").querySelector(".bm-warn"));
+});
+
+test("a single bodyweight entry can be deleted, and the stepper falls back to the next-newest", async () => {
+  const window = await bootApp();
+  await window.dbPutBodyweight({ id: "bw-older", date: "2026-08-20", ts: 1000, weight: 80.2 });
+  await window.dbPutBodyweight({ id: "bw-newer", date: "2026-08-27", ts: 2000, weight: 79.1 });
+  await window.reloadFromDb();
+  window.document.getElementById("tabHistoryBtn").click();
+  window.document.querySelector("[data-action='toggle-bodyweight']").click();
+
+  const delBtns = window.document.querySelectorAll("[data-action='delete-bodyweight-entry']");
+  assert.equal(delBtns.length, 2, "every listed bodyweight entry needs its own delete — a mistyped weight used to be permanent");
+
+  delBtns[0].click(); // newest first
+  await new Promise((r) => setTimeout(r, 0));
+
+  const rows = await window.dbLoadBodyweight();
+  assert.deepEqual(rows.map((r) => r.id), ["bw-older"]);
+  assert.equal(window.getFieldValue("bw-step", "bwWeight"), 80.2, "the stepper should re-seed off the surviving entry, not keep showing the deleted one");
+});
+
+test("saving a measurement of 0 explains itself instead of silently doing nothing", async () => {
+  const window = await bootApp();
+  window.document.getElementById("tabHistoryBtn").click();
+  await window.addMeasureType("Test Thigh"); // a fresh type's stepper starts at 0
+
+  const type = (await window.dbLoadMeasureTypes()).find((t) => t.name === "Test Thigh");
+  window.document.querySelector(`[data-action='save-measurement'][data-id='${type.id}']`).click();
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal((await window.dbLoadMeasurements()).length, 0);
+  assert.ok(window.document.getElementById("measureArea").querySelector(".bm-warn"), "the first tap most users make used to hit a dead no-op");
+});
