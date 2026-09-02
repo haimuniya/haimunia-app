@@ -3166,6 +3166,17 @@ function isoDate(y, m, d) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
+// Point the month view at whatever day is currently selected. The "T00:00:00"
+// matters: a bare "YYYY-MM-DD" parses as UTC midnight, which lands on the
+// previous day — and so on the previous month, at a month boundary — for
+// every athlete west of Greenwich.
+function syncCalMonthToSelection() {
+  const d = new Date(calSelectedDate + "T00:00:00");
+  if (isNaN(d.getTime())) return;
+  calYear = d.getFullYear();
+  calMonth = d.getMonth();
+}
+
 // Whether any strength set or WOD attempt was logged on a given date —
 // shared by the calendar's day dots and the header streak indicator so the
 // two never define "counts as a trained day" differently.
@@ -3195,6 +3206,33 @@ function updateStreakLabel() {
   el.style.display = "flex";
   el.setAttribute("aria-label", `${streak} ימים ברצף`);
 }
+// Rolls both logs up by date in a single pass each. The per-cell version of
+// this ran four full array scans per day — ~120 passes over `entries` to
+// paint one month, repeated on every month-nav tap — which is exactly the
+// shape that gets slow once a real athlete has a couple of years of logs.
+function calDayIndex() {
+  const byDate = new Map();
+  const touch = (date) => {
+    let d = byDate.get(date);
+    if (!d) { d = { pr: false, sets: 0 }; byDate.set(date, d); }
+    return d;
+  };
+  for (const e of entries) {
+    const d = touch(e.date);
+    if (e.isPR) d.pr = true;
+    d.sets += e.sets || 0;
+  }
+  for (const e of wodEntries) {
+    const d = touch(e.date);
+    if (e.isPR) d.pr = true;
+  }
+  return byDate;
+}
+// Grid + month-summary only. It deliberately no longer redraws the detail
+// panel: month navigation doesn't change the selected day, and redrawing
+// the panel threw away whatever the athlete had typed into the session-note
+// textarea but not yet saved. Callers that actually change the selection
+// (and render()) call renderCalDetail() themselves.
 function renderCalendarGrid() {
   const grid = document.getElementById("calGrid");
   const label = document.getElementById("calMonthLabel");
@@ -3203,25 +3241,39 @@ function renderCalendarGrid() {
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
   const firstWeekday = new Date(calYear, calMonth, 1).getDay();
   const today = todayISO();
+  const byDate = calDayIndex();
   let cells = "";
   for (let i = 0; i < firstWeekday; i++) cells += `<div class="cal-cell empty"></div>`;
+  let monthDays = 0, monthSets = 0, monthPRs = 0;
   for (let d = 1; d <= daysInMonth; d++) {
     const iso = isoDate(calYear, calMonth, d);
-    const dayEntries = entries.filter((e) => e.date === iso);
-    const dayWods = wodEntries.filter((e) => e.date === iso);
-    const hasData = hasAnyEntryOn(iso);
-    const hasPR = dayEntries.some((e) => e.isPR) || dayWods.some((e) => e.isPR);
+    const day = byDate.get(iso);
+    const hasData = !!day;
+    const hasPR = hasData && day.pr;
+    if (hasData) { monthDays++; monthSets += day.sets; if (hasPR) monthPRs++; }
     const cls = ["cal-cell"];
+    if (iso > today) cls.push("future");
     if (iso === today) cls.push("today");
     if (iso === calSelectedDate) cls.push("selected");
-    const dayAria = `${d}${hasData ? (hasPR ? " — שיא אישי" : " — יש נתונים") : ""}`;
+    const dayAria = `${d}${iso === today ? " — היום" : ""}${hasData ? (hasPR ? " — שיא אישי" : " — יש נתונים") : ""}`;
     cells += `<button class="${cls.join(" ")}" data-action="cal-select-day" data-date="${esc(iso)}" aria-label="${esc(dayAria)}">
       <span class="cal-daynum" aria-hidden="true">${d}</span>
       ${hasData ? `<div class="cal-dot ${hasPR ? "pr" : ""}" aria-hidden="true"></div>` : ""}
     </button>`;
   }
   grid.innerHTML = cells;
-  renderCalDetail();
+  const stats = document.getElementById("calMonthStats");
+  if (stats) {
+    stats.innerHTML = [
+      [monthDays, monthDays === 1 ? "יום אימון" : "ימי אימון"],
+      [monthSets, monthSets === 1 ? "סט" : "סטים"],
+      [monthPRs, monthPRs === 1 ? "יום שיא" : "ימי שיא"],
+    ].map(([n, labelText]) => `
+      <div class="cal-stat">
+        <div class="cal-stat-num">${n}</div>
+        <div class="cal-stat-label">${labelText}</div>
+      </div>`).join("");
+  }
 }
 
 // Partitions same-day entries into ladder groups (rows sharing a groupId)
@@ -3248,16 +3300,24 @@ function groupDayEntries(list) {
 // volume for it.
 let calNoteDate = null; // which date calNoteText currently reflects
 let calNoteText = "";
-let calNoteLoading = false;
+// Which date the in-flight read is for, rather than a bare "is loading"
+// boolean: with a boolean, tapping day B while day A's read was still open
+// made B's load bail out entirely, and A's completion then refused to
+// re-render (calSelectedDate was already B) — so B's saved note stayed
+// invisible in a blank textarea until something else forced a redraw.
+let calNoteLoadingDate = null;
 async function loadSessionNoteFor(date) {
-  if (calNoteDate === date || calNoteLoading) return;
-  calNoteLoading = true;
+  if (calNoteDate === date || calNoteLoadingDate === date) return;
+  calNoteLoadingDate = date;
+  let loaded = "";
   try {
     const v = await dbGetSetting(`sessionNote:${date}`);
-    calNoteText = typeof v === "string" ? v : "";
-  } catch (e) { calNoteText = ""; }
+    loaded = typeof v === "string" ? v : "";
+  } catch (e) { loaded = ""; }
+  if (calNoteLoadingDate !== date) return; // a newer request took over
+  calNoteLoadingDate = null;
+  calNoteText = loaded;
   calNoteDate = date;
-  calNoteLoading = false;
   if (tab === "calendar" && calSelectedDate === date) renderCalDetail();
 }
 async function saveSessionNote(date, text) {
@@ -3278,9 +3338,24 @@ function renderCalDetail() {
   const dayWods = wodEntries.filter((e) => e.date === calSelectedDate).sort((a, b) => (b.ts || 0) - (a.ts || 0));
   const d = new Date(calSelectedDate + "T00:00:00");
   const label = d.toLocaleDateString("he-IL", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  // A day the athlete hasn't reached yet can't be logged into — logDate is
+  // clamped to today — so it gets a plain explanation instead of a CTA that
+  // would silently bounce them to today's date.
+  const isFuture = calSelectedDate > todayISO();
+  const nothingLogged = dayEntries.length === 0 && dayWods.length === 0;
   el.innerHTML = `
-    <div class="section-label" style="margin-top:4px;">${label.toUpperCase()}</div>
-    ${(dayEntries.length === 0 && dayWods.length === 0) ? `<div class="empty">לא נרשם דבר ביום הזה.</div>` : `
+    <div class="cal-day-head">
+      <span class="cal-day-title">${esc(label)}</span>
+      ${nothingLogged ? "" : `<span class="cal-day-count">${dayEntries.length + dayWods.length}</span>`}
+    </div>
+    ${nothingLogged ? `
+    <div class="cal-day-empty">
+      <span class="cal-day-empty-icon">${ICONS.calendarIcon}</span>
+      <div class="cal-day-empty-title">לא נרשם דבר ביום הזה</div>
+      ${isFuture
+        ? `<div class="cal-day-empty-hint">היום הזה עוד לפניך</div>`
+        : `<button class="cal-day-empty-cta" data-action="cal-log-day" data-date="${esc(calSelectedDate)}">רישום אימון לתאריך הזה</button>`}
+    </div>` : `
     <div class="log-list">
       ${groupDayEntries(dayEntries).map((group) => {
         if (group.length === 1) {
@@ -3347,11 +3422,14 @@ function renderCalDetail() {
           ${e.notes ? `<div style="color:var(--steel); font-size:12px; padding-left:23px;">${esc(e.notes)}</div>` : ""}
         </div>`;
       }).join("")}
-    </div>`}
+    </div>
+    ${isFuture ? "" : `<button class="cal-day-add" data-action="cal-log-day" data-date="${esc(calSelectedDate)}">+ הוספת רישום לתאריך הזה</button>`}`}
 
-    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin:16px 0 6px;">איך היה האימון היום</div>
-    <textarea id="sessionNoteInput" class="text-input" dir="auto" maxlength="${LIMITS.notesLen}" rows="3" placeholder="הרגשה, אנרגיה, מה עבד ומה פחות..." aria-label="איך היה האימון היום" style="resize:vertical; min-height:64px; font-family:inherit; margin-bottom:8px;">${esc(calNoteDate === calSelectedDate ? calNoteText : "")}</textarea>
-    <button data-action="save-session-note" data-date="${esc(calSelectedDate)}" class="link-btn" style="display:block;">שמירת הערה</button>
+    <div class="cal-note">
+      <div class="cal-note-label">איך היה האימון</div>
+      <textarea id="sessionNoteInput" class="text-input" dir="auto" maxlength="${LIMITS.notesLen}" rows="3" placeholder="הרגשה, אנרגיה, מה עבד ומה פחות..." aria-label="איך היה האימון" style="resize:vertical; min-height:64px; font-family:inherit;">${esc(calNoteDate === calSelectedDate ? calNoteText : "")}</textarea>
+      <button data-action="save-session-note" data-date="${esc(calSelectedDate)}" class="cal-note-save">שמירת הערה</button>
+    </div>
   `;
 }
 
@@ -3369,53 +3447,90 @@ function renderVolumeReport() {
   const cutoff7ISO = localISODate(cutoff7);
   const cutoff30 = new Date(now); cutoff30.setDate(now.getDate() - 29);
   const cutoff30ISO = localISODate(cutoff30);
+  const today = todayISO();
 
-  const cats = REPORT_CATEGORIES.concat(customMovements.length ? ["Custom"] : []);
-  const rows = cats.map((cat) => {
-    const catEntries = entries.filter((e) => { const m = movementById(e.exerciseId); return m && m.category === cat; });
-    const setsWeek = catEntries.filter((e) => e.date >= cutoff7ISO).reduce((s, e) => s + e.sets, 0);
-    const setsMonth = catEntries.filter((e) => e.date >= cutoff30ISO).reduce((s, e) => s + e.sets, 0);
-    const lastDate = catEntries.length ? catEntries.map((e) => e.date).sort().slice(-1)[0] : null;
-    const diff = lastDate ? Math.round((new Date(todayISO()) - new Date(lastDate)) / 86400000) : null;
-    let flagColor = "var(--steel)", flagBg = "rgba(138,143,151,.15)", flagText = daysAgoLabel(lastDate);
+  // REPORT_CATEGORIES is exactly MOVEMENT_CATEGORIES, and sanitizeMovement()
+  // forces every movement — built-in, user-added or imported — into that
+  // list, so these six rows already cover 100% of logged sets. The old
+  // extra "Custom" row could therefore never be anything but 0/0 with a red
+  // "never trained" flag: a dead row that appeared the moment an athlete
+  // added their first custom exercise and permanently misreported it.
+  // One pass over `entries` instead of three filters per category, too.
+  const stats = new Map(REPORT_CATEGORIES.map((cat) => [cat, { week: 0, month: 0, last: null }]));
+  for (const e of entries) {
+    const m = movementById(e.exerciseId);
+    const s = m && stats.get(m.category);
+    if (!s) continue;
+    if (e.date >= cutoff7ISO) s.week += e.sets || 0;
+    if (e.date >= cutoff30ISO) s.month += e.sets || 0;
+    if (!s.last || e.date > s.last) s.last = e.date;
+  }
+
+  const maxMonth = Math.max(1, ...REPORT_CATEGORIES.map((cat) => stats.get(cat).month));
+  const anyLogged = REPORT_CATEGORIES.some((cat) => stats.get(cat).last);
+
+  const rows = REPORT_CATEGORIES.map((cat) => {
+    const s = stats.get(cat);
+    const diff = s.last ? Math.round((new Date(today) - new Date(s.last)) / 86400000) : null;
+    let flagColor = "var(--steel)", flagBg = "rgba(138,143,151,.15)";
     if (diff === null) { flagColor = "var(--red)"; flagBg = "rgba(216,69,60,.15)"; }
     else if (diff <= 7) { flagColor = "var(--green)"; flagBg = "rgba(75,155,95,.15)"; }
     else if (diff > 14) { flagColor = "var(--red)"; flagBg = "rgba(216,69,60,.15)"; }
+    const pct = Math.round((s.month / maxMonth) * 100);
     return `
-      <div class="report-row">
-        <div class="flex items-center gap-8">
-          <div class="dot" style="background:${esc(catColor(cat))}"></div>
-          <span style="font-weight:700; font-size:14px;">${esc(catLabel(cat))}</span>
+      <div class="vol-row">
+        <div class="vol-row-top">
+          <div class="flex items-center gap-8">
+            <div class="dot" style="background:${esc(catColor(cat))}"></div>
+            <span class="vol-cat">${esc(catLabel(cat))}</span>
+          </div>
+          <div class="flex items-center gap-10">
+            <span class="vol-nums"><b>${s.week}</b><i>/</i><b>${s.month}</b></span>
+            <span class="report-flag" style="color:${flagColor}; background:${flagBg};">${daysAgoLabel(s.last)}</span>
+          </div>
         </div>
-        <div class="flex items-center gap-10">
-          <span class="mono" style="color:var(--steel); font-size:12px;">${setsWeek}/${setsMonth} סטים</span>
-          <span class="report-flag" style="color:${flagColor}; background:${flagBg};">${flagText}</span>
-        </div>
+        <div class="vol-bar" aria-hidden="true"><div class="vol-bar-fill" style="width:${pct}%; background:${esc(catColor(cat))};"></div></div>
       </div>`;
   }).join("");
 
   return `
-    <div class="section-label">נפח ותדירות לפי קטגוריה</div>
-    <div style="color:var(--steel); font-size:11px; margin-bottom:10px;">סטים ב-7 / 30 הימים האחרונים, וזמן מאז האימון האחרון</div>
-    ${rows}
+    <div class="vol-head">
+      <div class="vol-head-title">נפח ותדירות לפי קטגוריה</div>
+      <div class="vol-head-sub">סטים ב-7 / 30 הימים האחרונים, וזמן מאז האימון האחרון</div>
+    </div>
+    ${anyLogged ? `<div class="vol-card">${rows}</div>` : `
+    <div class="cal-day-empty">
+      <span class="cal-day-empty-icon">${ICONS.chartIcon}</span>
+      <div class="cal-day-empty-title">עוד אין סטים לדווח עליהם</div>
+      <div class="cal-day-empty-hint">רשמו סט ראשון והדוח יתמלא מעצמו</div>
+    </div>`}
   `;
 }
 
 function renderCalendarTab() {
   return `
-    <div class="cal-header">
-      <button class="cal-nav-btn" data-action="cal-prev" aria-label="חודש קודם">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
-      </button>
-      <span class="cal-month-label" id="calMonthLabel"></span>
-      <button class="cal-nav-btn" data-action="cal-next" aria-label="חודש הבא">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--chalk)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
-      </button>
+    <div class="cal-screen">
+      <div class="cal-panel">
+        <div class="cal-header">
+          <button class="cal-nav-btn" data-action="cal-prev" aria-label="חודש קודם">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <span class="cal-month-label" id="calMonthLabel"></span>
+          <button class="cal-nav-btn" data-action="cal-next" aria-label="חודש הבא">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+        <div class="cal-weekdays">${["א","ב","ג","ד","ה","ו","ש"].map((d) => `<div class="cal-weekday">${d}</div>`).join("")}</div>
+        <div class="cal-grid" id="calGrid"></div>
+        <div class="cal-legend">
+          <span class="cal-legend-item"><i class="cal-dot"></i>יום אימון</span>
+          <span class="cal-legend-item"><i class="cal-dot pr"></i>שיא אישי</span>
+        </div>
+        <div class="cal-month-stats" id="calMonthStats"></div>
+      </div>
+      <div id="calDetail" class="cal-detail"></div>
+      ${renderVolumeReport()}
     </div>
-    <div class="cal-weekdays">${["א","ב","ג","ד","ה","ו","ש"].map((d) => `<div class="cal-weekday">${d}</div>`).join("")}</div>
-    <div class="cal-grid" id="calGrid"></div>
-    <div id="calDetail" style="margin-bottom:20px;"></div>
-    ${renderVolumeReport()}
   `;
 }
 // Shared chrome for the two body-metrics cards (bodyweight + each custom
@@ -3876,7 +3991,7 @@ function render() {
       const search = document.getElementById("historySearch");
       if (search) search.addEventListener("input", (e) => { historySearch = cleanStr(e.target.value, LIMITS.nameLen); renderHistoryListArea(); });
     }
-    if (tab === "calendar") renderCalendarGrid();
+    if (tab === "calendar") { renderCalendarGrid(); renderCalDetail(); }
     if (tab === "wod") renderWodContent();
   } catch (err) {
     console.error("post-render error:", err);
@@ -4639,7 +4754,15 @@ document.addEventListener("click", (e) => {
   if (action === "reload-app") { applyUpdate(); }
   else if (action === "install-app") { installApp(); }
   else if (action === "dismiss-install-hint") { dismissInstallBanner(); }
-  else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
+  else if (action === "switch-tab") {
+    // Opening the calendar always lands on the month that holds the selected
+    // day. Without this you came back to whichever month you'd last browsed
+    // away to, with no selected cell anywhere on screen and the detail panel
+    // underneath describing a day from a completely different month.
+    if (el.dataset.tab === "calendar" && tab !== "calendar") syncCalMonthToSelection();
+    tab = el.dataset.tab;
+    render();
+  }
   else if (action === "open-settings-modal") { openSettingsModal(); }
   else if (action === "close-settings") {
     if (el.id === "settingsOverlay" && e.target !== el) return;
@@ -4647,10 +4770,8 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "view-log-date-calendar") {
     tab = "calendar";
-    const d = new Date(logDate + "T00:00:00");
-    calYear = d.getFullYear();
-    calMonth = d.getMonth();
     calSelectedDate = logDate;
+    syncCalMonthToSelection();
     render();
   }
   else if (action === "reset-log-date") { logDate = todayISO(); endLadder(); render(); }
@@ -4663,10 +4784,8 @@ document.addEventListener("click", (e) => {
   else if (action === "edit-entry") { startEditEntry(el.dataset.id); }
   else if (action === "view-log-wod-date-calendar") {
     tab = "calendar";
-    const d = new Date(wodLogDate + "T00:00:00");
-    calYear = d.getFullYear();
-    calMonth = d.getMonth();
     calSelectedDate = wodLogDate;
+    syncCalMonthToSelection();
     render();
   }
   else if (action === "reset-wod-log-date") { wodLogDate = todayISO(); renderWodContent(); }
@@ -4704,7 +4823,16 @@ document.addEventListener("click", (e) => {
   else if (action === "delete-entry") { deleteEntry(el.dataset.id); }
   else if (action === "cal-prev") { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendarGrid(); }
   else if (action === "cal-next") { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalendarGrid(); }
-  else if (action === "cal-select-day") { calSelectedDate = el.dataset.date; renderCalendarGrid(); }
+  else if (action === "cal-select-day") { calSelectedDate = el.dataset.date; renderCalendarGrid(); renderCalDetail(); }
+  // The mirror of view-log-date-calendar: a day with nothing on it used to
+  // be a dead end, so hand the athlete straight to the log form already set
+  // to that date instead of making them find the date picker themselves.
+  else if (action === "cal-log-day") {
+    logDate = clampLogDate(el.dataset.date);
+    endLadder(); // a ladder is scoped to one day
+    tab = "add";
+    render();
+  }
   else if (action === "save-session-note") {
     const text = document.getElementById("sessionNoteInput");
     saveSessionNote(el.dataset.date, text ? text.value : "");
