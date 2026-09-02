@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.31.0";
+const APP_VERSION = "2.32.0";
 const TAB_TITLES = { add: "רישום", history: "התקדמות", calendar: "לוח שנה", wod: "אימונים" };
 
 const WOD_MOVEMENT_TAGS = [
@@ -961,6 +961,22 @@ function bestEst1RM(id, excludeId) {
   const list = entriesFor(id, excludeId).filter((e) => e.type !== "duration");
   return list.length ? Math.max(...list.map((e) => e.est1RM)) : null;
 }
+// Same result as calling bestEst1RM(m.id) once per exercise, but one O(entries)
+// pass instead of O(exercises × entries) — bestEst1RM() itself re-scans the
+// whole entries array every call, so a per-exercise loop calling it (as
+// renderHistoryListArea used to, re-run on every History search keystroke)
+// scales quadratically with a long-time user's data. Excludes nothing (no
+// excludeId), so it's only a fit for "all exercises, all entries" listings —
+// bestEst1RM() itself stays the right call for a single exercise/exclusion.
+function bestEst1RMByExercise() {
+  const map = new Map();
+  for (const e of entries) {
+    if (e.type === "duration") continue;
+    const cur = map.get(e.exerciseId);
+    if (cur === undefined || e.est1RM > cur) map.set(e.exerciseId, e.est1RM);
+  }
+  return map;
+}
 function repRecordFor(id, repCount, excludeId) {
   const list = entriesFor(id, excludeId).filter((e) => e.reps === repCount);
   return list.length ? Math.max(...list.map((e) => e.weight)) : null;
@@ -1248,8 +1264,10 @@ function openAchievements() {
   document.body.style.overflow = "hidden";
   document.getElementById("achievementsOverlay").classList.add("open");
   document.getElementById("achievementsList").innerHTML = renderAchievementsContent();
+  trapFocusOnOpen("achievementsOverlay");
 }
 function closeAchievements() {
+  restoreFocusOnClose();
   document.body.style.overflow = "";
   document.getElementById("achievementsOverlay").classList.remove("open");
 }
@@ -1307,8 +1325,10 @@ function showCelebration(prLabel, badges) {
   }
   document.body.style.overflow = "hidden";
   document.getElementById("celebrationOverlay").classList.add("open");
+  trapFocusOnOpen("celebrationOverlay");
 }
 function closeCelebration() {
+  restoreFocusOnClose();
   document.body.style.overflow = "";
   document.getElementById("celebrationOverlay").classList.remove("open");
 }
@@ -1321,6 +1341,10 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.32.0", date: "2026-09-02", items: [
+    "הניווט חזר לשורת טאבים למטה — לחיצה אחת לכל מסך, במקום דרך תפריט. כפתור ההגדרות (⚙ למעלה) פותח את ההגדרות ישירות",
+    "שיפורי נגישות: כל החלונות הקופצים תומכים עכשיו ב-Escape לסגירה וב-Tab למעבר בין השדות בלי \"לברוח\" מהחלון",
+  ] },
   { version: "2.31.0", date: "2026-09-02", items: [
     "עיצוב מחודש: תפריט המבורגר חדש (הכפתור ☰ למעלה) עם כל המסכים העיקריים, במקום שורת הטאבים הקבועה",
     "ההגדרות, גיבוי/שחזור נתונים ומחיקת נתונים עברו מהפוטר לתפריט ⟵ הגדרות — פחות עומס בתחתית כל מסך",
@@ -1446,8 +1470,10 @@ function openNotifications() {
   document.body.style.overflow = "hidden";
   document.getElementById("notificationsOverlay").classList.add("open");
   if (unseenReleaseNotes().length) { markNotificationsSeen(); updateNotificationsBadge(); }
+  trapFocusOnOpen("notificationsOverlay");
 }
 function closeNotifications() {
+  restoreFocusOnClose();
   document.body.style.overflow = "";
   document.getElementById("notificationsOverlay").classList.remove("open");
 }
@@ -1464,8 +1490,10 @@ async function loadOnboardedFlag() {
 function openOnboarding() {
   document.body.style.overflow = "hidden";
   document.getElementById("onboardingOverlay").classList.add("open");
+  trapFocusOnOpen("onboardingOverlay");
 }
 function closeOnboarding() {
+  restoreFocusOnClose();
   hasOnboarded = true;
   dbSetSetting(HAS_ONBOARDED_KEY, true).catch(noteStorageError);
   document.body.style.overflow = "";
@@ -1808,8 +1836,10 @@ function openWelcomeModal(editing) {
     boxInput.max = todayISO();
     boxInput.value = welcomeEditing ? (boxStartDate || "") : "";
   }
+  trapFocusOnOpen("welcomeOverlay");
 }
 function closeWelcomeModal() {
+  restoreFocusOnClose();
   document.body.style.overflow = "";
   const overlay = document.getElementById("welcomeOverlay");
   if (overlay) overlay.classList.remove("open");
@@ -2258,8 +2288,10 @@ function openWodBuilder(prefillName) {
   if (moveSearch) moveSearch.value = "";
   renderWodBuilderMovements("");
   renderWodBuilderFormats();
+  trapFocusOnOpen("wodBuilderOverlay");
 }
 function closeWodBuilder() {
+  restoreFocusOnClose();
   wodBuilderOpen = false;
   document.body.style.overflow = "";
   const overlay = document.getElementById("wodBuilderOverlay");
@@ -2896,6 +2928,7 @@ function renderHistoryListArea() {
     area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(historySearch)}"</div>`;
     return;
   }
+  const bestMap = bestEst1RMByExercise();
   area.innerHTML = active.map((m) => {
     const row = `
       <button class="exercise-row ${historyId === m.id ? "active" : ""}" data-action="select-history" data-id="${esc(m.id)}" style="${historyId === m.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
@@ -2904,7 +2937,7 @@ function renderHistoryListArea() {
           <div class="dot" style="background:${esc(catColor(m.category))}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(m.name)}</span>
         </div>
-        <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${bestEst1RM(m.id)} kg</span>
+        <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${bestMap.get(m.id) ?? null} kg</span>
       </button>`;
     const detail = historyId === m.id ? renderDetailCard(m) + `<div style="height:8px;"></div>` : "";
     return row + detail;
@@ -3324,70 +3357,36 @@ function renderFooter() {
         // data loss between backups.
         if (days !== null && days < 21) return "";
         const msg = days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`;
-        return `<div class="footer-note" style="color:var(--yellow);">${esc(msg)} — ייצוא גיבוי בתפריט ⟵ הגדרות</div>`;
+        return `<div class="footer-note" style="color:var(--yellow);">${esc(msg)} — ייצוא גיבוי בהגדרות למעלה</div>`;
       })()}
     </div>`;
 }
 
-// ---------- Hamburger menu ----------
-const MENU_NAV_ITEMS = [
-  { t: "add", label: "רישום", color: "var(--energy)", bg: "rgba(232,93,61,.16)",
-    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg>' },
-  { t: "history", label: "התקדמות", color: "var(--blue)", bg: "rgba(62,111,217,.16)", icon: ICONS.chartIcon },
-  { t: "calendar", label: "לוח שנה", color: "var(--brass)", bg: "rgba(232,185,138,.18)", icon: ICONS.calendarIcon },
-  { t: "wod", label: "אימונים", color: "var(--purple)", bg: "rgba(155,111,217,.16)", icon: ICONS.stopwatchIcon },
-];
-const SETTINGS_GEAR_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 0 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15z"/></svg>';
-function renderMenuBody() {
-  const initial = userName && userName.trim() ? userName.trim().charAt(0) : "?";
-  return `
-    <button data-action="edit-user-name" class="menu-profile-card">
-      <div class="menu-avatar">${esc(initial)}</div>
-      <div style="text-align:right; flex:1; min-width:0;">
-        <div style="font-weight:800; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${userName ? esc(userName) : "אורח"}</div>
-        <div style="color:var(--steel); font-size:12px; margin-top:2px;">עריכת פרופיל</div>
-      </div>
-    </button>
-    <div>
-      ${MENU_NAV_ITEMS.map((it) => `
-        <button data-action="menu-nav" data-tab="${it.t}" class="menu-nav-item ${tab === it.t ? "active" : ""}" role="tab" aria-selected="${tab === it.t}">
-          <span class="menu-nav-label">${esc(it.label)}</span>
-          <span class="menu-icon-chip" style="background:${it.bg}; color:${it.color};">${it.icon}</span>
-        </button>`).join("")}
-    </div>
-    <div class="menu-divider"></div>
-    <button data-action="open-settings-modal" class="menu-nav-item">
-      <span class="menu-nav-label">הגדרות</span>
-      <span class="menu-icon-chip" style="background:var(--surface2); color:var(--steel);">${SETTINGS_GEAR_ICON}</span>
-    </button>
-    <div style="text-align:center; color:var(--border); font-size:11px; margin-top:22px;">האימוניה · v${APP_VERSION}</div>
-  `;
-}
-function openMenu() {
-  document.body.style.overflow = "hidden";
-  document.getElementById("menuBody").innerHTML = renderMenuBody();
-  document.getElementById("menuOverlay").classList.add("open");
-}
-function closeMenu() {
-  document.body.style.overflow = "";
-  document.getElementById("menuOverlay").classList.remove("open");
-}
-
 // ---------- Settings modal ----------
-// Everything that used to sit at the bottom of every tab's footer, now
-// reachable from the hamburger menu instead — same actions/state, just a
-// different mount point. Kept as one function (rather than folding back into
-// renderFooter) so render()'s refresh-if-open hook below has one thing to
-// re-render on every state change, same as achievements/notifications.
+// Everything that used to sit at the bottom of every tab's footer now lives
+// here instead, reachable via the header's gear button — same actions/
+// state, just a different mount point. This used to be one step further in
+// (gear opened a full-screen menu, which then opened this), but that menu's
+// only other job was primary-tab navigation, which moved to the bottom nav
+// (.tabbar) instead — so the menu was a redundant hop and a whole extra
+// overlay's worth of z-index bugs (see CHANGES.md) for no remaining benefit.
+// Kept as one function (rather than folding back into renderFooter) so
+// render()'s refresh-if-open hook below has one thing to re-render on every
+// state change, same as achievements/notifications.
 function renderSettingsModalBody() {
   const hasData = entries.length || wodEntries.length || bodyweightEntries.length || measureTypes.length;
   const days = daysSinceLastExport();
   const stale = hasData && (days === null || days >= 21);
+  const initial = userName && userName.trim() ? userName.trim().charAt(0) : "?";
   return `
     <div style="padding:0 16px 20px;">
-      <div class="flex items-center justify-center" style="margin-bottom:18px;">
-        <button class="link-btn" data-action="edit-user-name" style="font-size:14px;">עריכת פרופיל</button>
-      </div>
+      <button data-action="edit-user-name" class="menu-profile-card">
+        <div class="menu-avatar">${esc(initial)}</div>
+        <div style="text-align:right; flex:1; min-width:0;">
+          <div style="font-weight:800; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${userName ? esc(userName) : "אורח"}</div>
+          <div style="color:var(--steel); font-size:12px; margin-top:2px;">עריכת פרופיל</div>
+        </div>
+      </button>
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">גודל טקסט</div>
       ${renderTextScaleRow()}
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin:14px 0 6px;">מראה</div>
@@ -3416,8 +3415,10 @@ function openSettingsModal() {
   document.body.style.overflow = "hidden";
   document.getElementById("settingsBody").innerHTML = renderSettingsModalBody();
   document.getElementById("settingsOverlay").classList.add("open");
+  trapFocusOnOpen("settingsOverlay");
 }
 function closeSettingsModal() {
+  restoreFocusOnClose();
   document.body.style.overflow = "";
   document.getElementById("settingsOverlay").classList.remove("open");
 }
@@ -3972,6 +3973,7 @@ function openPicker(target) {
   search.value = "";
   renderPickerList("");
   setTimeout(() => search.focus(), 50);
+  trapFocusOnOpen("pickerOverlay");
 }
 // Routes a picked movement id to the right place depending on pickerTarget:
 // the normal exercise selection, or the active ladder's superset partner.
@@ -3983,6 +3985,7 @@ function choosePickedMovement(id) {
   endLadder();
 }
 function closePicker() {
+  restoreFocusOnClose();
   pickerOpen = false;
   document.body.style.overflow = "";
   document.getElementById("pickerOverlay").classList.remove("open");
@@ -4044,8 +4047,10 @@ function openWodPicker() {
   search.value = "";
   renderWodPickerList("");
   setTimeout(() => search.focus(), 50);
+  trapFocusOnOpen("wodPickerOverlay");
 }
 function closeWodPicker() {
+  restoreFocusOnClose();
   wodPickerOpen = false;
   document.body.style.overflow = "";
   document.getElementById("wodPickerOverlay").classList.remove("open");
@@ -4208,13 +4213,7 @@ document.addEventListener("click", (e) => {
   else if (action === "install-app") { installApp(); }
   else if (action === "dismiss-install-hint") { dismissInstallBanner(); }
   else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
-  else if (action === "open-menu") { openMenu(); }
-  else if (action === "close-menu") {
-    if (el.id === "menuOverlay" && e.target !== el) return;
-    closeMenu();
-  }
-  else if (action === "menu-nav") { tab = el.dataset.tab; closeMenu(); render(); }
-  else if (action === "open-settings-modal") { closeMenu(); openSettingsModal(); }
+  else if (action === "open-settings-modal") { openSettingsModal(); }
   else if (action === "close-settings") {
     if (el.id === "settingsOverlay" && e.target !== el) return;
     closeSettingsModal();
@@ -4346,15 +4345,7 @@ document.addEventListener("click", (e) => {
   else if (action === "save-user-name") { saveWelcomeForm(document.getElementById("welcomeNameInput").value); }
   else if (action === "skip-user-name") { saveWelcomeForm(""); }
   else if (action === "cancel-welcome-name") { closeWelcomeModal(); }
-  else if (action === "edit-user-name") {
-    // Reachable from the menu's profile card (#menuOverlay, z-index 61) as
-    // well as the settings modal and elsewhere — #welcomeOverlay has no
-    // z-index override (base .modal-overlay: 50), so it would open hidden
-    // behind an open menu. closeMenu() is a harmless no-op when it wasn't
-    // open (same fix shape as the install/update-banner one above).
-    closeMenu();
-    openWelcomeModal(true);
-  }
+  else if (action === "edit-user-name") { openWelcomeModal(true); }
   else if (action === "open-profile-from-achievements") { closeAchievements(); openWelcomeModal(true); }
   else if (action === "close-celebration") {
     if (el.id === "celebrationOverlay" && e.target !== el) return;
@@ -4404,6 +4395,86 @@ document.getElementById("wodBuilderMoveSearch").addEventListener("keydown", (e) 
 });
 document.getElementById("welcomeNameInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); saveWelcomeForm(e.target.value); }
+});
+
+// ---------- Overlay accessibility: focus trap, Escape, focus restore ----------
+// Every modal-overlay in the app gets the same keyboard behavior: on open,
+// focus moves into the overlay and Tab cycles only among ITS OWN focusable
+// elements (a keyboard/screen-reader user could otherwise tab straight out
+// into the page behind an "open" dialog — true of every overlay here before
+// this, not just ones this session added). On close, focus returns to
+// whatever triggered it. Escape closes the overlay, but only where it was
+// already dismissable by clicking the backdrop — onboarding/welcome
+// deliberately require an explicit choice (no data-action on the overlay
+// div itself), so Escape doesn't dismiss those either; they still get the
+// trap and focus restore, just not the shortcut.
+//
+// Listed in DOM order (index.html) so "topmost open overlay" can be found by
+// scanning in reverse — later DOM position wins the paint order whenever two
+// share the base z-index:50 (e.g. #welcomeOverlay opening on top of a still-
+// open #settingsOverlay after "delete everything", see CHANGES.md).
+const OVERLAY_A11Y = {
+  pickerOverlay: { close: () => closePicker(), escapable: true },
+  wodPickerOverlay: { close: () => closeWodPicker(), escapable: true },
+  wodBuilderOverlay: { close: () => closeWodBuilder(), escapable: true },
+  achievementsOverlay: { close: () => closeAchievements(), escapable: true },
+  notificationsOverlay: { close: () => closeNotifications(), escapable: true },
+  settingsOverlay: { close: () => closeSettingsModal(), escapable: true },
+  onboardingOverlay: { close: () => closeOnboarding(), escapable: false },
+  celebrationOverlay: { close: () => closeCelebration(), escapable: true },
+  welcomeOverlay: { close: () => closeWelcomeModal(), escapable: false },
+};
+// `a[href]`, not bare `[href]` — the achievements modal's medal SVGs use
+// `<use href="#glyphN">` for their icon defs, and a bare attribute selector
+// matches those too even though an SVG <use> isn't a real focusable element.
+const OVERLAY_FOCUSABLE_SELECTOR = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function overlayFocusablesIn(overlayEl) {
+  // No visibility filter needed: this codebase conditionally omits hidden
+  // UI from the rendered HTML (ternaries in the template strings) rather
+  // than toggling display:none on focusable elements — true of every
+  // overlay's markup — so anything OVERLAY_FOCUSABLE_SELECTOR matches here
+  // is already something a viewer can actually see and reach.
+  return [...overlayEl.querySelectorAll(OVERLAY_FOCUSABLE_SELECTOR)];
+}
+let overlayReturnFocusEl = null;
+// Call at the END of every openX() — after the overlay's content is
+// populated and the "open" class applied, so there's actually something in
+// it to find and focus. Some overlays (welcome/picker/wod-picker) already
+// focus a specific input themselves via their own setTimeout(…, 50) — this
+// still runs first and focuses the same element immediately in that case
+// (harmless double-focus), and gives every OTHER overlay a real first focus
+// it didn't have before.
+function trapFocusOnOpen(overlayId) {
+  const el = document.getElementById(overlayId);
+  if (!el) return;
+  overlayReturnFocusEl = document.activeElement;
+  const focusables = overlayFocusablesIn(el);
+  if (focusables.length) focusables[0].focus();
+}
+// Call at the start of every closeX() (order relative to removing "open"
+// doesn't matter — focus restore doesn't depend on visibility).
+function restoreFocusOnClose() {
+  if (overlayReturnFocusEl && document.body.contains(overlayReturnFocusEl)) overlayReturnFocusEl.focus();
+  overlayReturnFocusEl = null;
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" && e.key !== "Escape") return;
+  const ids = Object.keys(OVERLAY_A11Y);
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const id = ids[i];
+    const el = document.getElementById(id);
+    if (!el || !el.classList.contains("open")) continue;
+    if (e.key === "Escape") {
+      if (OVERLAY_A11Y[id].escapable) { e.preventDefault(); OVERLAY_A11Y[id].close(); }
+      return;
+    }
+    const focusables = overlayFocusablesIn(el);
+    if (!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    return; // only the topmost open overlay traps/handles the key
+  }
 });
 
 document.addEventListener("focusin", (e) => {

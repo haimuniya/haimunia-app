@@ -1,3 +1,58 @@
+# Nav back to one tap, plus overlay accessibility and a perf fix — 2026-09-02
+
+A research audit of the whole app (requested directly: "what else will we
+improve? full end-to-end research") flagged the previous session's
+hamburger-only nav as a real regression: switching tabs went from one tap
+(the old always-visible top bar) to two (open the menu, then pick a
+destination), closing itself every time. For a gym app used mid-workout,
+often one-handed, that's a cost on the single most frequent interaction in
+the app — worth fixing rather than defending because it matched a reference
+screenshot.
+
+**Navigation**: the hidden `.tabbar` compatibility shim from the previous
+session is un-hidden and restyled as a fixed bottom nav (icon + label,
+one tap to any of the four screens, always visible — reuses the same
+`switch-tab` action and render() sync loop that already existed, so no new
+dispatcher logic was needed). The header's icon-button (previously "open the
+hamburger menu") now opens Settings directly — `#menuOverlay`, the
+full-screen menu, is deleted outright, not just bypassed: its only
+remaining job (after primary nav moved to the bottom bar) was a redundant
+hop to Settings, and it was also the one overlay that ever needed a
+z-index override (61, to clear the install/update banners — see the
+previous entry). Removing it removes that whole bug class along with it.
+The settings modal gained the profile card (avatar, name, "edit profile")
+that used to live in the menu.
+
+**Accessibility** (a second research finding: every modal in the app, old
+and new, let keyboard/screen-reader focus tab straight out into the page
+behind an "open" dialog, with no Escape shortcut and no focus restore on
+close): added one shared helper (`OVERLAY_A11Y`, `trapFocusOnOpen()`,
+`restoreFocusOnClose()` in app.js) wired into all 9 modal-overlay open/close
+pairs. Escape closes whatever's already dismissable by clicking its
+backdrop (onboarding and the first-run welcome modal deliberately aren't,
+so Escape doesn't dismiss those either — matches their existing
+click-backdrop behavior). Tab cycles within the topmost open overlay only.
+One real bug caught while writing the tests for this (not by inspection):
+the focusable-element selector's bare `[href]` clause matched the
+achievements modal's medal SVGs (`<use href="#glyphN">`), which aren't
+real interactive elements — narrowed to `a[href]`.
+
+**Performance**: `renderHistoryListArea()` was calling `bestEst1RM()` —
+itself an O(entries) scan — once per active exercise, on every keystroke in
+the History search box, i.e. O(exercises × entries). Fine today; would
+start to lag for a long-time user with years of logged data. Replaced with
+`bestEst1RMByExercise()`, one O(entries) pass building a lookup map.
+
+**Test coverage**: `computeCurrentStreak()` — the header flame counter —
+had zero coverage before this; added 7 tests including its two real
+boundary cases (a gap day breaking the streak, a same-day double log not
+inflating it).
+
+162/162 tests pass (149 before this round: +7 streak tests, +5 overlay-
+accessibility tests, +2 history-performance-equivalence tests, and the old
+8-test hamburger-menu file replaced by a 7-test nav/settings one since the
+menu itself no longer exists to test).
+
 # Redesign: hamburger menu, settings modal, visual polish pass — 2026-09-02
 
 Full-app visual refresh built directly to a reference design the user
