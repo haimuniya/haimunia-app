@@ -2614,8 +2614,13 @@ async function saveWod() {
   // join(" · ") as if it meant something. Keep only the real stations.
   else if (w.scoreType === "emom") entry.emomReps = wodEmomReps.filter((_, i) => w.emomMovementTypes?.[i] !== "rest");
   else entry.weight = wodWeight;
-  entry.notes = wodNotes.trim() || null;
-  entry.scaledWeight = !wodRx ? wodScaledWeight : null;
+  // Both fields only exist on the Scaled side of the form, so an Rx entry
+  // must not carry either. Typing a modification, switching back to Rx and
+  // saving used to attach invisible notes to the Rx entry — which then
+  // vanished on the next load anyway, because sanitizeWodEntry drops
+  // notes/scaledWeight for rx entries. Match the sanitizer here instead.
+  entry.notes = wodRx ? null : (wodNotes.trim() || null);
+  entry.scaledWeight = wodRx ? null : wodScaledWeight;
 
   // EMOM has no cross-attempt scoring (yet) — see bestWodScore/scoreValue.
   const val = scoreValue(entry);
@@ -2629,8 +2634,12 @@ async function saveWod() {
   wodNotes = "";
   editingWodEntryId = null;
   wodLogDate = todayISO();
-  if (isPR) flashWodPR();
+  // After render(), not before: render() replaces #content's innerHTML
+  // wholesale, so flashing the old #wodFlashBox first only ever lit an
+  // element that was thrown away in the same tick — the stripe flash never
+  // actually appeared.
   render();
+  if (isPR) flashWodPR();
   celebrateAfterSave(isPR ? `${w.name} — ${formatWodEntry(entry)}` : null);
 }
 function startEditWodEntry(id) {
@@ -3878,23 +3887,24 @@ function renderWodLogSection() {
   // instead of silently pre-loading one.
   if (!w) {
     return `
-    <div class="flex col items-center" style="padding:40px 16px 24px; gap:16px; text-align:center;">
-      ${ICONS.dumbbell}
-      <div>
-        <div style="font-weight:800; font-size:16px; margin-bottom:4px;">בחרו אימון להתחלה</div>
-        <div style="color:var(--steel); font-size:13px;">בנו אימון משלכם, או התחילו מבנצ'מרק קבוע</div>
+    <div class="wod-log">
+      <div class="wod-log-empty">
+        <div style="margin-bottom:10px;">${ICONS.dumbbell}</div>
+        <div class="wod-log-empty-title">בחרו אימון להתחלה</div>
+        <div style="color:var(--steel); font-size:13px; margin-bottom:16px;">בנו אימון משלכם, או התחילו מבנצ'מרק קבוע</div>
+        <div class="flex items-center gap-10" style="max-width:320px; margin:0 auto;">
+          <button data-action="open-wod-builder" data-name="" class="movement-btn" style="flex:1; justify-content:center; border-color:var(--energy); margin-bottom:0;">
+            <span style="font-weight:700; font-size:14px; color:var(--energy);">+ יצירת אימון</span>
+          </button>
+          <button data-action="switch-wod-subtab" data-subtab="benchmarks" class="movement-btn" style="flex:1; justify-content:center; margin-bottom:0;">
+            <span style="font-weight:700; font-size:14px;">בנצ'מרק</span>
+          </button>
+        </div>
+        <button data-action="open-wod-picker" style="color:var(--steel); font-size:13px; text-decoration:underline; padding:10px 4px 0;">כל האימונים שלי</button>
       </div>
-      <div class="flex items-center gap-10" style="width:100%; max-width:320px;">
-        <button data-action="open-wod-builder" data-name="" class="movement-btn" style="flex:1; justify-content:center; border-color:var(--energy); margin-bottom:0;">
-          <span style="font-weight:700; font-size:14px; color:var(--energy);">+ יצירת אימון</span>
-        </button>
-        <button data-action="switch-wod-subtab" data-subtab="benchmarks" class="movement-btn" style="flex:1; justify-content:center; margin-bottom:0;">
-          <span style="font-weight:700; font-size:14px;">בנצ'מרק</span>
-        </button>
-      </div>
-      <button data-action="open-wod-picker" style="background:none; border:none; color:var(--steel); font-size:13px; text-decoration:underline; padding:4px;">כל האימונים שלי</button>
     </div>`;
   }
+  const isEmomWod = w.scoreType === "emom";
   const best = formatWodBest(selectedWodId);
   const isToday = wodLogDate === todayISO();
   const dayWods = wodEntries.filter((e) => e.date === wodLogDate);
@@ -3903,12 +3913,17 @@ function renderWodLogSection() {
   const history = wodEntriesFor(selectedWodId).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
 
   let inputsHtml = "";
+  // The heading over the score fields — says which number the form is asking
+  // for, so the format badge in the hero isn't the only clue.
+  let scoreLabel = "";
   if (w.scoreType === "time") {
+    scoreLabel = "הזמן שלכם";
     inputsHtml = `<div class="steppers">
       ${renderStepper("wodMinutes", "דקות", wodMinutes, 1, 0, "wod-step")}
       ${renderStepper("wodSeconds", "שניות", wodSeconds, 5, 0, "wod-step")}
     </div>`;
   } else if (w.scoreType === "amrap") {
+    scoreLabel = "התוצאה שלכם";
     inputsHtml = `<div class="steppers">
       ${renderStepper("wodRounds", "סבבים", wodRounds, 1, 0, "wod-step")}
       ${renderStepper("wodReps", "+ חזרות", wodReps, 1, 0, "wod-step")}
@@ -3925,12 +3940,12 @@ function renderWodLogSection() {
     if (wodEmomRepsForWodId !== w.id || wodEmomReps.length !== w.emomMovements.length) {
       // Duration-type stations prefill from their own target seconds, not
       // target reps (which is meaningless — never set — for that station).
-      wodEmomReps = w.emomMovements.map((_, i) => (w.emomMovementTypes?.[i] === "duration" ? w.emomTargetDurations?.[i] : w.emomTargetReps[i]) || 0);
+      wodEmomReps = w.emomMovements.map((_, i) => (w.emomMovementTypes?.[i] === "duration" ? w.emomTargetDurations?.[i] : w.emomTargetReps?.[i]) || 0);
       wodEmomRepsForWodId = w.id;
     }
+    scoreLabel = `EMOM ${w.emomMinutes} — לפי תרגיל, לכל סבב`;
     inputsHtml = `
-    <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">EMOM ${w.emomMinutes} — לפי תרגיל, לכל סבב</div>
-    <div class="steppers">
+    <div class="steppers wod-log-emom">
       ${w.emomMovements.map((name, i) => {
         const type = w.emomMovementTypes?.[i] || "reps";
         const weight = w.emomTargetWeights?.[i];
@@ -3945,85 +3960,97 @@ function renderWodLogSection() {
       }).join("")}
     </div>`;
   } else {
+    scoreLabel = "המשקל שלכם";
     inputsHtml = `<div class="steppers">
       ${renderStepper("wodWeight", "משקל (ק\"ג)", wodWeight, 2.5, 0, "wod-step")}
     </div>`;
   }
 
+  // Hero strip: the format is now always visible (it used to disappear the
+  // moment you had any history), and EMOM gets an attempt count where every
+  // other format gets a best — EMOM has no single comparable score across
+  // attempts (see bestWodScore), so a permanent "שיא —" cell was a dead field.
+  const formatLabel = w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : isEmomWod ? "EMOM" : "Load";
+  const heroStats = [
+    `<div class="wod-log-stat"><div class="stat-label">פורמט</div><div class="wod-log-statval">${formatLabel}</div></div>`,
+    isEmomWod
+      ? `<div class="wod-log-stat"><div class="stat-label">ניסיונות</div><div class="wod-log-statval mono">${history.length}</div></div>`
+      : `<div class="wod-log-stat"><div class="stat-label">שיא</div><div class="wod-log-statval mono brass">${esc(best)}</div></div>`,
+  ];
+  if (history.length > 0) {
+    heroStats.push(`<div class="wod-log-stat">
+      <div class="stat-label">אחרון</div>
+      <div class="wod-log-statval mono">${esc(formatWodEntry(history[0]))}</div>
+      <div class="wod-log-statsub">${esc(fmtDate(history[0].date))}${history[0].rx ? "" : " · Scaled"}</div>
+    </div>`);
+  }
+
+  const recent = recentWodEntriesFor(selectedWodId);
+
   return `
+    <div class="wod-log">
     ${editingWodEntryId ? `
-    <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:12px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; justify-content:space-between;">
-      <span style="color:var(--brass); font-weight:700; font-size:13px;">עריכת אימון קיים</span>
-      <button data-action="cancel-edit-wod-entry" style="color:var(--steel); font-size:12px; text-decoration:underline;">ביטול</button>
+    <div class="wod-log-editbar">
+      <b>עריכת אימון קיים</b>
+      <button data-action="cancel-edit-wod-entry">ביטול</button>
     </div>` : ""}
 
-    <button class="exercise-select" data-action="open-wod-picker">
-      <div class="flex items-center gap-8">
-        <div class="dot" style="background:${esc(catColor(w.category))}"></div>
-        <div>
-          <span style="font-weight:800; font-size:16px;">${esc(w.name)}</span>
-          ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
-          ${w.timeCapSeconds ? `<div class="wod-desc" style="color:var(--brass);">מגבלת זמן: ${formatClock(w.timeCapSeconds)}</div>` : ""}
+    <div class="wod-log-hero">
+      <button class="exercise-select" data-action="open-wod-picker">
+        <div class="flex gap-8" style="min-width:0;">
+          <div class="dot" style="background:${esc(catColor(w.category))}; margin-top:8px;"></div>
+          <div style="min-width:0;">
+            <span class="wod-log-name">${esc(w.name)}</span>
+            ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
+            ${w.timeCapSeconds ? `<div class="wod-desc" style="color:var(--brass);">מגבלת זמן: <span class="mono">${formatClock(w.timeCapSeconds)}</span></div>` : ""}
+          </div>
         </div>
-      </div>
-      <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">שינוי${ICONS.chevronsLeft}</span>
-    </button>
-
-    <div class="flex items-center gap-8" style="margin-bottom:12px;">
-      <input type="date" id="wodLogDateInput" value="${esc(wodLogDate)}" max="${todayISO()}" aria-label="תאריך רישום האימון" style="flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit;" />
-      ${wodLogDate !== todayISO() ? `<button data-action="reset-wod-log-date" style="background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 16px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap;">היום</button>` : ""}
+        <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600; flex-shrink:0;">שינוי${ICONS.chevronsLeft}</span>
+      </button>
+      <div class="wod-log-stats">${heroStats.join("")}</div>
     </div>
 
     ${history.length > 0 ? `
-    <div style="background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:14px; padding:12px 14px; margin-bottom:16px;">
-      <div style="color:var(--brass); font-weight:800; font-size:13px; margin-bottom:8px;">↺ עשית את זה ${history.length} פעמים בעבר — השוואה למטה</div>
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="stat-label">שיא</div>
-          <div class="mono" style="color:var(--brass); font-weight:800; font-size:16px;">${best}</div>
-        </div>
-        <div style="text-align:left;">
-          <div class="stat-label">אחרון (${fmtDate(history[0].date)})</div>
-          <div class="mono" style="font-weight:700; font-size:16px;">${formatWodEntry(history[0])} ${history[0].rx ? "" : "· Scaled"}</div>
-        </div>
-      </div>
-    </div>` : `
-    <div class="stat-row">
-      <div class="stat-card"><div class="stat-label">שיא</div><div class="stat-value mono" style="color:var(--brass);">${best}</div></div>
-      <div class="stat-card"><div class="stat-label">סוג ניקוד</div><div class="stat-value" style="font-size:14px;">${w.scoreType === "time" ? "For Time" : w.scoreType === "amrap" ? "AMRAP" : w.scoreType === "emom" ? "EMOM" : "Load"}</div></div>
-    </div>`}
-
-    ${(() => {
-      const recent = recentWodEntriesFor(selectedWodId);
-      if (recent.length === 0) return "";
-      return `
-      <div style="margin-bottom:16px;">
-        <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">ב-14 הימים האחרונים</div>
-        <div class="flex wrap gap-8">
-          ${recent.map((e) => `<span class="mono" style="background:var(--surface2); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel);">${esc(fmtDate(e.date))}: <span style="color:var(--chalk);">${esc(formatWodEntry(e))}</span>${e.rx ? "" : " · Scaled"}</span>`).join("")}
-        </div>
-      </div>`;
-    })()}
-
-    <div id="wodFlashBox" class="flex items-center justify-center" style="display:none; gap:6px; color:#fff; font-weight:800; font-size:14px; background-image:var(--stripe); border-radius:14px; padding:10px 0; margin-bottom:16px; text-shadow:0 1px 3px rgba(0,0,0,.5);">${ICONS.flame}<span>שיא חדש!</span></div>
-
-    <div class="rx-toggle" role="radiogroup" aria-label="Rx או Scaled">
-      <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1" role="radio" aria-checked="${wodRx}">Rx</button>
-      <button class="rx-btn ${!wodRx ? "active-scaled" : ""}" data-action="set-rx" data-rx="0" role="radio" aria-checked="${!wodRx}">Scaled</button>
-    </div>
-
-    ${!wodRx ? `
-    <div class="steppers" style="margin-bottom:16px;">
-      ${renderStepper("wodScaledWeight", "משקל מותאם (ק\"ג)", wodScaledWeight, 2.5, 0, "wod-step")}
-    </div>
-    <input id="wodNotesInput" class="text-input" dir="auto" style="margin-bottom:8px;" placeholder="שינוי בתרגיל? (אופציונלי, לדוגמה מתח עם רצועה)" aria-label="שינוי בתרגיל (אופציונלי)" value="${esc(wodNotes)}" />
-    <div class="flex items-center justify-between" style="margin-bottom:16px;">
-      ${lastScaled ? `<button data-action="copy-last-scaled" style="color:var(--steel); font-size:12px; text-align:right;">↺ בפעם הקודמת: ${lastScaled.notes ? esc(lastScaled.notes) + " — " : ""}${formatWodEntry(lastScaled)}</button>` : `<span style="color:var(--steel); font-size:12px;">פעם ראשונה שמתאימים את זה</span>`}
+    <div style="margin-bottom:14px;">
+      <div class="wod-log-fieldlabel">${recent.length > 0 ? "ב-14 הימים האחרונים" : "לא נרשם בשבועיים האחרונים"} · <span class="mono">${history.length}</span> ניסיונות בסך הכל</div>
+      ${recent.length > 0 ? `
+      <div class="wod-log-recent">
+        ${recent.map((e) => `<span class="wod-log-chip">${esc(fmtDate(e.date))}: <b class="mono">${esc(formatWodEntry(e))}</b>${e.rx ? "" : " · Scaled"}</span>`).join("")}
+      </div>` : ""}
     </div>` : ""}
 
-    ${inputsHtml}
+    <div id="wodFlashBox" class="wod-log-flash">${ICONS.flame}<span>שיא חדש!</span></div>
 
-    <button data-action="save-wod" class="save-btn" style="max-width:none; margin:20px 0 24px;">
+    <div class="wod-log-form">
+      <div class="wod-log-fieldlabel">תאריך</div>
+      <div class="wod-log-daterow">
+        <input type="date" id="wodLogDateInput" class="wod-log-date" value="${esc(wodLogDate)}" max="${todayISO()}" aria-label="תאריך רישום האימון" />
+        ${isToday ? "" : `<button data-action="reset-wod-log-date" class="wod-log-today">היום</button>`}
+      </div>
+
+      <div class="wod-log-fieldlabel">${esc(scoreLabel)}</div>
+      ${inputsHtml}
+
+      <div class="wod-log-fieldlabel" id="wodRxLabel">רמת ביצוע</div>
+      <div class="rx-toggle" role="radiogroup" aria-labelledby="wodRxLabel">
+        <button class="rx-btn ${wodRx ? "active-rx" : ""}" data-action="set-rx" data-rx="1" role="radio" aria-checked="${wodRx}">Rx</button>
+        <button class="rx-btn ${!wodRx ? "active-scaled" : ""}" data-action="set-rx" data-rx="0" role="radio" aria-checked="${!wodRx}">Scaled</button>
+      </div>
+
+      ${wodRx ? "" : `
+      <div class="wod-log-scaled">
+        <div class="wod-log-fieldlabel">ההתאמה שעשיתם</div>
+        <div class="steppers">
+          ${renderStepper("wodScaledWeight", "משקל מותאם (ק\"ג)", wodScaledWeight, 2.5, 0, "wod-step")}
+        </div>
+        <input id="wodNotesInput" class="text-input" dir="auto" placeholder="שינוי בתרגיל? (אופציונלי, לדוגמה מתח עם רצועה)" aria-label="שינוי בתרגיל (אופציונלי)" value="${esc(wodNotes)}" />
+        ${lastScaled
+          ? `<button data-action="copy-last-scaled" class="wod-log-lastscaled">↺ בפעם הקודמת: ${lastScaled.notes ? esc(lastScaled.notes) + " — " : ""}${esc(formatWodEntry(lastScaled))}</button>`
+          : `<div class="wod-log-lastscaled">פעם ראשונה שמתאימים את זה</div>`}
+      </div>`}
+    </div>
+
+    <button data-action="save-wod" class="save-btn" style="max-width:none; margin:0 0 20px;">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       ${editingWodEntryId ? "עדכון" : "רישום"} אימון — ${esc(w.name)}
     </button>
@@ -4034,12 +4061,13 @@ function renderWodLogSection() {
       <div class="flex items-center gap-8">
         ${dayWods[0].isPR ? ICONS.flame : ""}
         <div style="text-align:right;">
-          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(wodById(dayWods[0].wodId) ? wodById(dayWods[0].wodId).name : "?")} — ${formatWodEntry(dayWods[0])} (${dayWods[0].rx ? "Rx" : "Scaled"})</div>
+          <div style="font-weight:700; font-size:13px;">אחרון: ${esc(wodById(dayWods[0].wodId) ? wodById(dayWods[0].wodId).name : "?")} — <span class="mono">${esc(formatWodEntry(dayWods[0]))}</span> (${dayWods[0].rx ? "Rx" : "Scaled"})</div>
           <div style="color:var(--steel); font-size:11px;">${dayWods.length} אימון${dayWods.length === 1 ? "" : "ים"} נרשמו ${isToday ? "היום" : `ב-${esc(dayLabel)}`}</div>
         </div>
       </div>
       <span class="flex items-center gap-6" style="color:var(--steel); font-size:12px; font-weight:600;">צפייה ביום${ICONS.chevronsLeft}</span>
     </button>`}
+    </div>
   `;
 }
 
@@ -4054,37 +4082,48 @@ function renderWodDetailCard(w) {
   let chartHtml = "";
   if (!isEmom) {
     const sorted = list.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
-    let bestSoFar = w.scoreType === "time" ? Infinity : -Infinity;
-    const chartData = sorted.map((e) => {
-      const val = scoreValue(e);
-      const isPR = w.scoreType === "time" ? val <= bestSoFar : val >= bestSoFar;
-      bestSoFar = w.scoreType === "time" ? Math.min(bestSoFar, val) : Math.max(bestSoFar, val);
-      return { dateLabel: fmtDate(e.date), est1RM: val, isPR };
-    });
+    // A For Time score improves by getting SMALLER, so plotting it raw drew
+    // the trend upside down: a 6:00 logged after a 3:45 climbed the chart as
+    // if it were progress. renderChart only ever draws the shape (there are
+    // no y-axis numbers to contradict), so negate the value for time-scored
+    // WODs and "up" means "better" for every format alike.
+    const invert = w.scoreType === "time";
+    // The stored isPR is what the flame icons in the list below use, and what
+    // saveWod actually decided at the time — recomputing it here with a
+    // slightly different comparison had the chart marking attempts as PRs
+    // that the list right underneath left unflamed.
+    const chartData = sorted.map((e) => ({
+      dateLabel: fmtDate(e.date),
+      est1RM: invert ? -scoreValue(e) : scoreValue(e),
+      isPR: e.isPR === true,
+    }));
     chartHtml = renderChart(chartData);
   }
   const recent = list.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 8);
   return `
-    <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
-      <div class="flex items-center justify-between" style="margin-bottom:12px;">
-        <span style="font-weight:800; font-size:15px;">${esc(w.name)}</span>
-        ${isEmom ? "" : `<span class="mono" style="color:var(--brass); font-weight:700; font-size:13px;">שיא: ${formatWodBest(w.id)}</span>`}
+    <div class="chart-card wod-detail">
+      <div class="flex items-center justify-between gap-8" style="margin-bottom:12px;">
+        <span class="wod-detail-name">${esc(w.name)}</span>
+        ${isEmom
+          ? `<span class="wod-detail-tag"><span class="mono">${list.length}</span> ניסיונות</span>`
+          : `<span class="wod-detail-best">שיא: <span class="mono">${esc(formatWodBest(w.id))}</span></span>`}
       </div>
       ${chartHtml}
       <div class="log-list" style="margin-top:12px;">
         ${recent.map((e) => `
           <div class="log-row" style="${e.notes ? "flex-direction:column; align-items:stretch; gap:4px;" : ""}">
-            <div class="flex items-center justify-between" style="width:100%;">
-              <div class="flex items-center gap-8">
+            <div class="flex items-center justify-between gap-8" style="width:100%;">
+              <div class="flex items-center gap-8" style="min-width:0;">
                 ${e.isPR ? ICONS.flame : ""}
-                <span style="color:var(--steel); font-size:12px;">${fmtDate(e.date)}</span>
-                <span style="color:var(--steel); font-size:11px;">${e.rx ? "Rx" : "Scaled"}</span>
+                <span style="color:var(--steel); font-size:12px;">${esc(fmtDate(e.date))}</span>
+                <span class="wod-detail-tag">${e.rx ? "Rx" : "Scaled"}</span>
               </div>
-              <span class="mono" style="font-size:13px;">${formatWodEntry(e)}</span>
+              <span class="wod-detail-score mono">${esc(formatWodEntry(e))}</span>
             </div>
             ${e.notes ? `<div style="color:var(--steel); font-size:12px;">${esc(e.notes)}</div>` : ""}
           </div>`).join("")}
       </div>
+      ${list.length > recent.length ? `<div style="color:var(--steel); font-size:11.5px; text-align:center; margin-top:10px;">מוצגים <span class="mono">${recent.length}</span> ניסיונות אחרונים מתוך <span class="mono">${list.length}</span></div>` : ""}
     </div>`;
 }
 
