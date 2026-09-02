@@ -2364,7 +2364,7 @@ async function addCustomWod(name, scoreType, desc, extra) {
   if (!trimmed) return;
   if (!WOD_SCORE_TYPES.includes(scoreType)) return;
   const existing = allWods().find((w) => w.name.toLowerCase() === trimmed.toLowerCase());
-  if (existing) { endWodEditIfActive(); selectedWodId = existing.id; closeWodPicker(); closeWodBuilder(); render(); return; }
+  if (existing) { endWodEditIfActive(); selectedWodId = existing.id; wodSubTab = "log"; closeWodPicker(); closeWodBuilder(); render(); return; }
   const id = uid("customwod");
   // extra carries scoreType-specific structured fields (currently just EMOM's
   // movement rotation — see sanitizeCustomWod) that, unlike every other
@@ -2374,6 +2374,12 @@ async function addCustomWod(name, scoreType, desc, extra) {
   try { await dbAddCustomWod(wod); } catch (e) { noteStorageError(e); }
   endWodEditIfActive();
   selectedWodId = id;
+  // Creating a WOD selects it, so the sub-tab has to follow. The builder is
+  // now also reachable from the benchmarks sub-tab's empty state, and landing
+  // back on a "no benchmark by that name" list right after successfully
+  // creating that very workout reads as if nothing happened. Only the state
+  // is set here; the render() below rebuilds the pills and the panel from it.
+  wodSubTab = "log";
   closeWodPicker();
   closeWodBuilder();
   render();
@@ -4232,12 +4238,25 @@ function renderWodHistorySection() {
 function renderWodBenchmarksListArea() {
   const area = document.getElementById("wodBenchmarksListArea");
   if (!area) return;
-  const q = wodBenchmarksSearch.trim().toLowerCase();
-  const filtered = WOD_LIBRARY.filter((w) => w.name.toLowerCase().includes(q));
+  const raw = wodBenchmarksSearch.trim();
+  const q = raw.toLowerCase();
+  // The description is what's actually printed under each name, so it has to
+  // be searchable too — a search for "thrusters" or "AMRAP" coming back
+  // empty while "21-15-9 Thrusters & Pull-ups" sits visible on the Fran row
+  // reads as broken search, not as a deliberate name-only filter.
+  const filtered = WOD_LIBRARY.filter((w) => w.name.toLowerCase().includes(q) || String(w.desc || "").toLowerCase().includes(q));
   const byCategory = bag();
   filtered.forEach((w) => { (byCategory[w.category] = byCategory[w.category] || []).push(w); });
   if (Object.keys(byCategory).length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא בנצ'מרק התואם ל-"${esc(wodBenchmarksSearch)}"</div>`;
+    // A dead end otherwise — the built-in list can't grow, so the only real
+    // way forward from "no such benchmark" is building that workout yourself.
+    area.innerHTML = `
+      <div class="browse-empty">
+        ${ICONS.dumbbell}
+        <div class="browse-empty-title">אין בנצ'מרק בשם <span dir="auto">"${esc(raw)}"</span></div>
+        <div class="browse-empty-hint">הרשימה כאן קבועה — Girls ו-Heroes בלבד. אפשר לבנות את האימון הזה בעצמכם.</div>
+        <button class="browse-empty-cta" data-action="open-wod-builder" data-name="${esc(raw)}">+ בניית אימון בשם הזה</button>
+      </div>`;
     return;
   }
   const order = ["Girls", "Heroes"];
@@ -4246,33 +4265,39 @@ function renderWodBenchmarksListArea() {
     <div class="cat-group">
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${byCategory[cat].map((w) => `
-        <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="select-benchmark" data-id="${esc(w.id)}">
-          <div>
-            <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
+        <button class="movement-btn browse-row ${selectedWodId === w.id ? "active" : ""}" data-action="select-benchmark" data-id="${esc(w.id)}"${selectedWodId === w.id ? ` aria-current="true"` : ""}>
+          <div class="browse-row-main">
+            <div class="browse-row-name">${esc(w.name)}</div>
             ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
           </div>
-          ${selectedWodId === w.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
+          <span class="browse-row-go">${selectedWodId === w.id ? `<span class="dot" style="background:var(--brass);"></span>` : ICONS.chevronsLeft}</span>
         </button>`).join("")}
     </div>`).join("");
 }
 function renderWodBenchmarksSection() {
   return `
-    <div class="search-box" style="margin:0 0 12px;">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="wodBenchmarksSearch" dir="auto" placeholder="חיפוש בבנצ'מרקים" aria-label="חיפוש בבנצ'מרקים" value="${esc(wodBenchmarksSearch)}" />
+    <div class="wod-browse">
+      <div class="browse-head">
+        <div class="browse-head-title">הבנצ'מרקים הקלאסיים</div>
+        <div class="browse-head-sub">בחרו אחד כדי לרשום תוצאה — כל ניסיון נשמר, ואפשר להשוות אליו בפעם הבאה.</div>
+      </div>
+      <div class="search-box">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="wodBenchmarksSearch" dir="auto" placeholder="חיפוש לפי שם או תרגיל" aria-label="חיפוש בבנצ'מרקים לפי שם או תרגיל" value="${esc(wodBenchmarksSearch)}" />
+      </div>
+      <div id="wodBenchmarksListArea"></div>
     </div>
-    <div id="wodBenchmarksListArea"></div>
   `;
 }
 
+const WOD_SUBTABS = [["log", "רישום"], ["history", "היסטוריה"], ["benchmarks", "בנצ'מרקים"]];
 function renderWodTab() {
   return `
     <div class="subtabbar" role="tablist">
-      <button class="subtabbtn ${wodSubTab === "log" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="log" role="tab" aria-selected="${wodSubTab === "log"}" aria-controls="wodContent">רישום</button>
-      <button class="subtabbtn ${wodSubTab === "history" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="history" role="tab" aria-selected="${wodSubTab === "history"}" aria-controls="wodContent">היסטוריה</button>
-      <button class="subtabbtn ${wodSubTab === "benchmarks" ? "active" : ""}" data-action="switch-wod-subtab" data-subtab="benchmarks" role="tab" aria-selected="${wodSubTab === "benchmarks"}" aria-controls="wodContent">בנצ'מרקים</button>
+      ${WOD_SUBTABS.map(([key, label]) => `
+      <button class="subtabbtn ${wodSubTab === key ? "active" : ""}" id="wodSubtab-${key}" data-action="switch-wod-subtab" data-subtab="${key}" role="tab" aria-selected="${wodSubTab === key}" aria-controls="wodContent">${label}</button>`).join("")}
     </div>
-    <div id="wodContent"></div>
+    <div id="wodContent" role="tabpanel" aria-labelledby="wodSubtab-${wodSubTab}"></div>
   `;
 }
 
@@ -4288,6 +4313,11 @@ function switchWodSubtab(subtab) {
     btn.classList.toggle("active", active);
     btn.setAttribute("aria-selected", String(active));
   });
+  // #wodContent is the tabpanel for all three pills, so its accessible name
+  // has to follow the selection too — otherwise a screen reader keeps
+  // announcing the panel as whichever subtab happened to be open first.
+  const panel = document.getElementById("wodContent");
+  if (panel) panel.setAttribute("aria-labelledby", "wodSubtab-" + wodSubTab);
   renderWodContent();
 }
 function renderWodContent() {
@@ -4360,35 +4390,48 @@ function closePicker() {
   document.getElementById("pickerOverlay").classList.remove("open");
 }
 function renderPickerList(query) {
-  const q = query.toLowerCase();
-  const filtered = allMovements().filter((m) => m.name.toLowerCase().includes(q));
-  const exactMatch = allMovements().some((m) => m.name.toLowerCase() === q);
+  const list = document.getElementById("pickerList");
+  if (!list) return;
+  // Trim here as well as at the input listener: deleteCustomWod and any other
+  // caller re-rendering from a raw input value shouldn't get a different
+  // result than typing the same text does.
+  const raw = String(query || "").trim();
+  const q = raw.toLowerCase();
+  const movements = allMovements();
+  const filtered = movements.filter((m) => m.name.toLowerCase().includes(q));
+  const exactMatch = movements.some((m) => m.name.toLowerCase() === q);
   const byCategory = bag();
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
-  const list = document.getElementById("pickerList");
-  const addRow = query.trim() && !exactMatch
-    ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-top:4px; margin-bottom:8px;">
-         <div style="font-weight:700; font-size:13px; color:var(--brass); margin-bottom:8px;">הוספת "${esc(query.trim())}" — לאיזו קטגוריה?</div>
+  const empty = Object.keys(byCategory).length === 0;
+  const addRow = raw && !exactMatch
+    ? `<div class="picker-add">
+         <div class="picker-add-title">הוספת <span dir="auto">"${esc(raw)}"</span> — לאיזו קטגוריה?</div>
          <div class="flex wrap gap-8">
-           ${MOVEMENT_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-movement" data-name="${esc(query.trim())}" data-category="${cat}">${cat}</button>`).join("")}
+           ${MOVEMENT_CATEGORIES.map((cat) => `<button class="format-chip picker-cat-chip" data-action="add-movement" data-name="${esc(raw)}" data-category="${esc(cat)}">${esc(cat)}</button>`).join("")}
          </div>
        </div>`
-    : `<button class="movement-btn" data-action="focus-picker-search" style="border-color:var(--brass); margin-top:4px; margin-bottom:8px;">
-         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת תרגיל חדש</span>
+    : `<button class="picker-add picker-add-hint" data-action="focus-picker-search">
+         <span class="picker-add-title">+ הוספת תרגיל חדש</span>
+         <span class="picker-add-sub">הקלידו את השם בשורת החיפוש למעלה, ואז בחרו לו קטגוריה</span>
        </button>`;
-  if (Object.keys(byCategory).length === 0) {
-    list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל</div>`;
-    return;
-  }
-  list.innerHTML = addRow + Object.entries(byCategory).map(([cat, items]) => `
+  const body = empty
+    ? `<div class="picker-empty">
+         ${ICONS.dumbbell}
+         <div>${raw ? `לא נמצא תרגיל בשם <span dir="auto">"${esc(raw)}"</span>` : "לא נמצא תרגיל"}</div>
+       </div>`
+    : Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${items.map((m) => `
-        <button class="movement-btn ${selectedId === m.id ? "active" : ""}" data-action="pick-movement" data-id="${esc(m.id)}">
-          <span style="font-weight:600; font-size:14px;">${esc(m.name)}</span>
-          ${selectedId === m.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
+        <button class="movement-btn picker-row ${selectedId === m.id ? "active" : ""}" data-action="pick-movement" data-id="${esc(m.id)}"${selectedId === m.id ? ` aria-current="true"` : ""}>
+          <span class="picker-row-name">${esc(m.name)}</span>
+          ${selectedId === m.id ? `<span class="dot" style="background:var(--brass);"></span>` : ""}
         </button>`).join("")}
     </div>`).join("");
+  // "Add a new movement" only leads the list when it's the useful next step —
+  // with no query yet, or with nothing matching. Sitting above a screenful of
+  // real matches it just invited creating a duplicate of one of them.
+  list.innerHTML = (!raw || empty) ? addRow + body : body + addRow;
 }
 
 let wodPickerOpen = false;
@@ -4425,26 +4468,37 @@ function closeWodPicker() {
   document.getElementById("wodPickerOverlay").classList.remove("open");
 }
 function renderWodPickerList(query) {
-  const q = query.toLowerCase();
-  const filtered = allWods().filter((w) => w.name.toLowerCase().includes(q));
-  const exactMatch = allWods().some((w) => w.name.toLowerCase() === q);
+  const list = document.getElementById("wodPickerList");
+  if (!list) return;
+  const raw = String(query || "").trim();
+  const q = raw.toLowerCase();
+  const wods = allWods();
+  // Same reasoning as the benchmarks list: the desc line is on screen under
+  // every name, so it has to be searchable. exactMatch stays name-only —
+  // it answers "is there already a WOD called this?", which decides whether
+  // to offer building a new one.
+  const filtered = wods.filter((w) => w.name.toLowerCase().includes(q) || String(w.desc || "").toLowerCase().includes(q));
+  const exactMatch = wods.some((w) => w.name.toLowerCase() === q);
   const byCategory = bag();
   filtered.forEach((w) => { (byCategory[w.category] = byCategory[w.category] || []).push(w); });
-  const list = document.getElementById("wodPickerList");
-  const addRow = query.trim() && !exactMatch
-    ? `<button class="movement-btn" data-action="open-wod-builder" data-name="${esc(query.trim())}" style="border-color:var(--energy); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ בניית "${esc(query.trim())}" כאימון חדש</span>
+  const empty = Object.keys(byCategory).length === 0;
+  const addRow = raw && !exactMatch
+    ? `<button class="picker-add picker-add-build" data-action="open-wod-builder" data-name="${esc(raw)}">
+         <span class="picker-add-title">+ בניית <span dir="auto">"${esc(raw)}"</span> כאימון חדש</span>
+         <span class="picker-add-sub">פורמט, תרגילים וזמן — ואז הוא מחכה לכם ברשימה</span>
        </button>`
-    : `<button class="movement-btn" data-action="open-wod-builder" data-name="" style="border-color:var(--energy); margin-top:4px;">
-         <span style="font-weight:700; font-size:14px; color:var(--energy);">+ בניית אימון מותאם אישית</span>
+    : `<button class="picker-add picker-add-build" data-action="open-wod-builder" data-name="">
+         <span class="picker-add-title">+ בניית אימון מותאם אישית</span>
+         <span class="picker-add-sub">פורמט, תרגילים וזמן — ואז הוא מחכה לכם ברשימה</span>
        </button>`;
-  if (Object.keys(byCategory).length === 0) {
-    list.innerHTML = addRow + `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא אימון</div>`;
-    return;
-  }
   const order = ["Girls", "Heroes", "Custom"];
   const cats = Object.keys(byCategory).sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  list.innerHTML = addRow + `<div style="height:12px;"></div>` + cats.map((cat) => `
+  const body = empty
+    ? `<div class="picker-empty">
+         ${ICONS.dumbbell}
+         <div>${raw ? `לא נמצא אימון בשם <span dir="auto">"${esc(raw)}"</span>` : "לא נמצא אימון"}</div>
+       </div>`
+    : cats.map((cat) => `
     <div class="cat-group">
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${byCategory[cat].map((w) => {
@@ -4455,18 +4509,22 @@ function renderWodPickerList(query) {
         // logged entries. See dbDeleteCustomWod/deleteCustomWod.
         const deletable = cat === "Custom" && wodEntriesFor(w.id).length === 0;
         return `
-        <div class="flex items-center gap-6" style="margin-bottom:8px;">
-          <button class="movement-btn ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${esc(w.id)}" style="flex:1; margin-bottom:0;">
-            <div>
-              <span style="font-weight:600; font-size:14px;">${esc(w.name)}</span>
+        <div class="picker-wod-row">
+          <button class="movement-btn picker-row ${selectedWodId === w.id ? "active" : ""}" data-action="pick-wod" data-id="${esc(w.id)}"${selectedWodId === w.id ? ` aria-current="true"` : ""}>
+            <div class="browse-row-main">
+              <div class="picker-row-name">${esc(w.name)}</div>
               ${w.desc ? `<div class="wod-desc">${esc(w.desc)}</div>` : ""}
             </div>
-            ${selectedWodId === w.id ? `<div class="dot" style="background:var(--brass);"></div>` : ""}
+            ${selectedWodId === w.id ? `<span class="dot" style="background:var(--brass);"></span>` : ""}
           </button>
-          ${deletable ? `<button data-action="delete-custom-wod" data-id="${esc(w.id)}" aria-label="מחיקת ${esc(w.name)}" style="color:var(--steel); padding:8px; flex:none;">${ICONS.trash}</button>` : ""}
+          ${deletable ? `<button class="picker-wod-del" data-action="delete-custom-wod" data-id="${esc(w.id)}" aria-label="מחיקת ${esc(w.name)}">${ICONS.trash}</button>` : ""}
         </div>`;
       }).join("")}
     </div>`).join("");
+  // Building a new WOD leads only when it's the useful next step (nothing
+  // typed yet, or nothing matched); otherwise it follows the matches so it
+  // doesn't push them off screen.
+  list.innerHTML = (!raw || empty) ? addRow + body : body + addRow;
 }
 
 // ---------- Service worker update handshake ----------
@@ -4661,7 +4719,11 @@ document.addEventListener("click", (e) => {
   else if (action === "do-clear") { clearAllData(); }
   else if (action === "cancel-clear") { confirmClear = false; render(); }
   else if (action === "switch-wod-subtab") { switchWodSubtab(el.dataset.subtab); }
-  else if (action === "select-benchmark") { endWodEditIfActive(); selectedWodId = el.dataset.id; switchWodSubtab("log"); }
+  // Same reset as pick-wod below: the scaling note ("מתח עם רצועה") belongs
+  // to the WOD it was typed for. Without clearing it, composing a Scaled
+  // entry, hopping to בנצ'מרקים and picking Fran carried the previous WOD's
+  // note straight into Fran's form — and into the saved entry.
+  else if (action === "select-benchmark") { endWodEditIfActive(); selectedWodId = el.dataset.id; wodNotes = ""; switchWodSubtab("log"); }
   else if (action === "open-wod-picker") { openWodPicker(); }
   else if (action === "close-wod-picker") {
     if (el.id === "wodPickerOverlay" && e.target !== el) return;

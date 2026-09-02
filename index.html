@@ -342,6 +342,55 @@
   .cat-name{ color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; }
   .movement-btn{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:12px 14px; text-align:right; margin-bottom:6px; box-shadow:var(--shadow-card); }
   .movement-btn.active{ background:var(--surface2); border-color:var(--brass); }
+
+  /* ---- Picker overlays (#pickerOverlay "בחירת תרגיל", #wodPickerOverlay
+     "בחירת אימון") ----
+     Everything here is scoped under .picker-sheet, which only the two picker
+     sheets carry, so the shared base components (.movement-btn, .search-box,
+     .cat-group, .format-chip) keep their existing look in the WOD builder
+     sheet and on every tab that reuses them.
+     The list used to be a stack of individually bordered, individually
+     shadowed row-cards — one floating card per exercise. Here a whole
+     CATEGORY is one card and the rows inside it are flat, so a long list
+     reads as a few blocks with one gap rhythm instead of forty. */
+  .picker-sheet{ position:relative; }
+  /* Stripe 1 of 2 — the gym's accent wall as a cap across the top of the
+     sheet, right where it slides up from. */
+  .picker-sheet::before{ content:""; position:absolute; top:0; left:0; right:0; height:5px; background-image:var(--stripe); border-top-left-radius:21px; border-top-right-radius:21px; pointer-events:none; }
+  .picker-sheet .modal-head{ padding-top:18px; }
+  .picker-sheet .search-box{ background:var(--surface); border-radius:14px; padding:11px 14px; }
+  .picker-sheet .search-box:focus-within{ border-color:var(--brass); }
+  .picker-sheet .cat-group{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:8px 8px 6px; margin-bottom:10px; box-shadow:var(--shadow-card); }
+  .picker-sheet .cat-head{ padding:4px 6px 8px; margin-bottom:4px; border-bottom:1px solid var(--border); }
+  .picker-sheet .movement-btn{ background:transparent; border:1px solid transparent; border-radius:11px; box-shadow:none; padding:10px 8px; margin-bottom:0; position:relative; }
+  .picker-sheet .movement-btn:active{ background:var(--surface2); }
+  .picker-sheet .movement-btn.active{ background:var(--surface2); border-color:transparent; padding-inline-start:12px; }
+  /* Stripe 2 of 2 — a short rail marking the row you're already on. */
+  .picker-sheet .movement-btn.active::before{ content:""; position:absolute; inset-inline-start:0; top:7px; bottom:7px; width:4px; border-radius:999px; background-image:var(--stripe); }
+  /* Anton for the read-only English movement/WOD name — the one thing you
+     scan this list for. Hebrew custom names have no Anton glyphs and fall
+     through to Rubik automatically (Anton ships latin-only, see @font-face). */
+  .picker-row-name{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:16px; letter-spacing:.3px; line-height:1.25; }
+  .picker-wod-row{ display:flex; align-items:center; gap:4px; }
+  .picker-wod-row .movement-btn{ flex:1; min-width:0; }
+  .picker-wod-del{ flex:none; color:var(--steel); padding:9px; border-radius:10px; }
+  .picker-wod-del:active{ background:var(--surface2); }
+  /* The "add something new" block, in both sheets: dashed, so it reads as an
+     invitation rather than as another pickable row. */
+  .picker-add{ display:block; width:100%; text-align:start; background:var(--surface); border:1px dashed var(--brass); border-radius:14px; padding:12px 14px; margin:2px 0 12px; }
+  .picker-add-title{ display:block; font-weight:700; font-size:13.5px; color:var(--brass); line-height:1.35; margin-bottom:6px; }
+  .picker-add-sub{ display:block; color:var(--steel); font-size:11.5px; font-weight:500; line-height:1.45; }
+  /* Idle variant (nothing typed yet, so there's no name to add) stays
+     neutral; the brass dash is reserved for "you typed something that isn't
+     in the list — add it". */
+  .picker-add-hint{ border-color:var(--border); }
+  .picker-add-build{ border-color:var(--energy); }
+  .picker-add-build .picker-add-title{ color:var(--energy); }
+  /* .format-chip{flex:1} is declared further down this stylesheet, so an
+     equal-specificity override here would lose on source order — the extra
+     .picker-sheet ancestor is what makes these chips size to their text. */
+  .picker-sheet .picker-cat-chip{ flex:0 0 auto; padding:8px 14px; }
+  .picker-empty{ display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; color:var(--steel); font-size:13px; line-height:1.5; border:1px dashed var(--border); border-radius:16px; padding:26px 16px; }
   @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
 
   .cal-header{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
@@ -359,9 +408,11 @@
   .cal-dot.pr{ background:var(--brass); }
   .report-row{ display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:10px 12px; margin-bottom:8px; box-shadow:var(--shadow-card); }
   .report-flag{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  /* WOD-tab sub-tab pills (רישום / היסטוריה / בנצ'מרקים) — the only
+     .subtabbar in the app; see renderWodTab(). */
   .subtabbar{ display:flex; background:var(--surface2); border-radius:12px; padding:3px; margin-bottom:16px; border:1px solid var(--border); }
-  .subtabbtn{ flex:1; padding:8px 0; border-radius:9px; font-weight:700; font-size:13px; color:var(--steel); }
-  .subtabbtn.active{ background:var(--surface); color:var(--chalk); }
+  .subtabbtn{ flex:1; padding:9px 0; border-radius:9px; font-weight:700; font-size:13px; color:var(--steel); transition:color .15s; }
+  .subtabbtn.active{ background:var(--surface); color:var(--chalk); font-weight:800; box-shadow:var(--shadow-sm); }
   .rx-toggle{ display:flex; gap:8px; margin-bottom:16px; }
   .rx-btn{ flex:1; padding:10px 0; border-radius:12px; border:1px solid var(--border); background:var(--surface); font-weight:700; font-size:13px; color:var(--steel); }
   .rx-btn.active-rx{ background:rgba(63,132,85,.15); border-color:var(--green); color:var(--green); }
@@ -538,6 +589,35 @@
   .wod-detail .log-row{ background:var(--surface2); box-shadow:none; }
   .wod-detail .wod-detail-score{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:16px; letter-spacing:.3px; }
   .wod-detail-tag{ flex-shrink:0; border:1px solid var(--border); border-radius:999px; padding:1px 8px; color:var(--steel); font-size:10.5px; font-weight:700; letter-spacing:.3px; }
+
+  /* ---- WOD tab › בנצ'מרקים sub-tab (the browsable Girls/Heroes list) ----
+     Scoped under .wod-browse so the .movement-btn / .cat-group / .search-box
+     base components it reuses stay untouched on the other two sub-tabs and
+     in the picker sheets. Same consolidation as the pickers: one card per
+     category, flat rows inside it. */
+  .wod-browse .search-box{ margin:0 0 12px; background:var(--surface); border-radius:14px; padding:11px 14px; }
+  .wod-browse .search-box:focus-within{ border-color:var(--brass); }
+  .browse-head{ position:relative; overflow:hidden; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:17px 14px 13px; margin-bottom:12px; box-shadow:var(--shadow-card); }
+  /* Stripe 1 of 2 on this screen — a cap across the top of the header card. */
+  .browse-head::before{ content:""; position:absolute; top:0; left:0; right:0; height:5px; background-image:var(--stripe); }
+  .browse-head-title{ font-weight:800; font-size:16px; margin-bottom:4px; }
+  .browse-head-sub{ color:var(--steel); font-size:12.5px; line-height:1.5; }
+  .wod-browse .cat-group{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:8px 8px 6px; margin-bottom:10px; box-shadow:var(--shadow-card); }
+  .wod-browse .cat-head{ padding:4px 6px 8px; margin-bottom:4px; border-bottom:1px solid var(--border); }
+  .wod-browse .movement-btn{ background:transparent; border:1px solid transparent; border-radius:11px; box-shadow:none; padding:10px 8px; margin-bottom:0; position:relative; align-items:flex-start; gap:10px; }
+  .wod-browse .movement-btn:active{ background:var(--surface2); }
+  .wod-browse .movement-btn.active{ background:var(--surface2); border-color:transparent; padding-inline-start:12px; }
+  /* Stripe 2 of 2 — marks the benchmark that's currently loaded in רישום. */
+  .wod-browse .movement-btn.active::before{ content:""; position:absolute; inset-inline-start:0; top:7px; bottom:7px; width:4px; border-radius:999px; background-image:var(--stripe); }
+  .browse-row-main{ min-width:0; }
+  /* Anton for the benchmark name — read-only, always English (Fran, Murph,
+     …), and the thing you actually scan the list for. */
+  .browse-row-name{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:16.5px; letter-spacing:.3px; line-height:1.25; }
+  .browse-row-go{ display:inline-flex; align-items:center; flex-shrink:0; margin-top:4px; opacity:.6; }
+  .browse-empty{ display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; border:1px dashed var(--border); border-radius:16px; padding:26px 18px; }
+  .browse-empty-title{ font-weight:700; font-size:14px; }
+  .browse-empty-hint{ color:var(--steel); font-size:12.5px; line-height:1.5; max-width:280px; }
+  .browse-empty-cta{ margin-top:6px; background:var(--surface); border:1px solid var(--energy); border-radius:12px; padding:10px 16px; color:var(--energy); font-weight:700; font-size:13px; }
 
   .text-input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:var(--chalk); font-size:16px; }
   input[type="date"]{ color-scheme:var(--color-scheme); }
@@ -936,7 +1016,7 @@
 </div>
 
 <div class="modal-overlay" id="pickerOverlay" data-action="close-picker" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
-  <div class="modal-sheet">
+  <div class="modal-sheet picker-sheet">
     <div class="modal-head">
       <span class="modal-title" id="pickerTitle">בחירת תרגיל</span>
       <button data-action="close-picker" aria-label="סגירה" style="color:var(--steel); padding:4px;">
@@ -944,7 +1024,7 @@
       </button>
     </div>
     <div class="search-box">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="pickerSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש תרגיל" aria-label="חיפוש תרגיל" />
     </div>
     <div class="modal-list" id="pickerList"></div>
@@ -952,7 +1032,7 @@
 </div>
 
 <div class="modal-overlay" id="wodPickerOverlay" data-action="close-wod-picker" role="dialog" aria-modal="true" aria-labelledby="wodPickerTitle">
-  <div class="modal-sheet">
+  <div class="modal-sheet picker-sheet">
     <div class="modal-head">
       <span class="modal-title" id="wodPickerTitle">בחירת אימון</span>
       <button data-action="close-wod-picker" aria-label="סגירה" style="color:var(--steel); padding:4px;">
@@ -960,8 +1040,8 @@
       </button>
     </div>
     <div class="search-box">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a8f97" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input id="wodPickerSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש אימון" aria-label="חיפוש אימון" />
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="wodPickerSearch" dir="auto" maxlength="80" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="חיפוש לפי שם או תרגיל" aria-label="חיפוש אימון לפי שם או תרגיל" />
     </div>
     <div class="modal-list" id="wodPickerList"></div>
   </div>
