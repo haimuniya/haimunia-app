@@ -721,6 +721,15 @@ async function dbPutBodyweight(entry) {
     tx.onerror = () => reject(tx.error);
   });
 }
+async function dbDeleteBodyweight(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BWSTORE, "readwrite");
+    tx.objectStore(BWSTORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 async function dbClearBodyweight() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -945,6 +954,10 @@ let measureEntries = [];
 let measureExpandedId = null;
 let measureAddOpen = false;
 let measureValues = bag(); // per-type stepper input value, keyed by typeId
+// Which body-metrics card (if any) just refused a save, so the card can say
+// why instead of the button looking dead. "bw" for the bodyweight card, a
+// measure typeId for one of the measurement cards, null for "no complaint".
+let bodyMetricHint = null;
 
 let importMessage = "";
 let importMsgTimeout = null;
@@ -1789,7 +1802,16 @@ async function deleteEntry(id) {
 
 // ---------- Bodyweight ----------
 async function saveBodyweight() {
-  if (!isFinite(bwWeight)) return;
+  // 0 (and anything below it) is not a bodyweight — it used to sail straight
+  // through `isFinite`, writing a 0 kg entry that then owned the card's
+  // headline number and flattened the chart, with no way to delete it once
+  // the day rolled over. Same rule saveMeasurement() already applied.
+  if (typeof bwWeight !== "number" || !isFinite(bwWeight) || bwWeight <= 0) {
+    bodyMetricHint = "bw";
+    renderBodyweightArea();
+    return;
+  }
+  bodyMetricHint = null;
   const today = todayISO();
   const existing = bodyweightEntries.find((e) => e.date === today);
   const entry = existing
@@ -1800,14 +1822,20 @@ async function saveBodyweight() {
   try { await dbPutBodyweight(entry); storageOK = true; } catch (e) { noteStorageError(e); }
   render();
 }
+// A mistyped weight used to be permanent: the card offered no per-entry
+// delete, and same-day overwrite only reaches today's row.
+async function deleteBodyweightEntry(id) {
+  bodyweightEntries = bodyweightEntries.filter((e) => e.id !== id);
+  try { await dbDeleteBodyweight(id); } catch (e) { noteStorageError(e); }
+  // The stepper is seeded from the newest entry on load, so keep it honest
+  // when that entry is the one being removed.
+  if (bodyweightEntries[0]) bwWeight = bodyweightEntries[0].weight;
+  renderBodyweightArea();
+}
 
 // ---------- Body measurements (custom, user-named, cm) ----------
 function measureTypesSorted() { return measureTypes.slice().sort((a, b) => a.name.localeCompare(b.name)); }
 function measureEntriesFor(typeId) { return measureEntries.filter((e) => e.typeId === typeId); }
-function latestMeasurement(typeId) {
-  const list = measureEntriesFor(typeId).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  return list.length ? list[0] : null;
-}
 async function addMeasureType(name) {
   const trimmed = cleanStr(name, LIMITS.nameLen);
   if (!trimmed) return;
@@ -1831,6 +1859,8 @@ async function deleteMeasureType(id) {
   const toDelete = measureEntriesFor(id).map((e) => e.id);
   measureEntries = measureEntries.filter((e) => e.typeId !== id);
   if (measureExpandedId === id) measureExpandedId = null;
+  if (bodyMetricHint === id) bodyMetricHint = null;
+  delete measureValues[id]; // nothing can address this typeId again — don't let the bag grow forever
   try {
     await dbDeleteMeasureType(id);
     for (const eid of toDelete) await dbDeleteMeasurement(eid);
@@ -1839,7 +1869,14 @@ async function deleteMeasureType(id) {
 }
 async function saveMeasurement(typeId) {
   const value = measureValues[typeId];
-  if (typeof value !== "number" || !isFinite(value) || value <= 0) return;
+  // Rejecting silently made the save button look broken — a brand-new type
+  // starts at 0, so the very first tap most users make hit this branch.
+  if (typeof value !== "number" || !isFinite(value) || value <= 0) {
+    bodyMetricHint = typeId;
+    renderMeasureArea();
+    return;
+  }
+  bodyMetricHint = null;
   const today = todayISO();
   const existing = measureEntries.find((e) => e.typeId === typeId && e.date === today);
   const entry = existing
@@ -2256,6 +2293,7 @@ async function clearAllData() {
   barWeight = 20;
   measureExpandedId = null;
   measureAddOpen = false;
+  bodyMetricHint = null;
   logDate = todayISO();
   editingEntryId = null;
   endLadder(); // otherwise a ladder active at the moment of wiping would keep advertising itself against an emptied entries array
@@ -3366,31 +3404,81 @@ function renderCalendarTab() {
     ${renderVolumeReport()}
   `;
 }
+// Shared chrome for the two body-metrics cards (bodyweight + each custom
+// measurement): one collapsible block, one chart, one entry form, one recent
+// list — same rhythm in both so the pair reads as a single section.
+function bmHead(opts) {
+  const chevron = `<span class="bm-chev" style="transform:rotate(${opts.open ? "90deg" : "180deg"});">${ICONS.chevron}</span>`;
+  const value = opts.value === null
+    ? `<span class="bm-head-empty">אין עדיין מדידות</span>`
+    : `<span class="mono bm-head-val">${opts.value}<span class="bm-unit">${opts.unit}</span></span>`;
+  return `
+    <button class="bm-head" data-action="${opts.action}"${opts.id ? ` data-id="${esc(opts.id)}"` : ""} aria-expanded="${opts.open ? "true" : "false"}"${opts.open ? ` aria-controls="${esc(opts.panelId)}"` : ""}>
+      <span class="bm-head-main">${chevron}<span class="bm-head-title">${esc(opts.title)}</span></span>
+      ${value}
+    </button>`;
+}
+// Dashed, icon-led prompt instead of a blank gap where a chart would be.
+function bmEmptyState(text) {
+  return `<div class="bm-empty">${ICONS.chartIcon}<span>${esc(text)}</span></div>`;
+}
+// One chart needs two points to be a trend; below that, say so rather than
+// drawing a single dot pinned to the floor of an empty plot.
+function bmChartOrHint(chartData, emptyText, oneText) {
+  if (chartData.length >= 2) return `<div class="bm-chart">${renderChart(chartData)}</div>`;
+  return bmEmptyState(chartData.length ? oneText : emptyText);
+}
+function bmRecentList(rows) {
+  if (!rows.length) return "";
+  return `
+    <div class="bm-log">
+      <div class="bm-log-title">מדידות אחרונות</div>
+      ${rows.map((r) => `
+        <div class="bm-log-row">
+          <span class="bm-log-date">${esc(r.dateLabel)}</span>
+          <span class="bm-log-end">
+            <span class="mono bm-log-val">${r.value}<span class="bm-unit">${r.unit}</span></span>
+            <button class="bm-del" data-action="${r.deleteAction}" data-id="${esc(r.id)}" aria-label="מחיקת המדידה מ־${esc(r.dateLabel)}">${ICONS.trash}</button>
+          </span>
+        </div>`).join("")}
+    </div>`;
+}
+
 function renderBodyweightArea() {
   const el = document.getElementById("bodyweightArea");
   if (!el) return;
-  const sorted = bodyweightEntries.slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
-  const last = bodyweightEntries.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
-  const chartData = sorted.map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.weight, isPR: false }));
-  const header = `
-    <button class="exercise-row ${bodyweightExpanded ? "active" : ""}" data-action="toggle-bodyweight" style="${bodyweightExpanded ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
-      <div class="flex items-center gap-8">
-        <span style="display:inline-flex; transition:transform .2s; transform:rotate(${bodyweightExpanded ? "90deg" : "180deg"});">${ICONS.chevron}</span>
-        <span style="font-weight:700; font-size:14px;">משקל גוף</span>
+  // bodyweightEntries is kept newest-first (by write time) everywhere it is
+  // loaded or mutated, so index 0 is the headline entry; the chart wants the
+  // same rows in calendar order instead.
+  const byRecency = bodyweightEntries.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const last = byRecency[0] || null;
+  const chartData = bodyweightEntries.slice()
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.ts || 0) - (b.ts || 0))
+    .map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.weight, isPR: false }));
+
+  const detail = !bodyweightExpanded ? "" : `
+    <div class="bm-detail" id="bodyweightDetail">
+      ${last ? `<div class="bm-meta"><span>עודכן לאחרונה</span><span class="mono bm-meta-date">${esc(fmtDate(last.date))}</span></div>` : ""}
+      ${bmChartOrHint(chartData, "רשמו את המשקל הראשון והגרף יתחיל להיבנות", "עוד מדידה אחת והגרף יראה מגמה")}
+      <div class="bm-form">
+        <div class="steppers bm-steppers">
+          ${renderStepper("bwWeight", "משקל (ק\"ג)", bwWeight, 0.5, 0, "bw-step")}
+        </div>
+        <button data-action="save-bw" class="save-btn bm-save">רישום משקל גוף — היום</button>
+        ${bodyMetricHint === "bw" ? `<div class="bm-warn" role="alert">הזינו משקל גדול מאפס</div>` : ""}
       </div>
-      ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${last.weight} kg</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
-    </button>`;
-  const detail = bodyweightExpanded ? `
-    <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
-      ${last ? `<div style="color:var(--steel); font-size:12px; margin-bottom:${chartData.length ? "12px" : "0"};">עודכן לאחרונה: ${fmtDate(last.date)}</div>` : ""}
-      ${chartData.length ? renderChart(chartData) : ""}
-      <div class="steppers" style="margin-top:14px; margin-bottom:0;">
-        ${renderStepper("bwWeight", "משקל (ק\"ג)", bwWeight, 0.5, 0, "bw-step")}
+      ${bmRecentList(byRecency.slice(0, 8).map((e) => ({
+        id: e.id, dateLabel: fmtDate(e.date), value: e.weight, unit: "kg", deleteAction: "delete-bodyweight-entry",
+      })))}
+    </div>`;
+
+  el.innerHTML = `
+    <div class="body-metrics bw-area">
+      <div class="bm-block${bodyweightExpanded ? " open" : ""}">
+        ${bmHead({ title: "משקל גוף", open: bodyweightExpanded, action: "toggle-bodyweight", panelId: "bodyweightDetail", value: last ? last.weight : null, unit: "kg" })}
+        ${detail}
       </div>
-      <button data-action="save-bw" class="save-btn" style="max-width:none; margin-top:14px;">רישום משקל גוף — היום</button>
-    </div>
-    <div style="height:8px;"></div>` : "";
-  el.innerHTML = header + detail;
+    </div>`;
 }
 
 function renderMeasureArea() {
@@ -3398,66 +3486,64 @@ function renderMeasureArea() {
   if (!el) return;
   const types = measureTypesSorted();
 
+  const CM = 'ס"מ';
   const addRow = measureAddOpen
-    ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:8px;">
-         <input id="measureTypeInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="לדוגמה: היקף מותן" aria-label="שם מדד חדש" style="margin-bottom:8px;" />
-         <div class="flex gap-8">
-           <button data-action="confirm-add-measure-type" class="save-btn" style="max-width:none; flex:1;">הוספה</button>
-           <button data-action="cancel-add-measure-type" style="color:var(--steel); font-size:13px; padding:0 10px;">ביטול</button>
+    ? `<div class="bm-add-form">
+         <input id="measureTypeInput" class="text-input" dir="auto" maxlength="80" autocomplete="off" placeholder="לדוגמה: היקף מותן" aria-label="שם מדד חדש" />
+         <div class="bm-add-actions">
+           <button data-action="confirm-add-measure-type" class="save-btn bm-save">הוספה</button>
+           <button data-action="cancel-add-measure-type" class="bm-cancel">ביטול</button>
          </div>
        </div>`
-    : `<button class="movement-btn" data-action="open-add-measure-type" style="border-color:var(--brass); margin-bottom:${types.length ? "8px" : "0"};">
-         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת מדד חדש</span>
+    : `<button class="bm-add" data-action="open-add-measure-type">
+         <span class="bm-add-plus" aria-hidden="true">+</span>
+         <span class="bm-add-text">הוספת מדד חדש</span>
        </button>`;
 
   const rows = types.map((t) => {
     const expanded = measureExpandedId === t.id;
-    const last = latestMeasurement(t.id);
-    const header = `
-      <button class="exercise-row ${expanded ? "active" : ""}" data-action="toggle-measure-type" data-id="${esc(t.id)}" style="${expanded ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
-        <div class="flex items-center gap-8">
-          <span style="display:inline-flex; transition:transform .2s; transform:rotate(${expanded ? "90deg" : "180deg"});">${ICONS.chevron}</span>
-          <span style="font-weight:700; font-size:14px;">${esc(t.name)}</span>
-        </div>
-        ${last ? `<span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${last.value} ס"מ</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
-      </button>`;
-    if (!expanded) return header;
+    const panelId = `measureDetail-${t.id}`;
+    const own = measureEntriesFor(t.id);
+    const byRecency = own.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    const last = byRecency[0] || null;
+    const head = bmHead({
+      title: t.name, open: expanded, action: "toggle-measure-type", id: t.id,
+      panelId, value: last ? last.value : null, unit: CM,
+    });
+    if (!expanded) return `<div class="bm-block">${head}</div>`;
 
     if (typeof measureValues[t.id] !== "number") measureValues[t.id] = last ? last.value : 0;
-    const sorted = measureEntriesFor(t.id).slice().sort((a, b) => a.date.localeCompare(b.date) || a.ts - b.ts);
-    const chartData = sorted.map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.value, isPR: false }));
-    const recent = measureEntriesFor(t.id).slice().sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, 8);
+    const chartData = own.slice()
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.ts || 0) - (b.ts || 0))
+      .map((e) => ({ dateLabel: fmtDate(e.date), est1RM: e.value, isPR: false }));
     const detail = `
-      <div class="chart-card" style="margin-top:-4px; border-top-left-radius:0; border-top-right-radius:0; border-top:none;">
-        <div class="flex items-center justify-between" style="margin-bottom:${chartData.length ? "12px" : "0"};">
-          ${last ? `<span style="color:var(--steel); font-size:12px;">עודכן לאחרונה: ${fmtDate(last.date)}</span>` : `<span style="color:var(--steel); font-size:12px;">אין עדיין מדידות</span>`}
-          <button data-action="delete-measure-type" data-id="${esc(t.id)}" aria-label="מחיקת מדד" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
+      <div class="bm-detail" id="${esc(panelId)}">
+        <div class="bm-meta">
+          ${last ? `<span>עודכן לאחרונה</span><span class="mono bm-meta-date">${esc(fmtDate(last.date))}</span>` : `<span>עדיין לא נרשמה מדידה</span>`}
+          <button class="bm-del bm-del-type" data-action="delete-measure-type" data-id="${esc(t.id)}" aria-label="מחיקת המדד ${esc(t.name)}">${ICONS.trash}</button>
         </div>
-        ${chartData.length ? renderChart(chartData) : ""}
-        <div class="steppers" style="margin-top:14px; margin-bottom:0;">
-          ${renderStepper(t.id, 'ס"מ', measureValues[t.id], 0.5, 0, "measure-step")}
+        ${bmChartOrHint(chartData, "רשמו את המדידה הראשונה והגרף יתחיל להיבנות", "עוד מדידה אחת והגרף יראה מגמה")}
+        <div class="bm-form">
+          <div class="steppers bm-steppers">
+            ${renderStepper(t.id, CM, measureValues[t.id], 0.5, 0, "measure-step")}
+          </div>
+          <button data-action="save-measurement" data-id="${esc(t.id)}" class="save-btn bm-save">רישום מדידה — היום</button>
+          ${bodyMetricHint === t.id ? `<div class="bm-warn" role="alert">הזינו ערך גדול מאפס</div>` : ""}
         </div>
-        <button data-action="save-measurement" data-id="${esc(t.id)}" class="save-btn" style="max-width:none; margin-top:14px;">רישום מדידה — היום</button>
-        ${recent.length ? `
-        <div class="log-list" style="margin-top:14px;">
-          ${recent.map((e) => `
-            <div class="log-row">
-              <span style="color:var(--steel); font-size:12px;">${fmtDate(e.date)}</span>
-              <div class="flex items-center gap-10">
-                <span class="mono" style="font-size:13px;">${e.value} ס"מ</span>
-                <button data-action="delete-measurement-entry" data-id="${esc(e.id)}" aria-label="מחיקת מדידה" style="color:var(--steel); padding:4px;">${ICONS.trash}</button>
-              </div>
-            </div>`).join("")}
-        </div>` : ""}
-      </div>
-      <div style="height:8px;"></div>`;
-    return header + detail;
+        ${bmRecentList(byRecency.slice(0, 8).map((e) => ({
+          id: e.id, dateLabel: fmtDate(e.date), value: e.value, unit: CM, deleteAction: "delete-measurement-entry",
+        })))}
+      </div>`;
+    return `<div class="bm-block open">${head}${detail}</div>`;
   }).join("");
 
   el.innerHTML = `
-    <div class="section-label" style="margin-top:4px;">מדדי גוף</div>
-    ${addRow}
-    ${rows}
+    <div class="body-metrics measure-area">
+      <div class="bm-section-title">מדדי גוף</div>
+      ${addRow}
+      ${!types.length && !measureAddOpen ? `<div class="bm-hint">היקף מותן, זרוע, ירך — כל מדד שתוסיפו יקבל גרף משלו</div>` : ""}
+      ${rows}
+    </div>
   `;
   if (measureAddOpen) {
     const input = document.getElementById("measureTypeInput");
@@ -4517,7 +4603,8 @@ document.addEventListener("click", (e) => {
   else if (action === "focus-wod-builder-search") { document.getElementById("wodBuilderMoveSearch").focus(); }
   else if (action === "create-wod") { createWodFromBuilder(); }
   else if (action === "save-bw") { saveBodyweight(); }
-  else if (action === "toggle-bodyweight") { bodyweightExpanded = !bodyweightExpanded; renderBodyweightArea(); }
+  else if (action === "delete-bodyweight-entry") { deleteBodyweightEntry(el.dataset.id); }
+  else if (action === "toggle-bodyweight") { bodyweightExpanded = !bodyweightExpanded; bodyMetricHint = null; renderBodyweightArea(); }
   else if (action === "open-add-measure-type") { measureAddOpen = true; renderMeasureArea(); }
   else if (action === "cancel-add-measure-type") { measureAddOpen = false; renderMeasureArea(); }
   else if (action === "confirm-add-measure-type") {
@@ -4526,6 +4613,7 @@ document.addEventListener("click", (e) => {
   }
   else if (action === "toggle-measure-type") {
     measureExpandedId = measureExpandedId === el.dataset.id ? null : el.dataset.id;
+    bodyMetricHint = null;
     renderMeasureArea();
   }
   else if (action === "delete-measure-type") { deleteMeasureType(el.dataset.id); }
