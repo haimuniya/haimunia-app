@@ -870,18 +870,53 @@
     50%{ filter:drop-shadow(0 0 7px var(--glow-color)) drop-shadow(0 0 20px var(--glow-color)); }
   }
 
-  .ach-summary{ text-align:center; padding:4px 0 18px; }
-  .ach-summary-level{ font-weight:800; font-size:15px; color:var(--energy); letter-spacing:.3px; margin-bottom:2px; }
-  .ach-summary-num{ font-weight:700; font-size:22px; color:var(--chalk); }
-  .ach-summary-label{ color:var(--steel); font-size:12px; margin-top:2px; }
-  .ach-level-bar{ width:100%; max-width:220px; height:6px; border-radius:999px; background:var(--surface2); border:1px solid var(--border); margin:10px auto 4px; overflow:hidden; }
-  .ach-level-fill{ height:100%; background:var(--energy); border-radius:999px; }
-  .ach-section{ margin-bottom:22px; }
-  .ach-section-head{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  /* Achievements modal body (renderAchievementsContent). Everything here is
+     scoped under .ach-modern — the wrapper that function emits — so the
+     same .medal-* markup rendered by the celebration popup keeps its own
+     sizing instead of inheriting this screen's. One card per family, one
+     gap rhythm (.ach-modern's own 12px), instead of loose rows separated
+     only by margins. */
+  .ach-modern{ display:flex; flex-direction:column; gap:12px; }
+  .ach-modern .ach-summary{ background:var(--surface); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow-card); padding:18px 16px 16px; text-align:center; }
+  .ach-summary-eyebrow{ color:var(--steel); font-size:10.5px; font-weight:700; letter-spacing:1px; }
+  /* Anton ships latin-only here (see its unicode-range), so Hebrew falls
+     through to the next family in the stack — 'Rubik' has to be named
+     explicitly or Hebrew lands on the OS default font instead of the app's
+     own. Latin and digits still get the condensed display face. */
+  .ach-summary-level{ font-family:'Anton','Rubik',sans-serif; font-weight:700; font-size:25px; line-height:1.15; color:var(--energy); letter-spacing:.3px; margin-top:2px; }
+  .ach-summary-score{ display:flex; align-items:baseline; justify-content:center; gap:6px; margin-top:6px; }
+  .ach-summary-num{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:34px; line-height:1; color:var(--chalk); direction:ltr; unicode-bidi:isolate; }
+  .ach-summary-unit{ color:var(--steel); font-size:12px; font-weight:700; }
+  .ach-summary-label{ color:var(--steel); font-size:12px; margin-top:6px; }
+  .ach-summary-chip{ display:inline-block; margin-top:12px; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:5px 12px; color:var(--chalk); font-size:11.5px; font-weight:700; }
+  .ach-level-bar{ width:100%; max-width:240px; height:8px; border-radius:999px; background:var(--surface2); border:1px solid var(--border); margin:12px auto 0; overflow:hidden; }
+  .ach-level-fill{ height:100%; background:var(--energy); border-radius:999px; transition:width .35s ease; }
+  /* The capstone is one badge, not a family — it gets its own block so it
+     doesn't read as the first item of the PR list. Dashed while locked,
+     brass-edged once it isn't. */
+  .ach-capstone{ background:var(--surface); border:1px solid var(--border); border-radius:20px; box-shadow:var(--shadow-card); padding:16px 14px 14px; text-align:center; }
+  .ach-capstone.is-earned{ border-color:var(--brass); }
+  .ach-capstone.is-locked{ border-style:dashed; box-shadow:none; }
+  .ach-capstone-eyebrow{ color:var(--steel); font-size:10.5px; font-weight:700; letter-spacing:1px; margin-bottom:10px; }
+  .ach-modern .ach-section{ background:var(--surface); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow-card); padding:14px 12px 12px; }
+  .ach-section-head{ display:flex; align-items:center; gap:8px; margin-bottom:12px; padding:0 2px; }
   .ach-section-dot{ width:8px; height:8px; border-radius:999px; flex-shrink:0; }
   .ach-section-title{ font-weight:800; font-size:14px; color:var(--chalk); }
-  .ach-row{ display:flex; gap:14px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
-  .ach-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(72px,1fr)); gap:16px 8px; }
+  .ach-section-count{ margin-inline-start:auto; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:2px 8px; color:var(--steel); font-size:11px; font-weight:700; direction:ltr; unicode-bidi:isolate; flex-shrink:0; }
+  .ach-row{ display:flex; gap:12px; overflow-x:auto; padding:2px 2px 6px; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+  .ach-row::-webkit-scrollbar{ display:none; }
+  .ach-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(72px,1fr)); gap:16px 8px; padding:2px; }
+  /* Tenure badges can't even be evaluated without a start date, so this is
+     an empty state, not a card: dashed outline + icon + one-line hint, the
+     same "there's something to do here" language the rest of the app uses,
+     rather than a solid card that reads as content already earned. */
+  .ach-invite{ width:100%; display:flex; align-items:center; gap:12px; text-align:right; background:transparent; border:1.5px dashed var(--border); border-radius:14px; padding:11px 12px; margin-bottom:12px; transition:opacity .15s; }
+  .ach-invite:active{ opacity:.7; }
+  .ach-invite-icon{ width:38px; height:38px; border-radius:11px; background:var(--surface2); color:var(--brass); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .ach-invite-text{ display:flex; flex-direction:column; gap:2px; flex:1; min-width:0; }
+  .ach-invite-title{ font-size:12.5px; font-weight:700; color:var(--chalk); }
+  .ach-invite-hint{ font-size:11.5px; color:var(--steel); }
+  .ach-invite-chevron{ display:flex; color:var(--steel); flex-shrink:0; }
 
   .celebration-stars{ position:absolute; inset:0; pointer-events:none; overflow:hidden; }
   .cstar{ position:absolute; opacity:.35; }
@@ -889,10 +924,41 @@
     .cstar{ animation:starTwinkle 1.8s ease-in-out infinite; }
   }
   @keyframes starTwinkle{ 0%,100%{ opacity:.3; transform:scale(.8) rotate(0deg); } 50%{ opacity:1; transform:scale(1.2) rotate(15deg); } }
-  .celebration-title{ font-family:'Anton',sans-serif; font-weight:400; font-size:30px; color:var(--brass); margin-bottom:6px; letter-spacing:.5px; }
+  /* 'Rubik' named explicitly: both titles that use this class are Hebrew,
+     and Anton's face is latin-only (see its unicode-range) — a bare
+     'Anton',sans-serif stack silently dropped them to the OS default font.
+     Latin/digits still get Anton. */
+  .celebration-title{ font-family:'Anton','Rubik',sans-serif; font-weight:700; font-size:30px; color:var(--brass); margin-bottom:6px; letter-spacing:.5px; }
   .celebration-pr-line{ font-size:15px; font-weight:700; color:var(--chalk); margin-bottom:6px; }
   .celebration-sub{ color:var(--steel); font-size:14px; margin-bottom:20px; }
   .celebration-medals{ display:flex; justify-content:center; gap:16px; flex-wrap:wrap; }
+  /* Scoped to the PR/badge popup only (.celebration-body) — the What's New
+     reveal shares .celebration-sheet and its star field, but not this. */
+  /* The PR line reads as one struck badge rather than a loose sentence.
+     width:fit-content, not display:inline-*, on purpose: showCelebration()
+     toggles this element's inline display between "block" and "none". */
+  .celebration-body .celebration-pr-line{ width:fit-content; max-width:100%; margin:0 auto 12px; background:var(--surface2); border:1px solid var(--border); border-radius:999px; padding:7px 14px; font-size:14px; }
+  .celebration-body .celebration-sub{ margin-bottom:18px; }
+  /* One save can hand over several badges at once. This sheet used to drop
+     its max-height entirely so the popup could centre itself, which left a
+     tall payout pushing the "מעולה!" button off the bottom of an overlay
+     that clips (.modal-overlay is overflow:hidden). The sheet is capped at
+     92% again (inline, below — a percentage of the fixed, inset:0 overlay,
+     which stays correct under the app's html{zoom} text-size setting in a
+     way vh units would not) and the overflow is absorbed here instead.
+     The whole body scrolls rather than just the medal wall: a scroll
+     container hugging the medals would clip their glow, which is drawn
+     outside their own boxes. */
+  .celebration-body{ overflow-y:auto; min-height:0; -webkit-overflow-scrolling:touch; }
+  .celebration-body .celebration-medals{ gap:18px 14px; }
+  /* The moment is worth a slightly bigger medal than the wall of them in
+     the achievements modal. The capstone is excluded — it already has its
+     own, larger size, and this must not shrink it. */
+  .celebration-body .medal-badge:not(.capstone-badge){ width:84px; }
+  .celebration-body .medal-badge:not(.capstone-badge) .medal-shape{ width:74px; height:80px; }
+  .celebration-body .medal-badge:not(.capstone-badge) .medal-shape.shape-circle{ height:74px; }
+  .celebration-body .medal-badge:not(.capstone-badge) .medal-shape.medal-shape-plate{ width:74px; height:74px; }
+  .celebration-body .medal-name{ font-size:11.5px; margin-top:8px; }
   @media (prefers-reduced-motion: no-preference){
     .celebration-sheet{ animation:celebrationPop .35s cubic-bezier(.34,1.56,.64,1); }
   }
@@ -1376,7 +1442,11 @@
 </div>
 
 <div class="modal-overlay" id="celebrationOverlay" data-action="close-celebration" role="dialog" aria-modal="true" aria-labelledby="celebrationTitle" style="align-items:center; padding:0 20px;">
-  <div class="modal-sheet celebration-sheet" style="border-radius:24px; border-bottom:1px solid var(--border); max-height:none; position:relative; overflow:hidden;">
+  <!-- max-height:92% (not the default 85%, and not none): a multi-badge
+       payout can be tall, and this overlay clips, so the sheet has to stay
+       inside the viewport and let .celebration-body scroll instead of
+       pushing the "מעולה!" button out of reach. -->
+  <div class="modal-sheet celebration-sheet" style="border-radius:24px; border-bottom:1px solid var(--border); max-height:92%; position:relative; overflow:hidden;">
     <div class="celebration-stars" aria-hidden="true">
       <svg class="cstar" style="top:6%; left:10%; width:14px; height:14px; animation-delay:0s;" viewBox="0 0 24 24" fill="var(--brass)"><path d="M12 2 14.59 8.36 21.51 8.79 16.13 13.14 17.94 19.88 12 16.2 6.06 19.88 7.87 13.14 2.49 8.79 9.41 8.36Z"/></svg>
       <svg class="cstar" style="top:12%; left:82%; width:20px; height:20px; animation-delay:.3s;" viewBox="0 0 24 24" fill="var(--energy)"><path d="M12 2 14.59 8.36 21.51 8.79 16.13 13.14 17.94 19.88 12 16.2 6.06 19.88 7.87 13.14 2.49 8.79 9.41 8.36Z"/></svg>
@@ -1387,7 +1457,7 @@
       <svg class="cstar" style="bottom:14%; left:88%; width:14px; height:14px; animation-delay:.75s;" viewBox="0 0 24 24" fill="var(--blue)"><path d="M12 2 14.59 8.36 21.51 8.79 16.13 13.14 17.94 19.88 12 16.2 6.06 19.88 7.87 13.14 2.49 8.79 9.41 8.36Z"/></svg>
       <svg class="cstar" style="bottom:4%; left:40%; width:10px; height:10px; animation-delay:1.05s;" viewBox="0 0 24 24" fill="var(--teal)"><path d="M12 2 14.59 8.36 21.51 8.79 16.13 13.14 17.94 19.88 12 16.2 6.06 19.88 7.87 13.14 2.49 8.79 9.41 8.36Z"/></svg>
     </div>
-    <div style="padding:34px 22px calc(env(safe-area-inset-bottom,0px) + 26px); text-align:center; position:relative; z-index:1;">
+    <div class="celebration-body" style="padding:34px 22px calc(env(safe-area-inset-bottom,0px) + 26px); text-align:center; position:relative; z-index:1;">
       <div class="celebration-title" id="celebrationTitle">כל הכבוד!</div>
       <div class="celebration-pr-line" id="celebrationPrLine"></div>
       <div class="celebration-sub" id="celebrationSub">עיטור חדש נפתח — תמשיכו ככה!</div>

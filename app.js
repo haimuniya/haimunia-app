@@ -1161,7 +1161,18 @@ function isWellRounded() {
   return ACHIEVEMENT_PR_CATEGORIES.every((c) => cats.has(c));
 }
 
-function allGoldPRsEarned() { return ACHIEVEMENT_PR_CATEGORIES.every((cat) => (categoryPRCounts()[cat] || 0) >= 25); }
+// Both thresholds are read back off the tier tables rather than repeated as
+// literals — otherwise retuning a gold tier would silently leave the
+// capstone gated on the old number.
+const GOLD_PR_NEED = PR_TIERS.find((t) => t.tier === "gold").need;
+const GOLD_STREAK_NEED = STREAK_TIERS.find((t) => t.tier === "gold").need;
+// One scan for all five categories: categoryPRCounts() walks every entry, so
+// calling it inside the .every() callback rescanned the whole log once per
+// category (and capstoneEarned() runs once per achievements render).
+function allGoldPRsEarned() {
+  const counts = categoryPRCounts();
+  return ACHIEVEMENT_PR_CATEGORIES.every((cat) => (counts[cat] || 0) >= GOLD_PR_NEED);
+}
 function allTenureEarned() {
   const d = daysSinceBoxStart();
   return d !== null && TENURE_MILESTONES.every((m) => d >= m.days);
@@ -1170,7 +1181,7 @@ function allTenureEarned() {
 // only once every other top-shelf badge is in, rather than its own separate
 // bar to clear. It's the one badge that ties every family together.
 function capstoneEarned() {
-  return allGoldPRsEarned() && longestWeekStreak() >= 26 && isWellRounded() && allTenureEarned();
+  return allGoldPRsEarned() && longestWeekStreak() >= GOLD_STREAK_NEED && isWellRounded() && allTenureEarned();
 }
 
 const ACHIEVEMENTS = [
@@ -1261,57 +1272,83 @@ function renderAchievementsContent() {
   const score = ACHIEVEMENTS.reduce((s, a) => s + (earnedMap[a.id] ? a.points : 0), 0);
   const level = athleteLevel(score);
 
+  // Every family renders through the same block shape — head (dot, title,
+  // "3/5" progress chip) then the medals — so the modal reads as one stack
+  // of equal cards instead of five differently-spaced loose rows. The chip
+  // is the only new information: it answers "how far into this family am I"
+  // without the athlete counting greyed-out medals.
+  const family = (dotColor, title, list, layoutClass, extra = "") => {
+    const done = list.filter((a) => earnedMap[a.id]).length;
+    return `
+    <div class="ach-section">
+      <div class="ach-section-head">
+        <span class="ach-section-dot" style="background:${dotColor};"></span>
+        <span class="ach-section-title">${esc(title)}</span>
+        <span class="ach-section-count">${done}/${list.length}</span>
+      </div>
+      ${extra}
+      <div class="${layoutClass}">${list.map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
+    </div>`;
+  };
+
   const capstoneAch = ACHIEVEMENTS.find((a) => a.group === "capstone");
   const capstoneSection = `
-    <div class="ach-section" style="text-align:center;">
+    <div class="ach-capstone ${earnedMap[capstoneAch.id] ? "is-earned" : "is-locked"}">
+      <div class="ach-capstone-eyebrow">העיטור הגבוה ביותר</div>
       ${renderMedal(capstoneAch, earnedMap[capstoneAch.id])}
     </div>`;
 
-  const prSections = ACHIEVEMENT_PR_CATEGORIES.map((cat) => `
-    <div class="ach-section">
-      <div class="ach-section-head"><span class="ach-section-dot" style="background:${CATEGORY_COLORS[cat]};"></span><span class="ach-section-title">${esc(CATEGORY_LABELS[cat])}</span></div>
-      <div class="ach-row">${ACHIEVEMENTS.filter((a) => a.group === "pr" && a.cat === cat).map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
-    </div>`).join("");
+  const prSections = ACHIEVEMENT_PR_CATEGORIES.map((cat) =>
+    family(CATEGORY_COLORS[cat], CATEGORY_LABELS[cat], ACHIEVEMENTS.filter((a) => a.group === "pr" && a.cat === cat), "ach-row")).join("");
 
-  const streakSection = `
-    <div class="ach-section">
-      <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--energy);"></span><span class="ach-section-title">רצף אימונים</span></div>
-      <div class="ach-row">${ACHIEVEMENTS.filter((a) => a.group === "streak").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
-    </div>`;
+  const streakSection = family("var(--energy)", "רצף אימונים", ACHIEVEMENTS.filter((a) => a.group === "streak"), "ach-row");
 
+  // Tenure badges can't be evaluated at all without a start date, so the
+  // milestone family would otherwise show three permanently-locked medals
+  // with no hint that they're waiting on a one-field answer. Same
+  // dashed-outline "there's something to do here" treatment the empty
+  // states elsewhere use, rather than a solid card that reads as content.
   const boxStartPrompt = boxStartDate ? "" : `
-    <button data-action="open-profile-from-achievements" class="card flex items-center justify-between gap-10" style="width:100%; text-align:right; margin-bottom:12px;">
-      <span style="font-size:12.5px; color:var(--chalk); font-weight:600;">הוסיפו תאריך התחלה במועדון כדי לפתוח את עיטורי הוותק</span>
-      <span style="color:var(--steel); flex-shrink:0;">${ICONS.chevronsLeft}</span>
+    <button data-action="open-profile-from-achievements" class="ach-invite">
+      <span class="ach-invite-icon" aria-hidden="true">${ICONS.calendarIcon}</span>
+      <span class="ach-invite-text">
+        <span class="ach-invite-title">הוסיפו תאריך התחלה במועדון</span>
+        <span class="ach-invite-hint">כדי לפתוח את עיטורי הוותק</span>
+      </span>
+      <span class="ach-invite-chevron" aria-hidden="true">${ICONS.chevronsLeft}</span>
     </button>`;
 
-  const milestoneSection = `
-    <div class="ach-section">
-      <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--brass);"></span><span class="ach-section-title">אבני דרך</span></div>
-      ${boxStartPrompt}
-      <div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.group === "milestone").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
-    </div>`;
+  const milestoneSection = family("var(--brass)", "אבני דרך", ACHIEVEMENTS.filter((a) => a.group === "milestone"), "ach-grid", boxStartPrompt);
 
-  const rxSection = `
-    <div class="ach-section">
-      <div class="ach-section-head"><span class="ach-section-dot" style="background:var(--blue);"></span><span class="ach-section-title">Rx לכל אימון</span></div>
-      <div class="ach-grid">${ACHIEVEMENTS.filter((a) => a.group === "rx").map((a) => renderMedal(a, earnedMap[a.id])).join("")}</div>
-    </div>`;
+  const rxSection = family("var(--blue)", "Rx לכל אימון", ACHIEVEMENTS.filter((a) => a.group === "rx"), "ach-grid");
 
-  const progressToNext = level.next
-    ? `<div class="ach-level-bar"><div class="ach-level-fill" style="width:${Math.min(100, Math.round(((score - level.min) / (level.next.min - level.min)) * 100))}%;"></div></div>
-       <div class="ach-summary-label">${level.next.min - score} נקודות עד ${esc(level.next.name)}</div>`
-    : `<div class="ach-summary-label">הדרגה הגבוהה ביותר</div>`;
+  // At the top level there's no "next" to aim at — keep the bar (full) so
+  // the summary block doesn't change height between levels.
+  // Floor, not round: rounding filled the bar to 100% while the label still
+  // said "1 point to go" (e.g. 499/500), which reads as a bug.
+  const pct = level.next
+    ? Math.max(0, Math.min(100, Math.floor(((score - level.min) / (level.next.min - level.min)) * 100)))
+    : 100;
+  const progressLabel = level.next
+    ? `${level.next.min - score} נקודות עד ${esc(level.next.name)}`
+    : "הדרגה הגבוהה ביותר";
 
   return `
-    <div class="ach-summary">
-      <div class="ach-summary-level">${esc(level.name)}</div>
-      <div class="ach-summary-num mono">${score} נקודות</div>
-      ${progressToNext}
-      <div class="ach-summary-label" style="margin-top:8px;">${earnedCount} / ${ACHIEVEMENTS.length} עיטורים</div>
+    <div class="ach-modern">
+      <div class="ach-summary">
+        <div class="ach-summary-eyebrow">דרגת אתלט</div>
+        <div class="ach-summary-level">${esc(level.name)}</div>
+        <div class="ach-summary-score">
+          <span class="ach-summary-num">${score}</span>
+          <span class="ach-summary-unit">נקודות</span>
+        </div>
+        <div class="ach-level-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="התקדמות לדרגה הבאה"><div class="ach-level-fill" style="width:${pct}%;"></div></div>
+        <div class="ach-summary-label">${progressLabel}</div>
+        <div class="ach-summary-chip">${earnedCount} / ${ACHIEVEMENTS.length} עיטורים</div>
+      </div>
+      ${capstoneSection}
+      ${prSections}${streakSection}${milestoneSection}${rxSection}
     </div>
-    ${capstoneSection}
-    ${prSections}${streakSection}${milestoneSection}${rxSection}
   `;
 }
 function openAchievements() {
@@ -1337,6 +1374,15 @@ async function loadSeenAchievements() {
   } catch (e) { /* fall through to baseline */ }
   // First time this ships: baseline whatever's already earned silently, so
   // existing progress doesn't trigger a flood of celebrations on next open.
+  baselineSeenAchievements();
+}
+// Marks everything currently earned as already-seen, without celebrating.
+// Used wherever a pile of history appears at once rather than being earned
+// set by set — first run, and restoring a backup: an import used to leave
+// every badge its history already justified unmarked, so the athlete's
+// next single save popped one celebration listing dozens of "new" medals
+// they'd earned months ago.
+function baselineSeenAchievements() {
   seenAchievementIds = new Set(ACHIEVEMENTS.filter((a) => a.earned()).map((a) => a.id));
   dbSetSetting(SEEN_ACHIEVEMENTS_KEY, [...seenAchievementIds]).catch(() => {});
 }
@@ -1701,6 +1747,13 @@ function toggleLadderMode() {
       setImportMessage(count === 1 ? `${label} נשמר — סט אחד` : `${label} נשמר — ${count} סטים`);
     }
     render();
+    // saveSet() suppresses the celebration popup for every rung of a ladder
+    // (one popup per rung would be unusable). Finishing the ladder is the
+    // natural moment to pay out anything those rungs unlocked — without
+    // this, a badge earned mid-ladder waited for some unrelated later save
+    // to announce it, or was never celebrated at all if the ladder was the
+    // whole session.
+    if (count > 0) checkForNewAchievements();
     return;
   }
   ladderMode = true;
@@ -2241,6 +2294,9 @@ async function importDataFromFile(file) {
   await write(clean.measureEntries, dbPutMeasurement);
 
   await reloadFromDb();
+  // Imported history is past progress, not something earned right now — see
+  // baselineSeenAchievements().
+  baselineSeenAchievements();
 
   const parts = [`יובאו ${ok} רשומות`];
   if (rejected) parts.push(`${rejected} נפסלו`);
