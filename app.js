@@ -2315,10 +2315,9 @@ function recentWodEntriesFor(id, days = 14, cap = 5) {
   const cutoff = localISODate(new Date(Date.now() - days * 86400000));
   return wodEntriesFor(id).filter((e) => e.date >= cutoff).slice(0, cap);
 }
-function activeWods() {
-  const ids = [...new Set(wodEntries.map((e) => e.wodId))];
-  return ids.map(wodById).filter(Boolean);
-}
+// (activeWods() lived here — its only caller was the WOD history list, which
+// now derives the same set plus each WOD's attempt count and last-trained date
+// in a single pass. See wodHistorySummaries().)
 function formatClock(totalSeconds) {
   const m = Math.floor(totalSeconds / 60), s = totalSeconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
@@ -4089,43 +4088,102 @@ function renderWodDetailCard(w) {
     </div>`;
 }
 
+// Everything the history list needs about each trained WOD, in ONE pass over
+// wodEntries. The previous shape called activeWods() twice and then reached
+// back into wodEntriesFor()/formatWodBest() per row — and every one of those
+// goes through wodById(), which rebuilds WOD_LIBRARY.concat(customWods) from
+// scratch for a single lookup. This list re-renders on every keystroke in the
+// search box, so that was a full quadratic scan per character typed.
+// Newest-first ordering of wodEntries isn't relied on for "last trained": an
+// entry can be back-dated (wodLogDate), so date is taken as a max, not [0].
+function wodHistorySummaries() {
+  const byWod = bag();
+  wodEntries.forEach((e) => { (byWod[e.wodId] = byWod[e.wodId] || []).push(e); });
+  return Object.keys(byWod).map((id) => {
+    const wod = wodById(id);
+    if (!wod) return null; // an orphan entry (deleted/unknown WOD) has nothing to show
+    const list = byWod[id];
+    let lastDate = "";
+    list.forEach((e) => { if (e.date > lastDate) lastDate = e.date; });
+    return { wod, count: list.length, lastDate };
+  }).filter(Boolean).sort((a, b) => a.wod.name.localeCompare(b.wod.name));
+}
+
 function renderWodHistoryListArea() {
   const area = document.getElementById("wodHistoryListArea");
   if (!area) return;
-  const q = wodHistorySearch.trim().toLowerCase();
-  const active = activeWods().filter((w) => w.name.toLowerCase().includes(q)).sort((a, b) => a.name.localeCompare(b.name));
-  if (activeWods().length === 0) {
-    area.innerHTML = `<div class="flex col items-center" style="padding:40px 0; gap:8px;">${ICONS.dumbbell}<span style="color:var(--steel); font-size:13px;">רשמו אימון כדי להתחיל לראות התקדמות</span></div>`;
+  const summaries = wodHistorySummaries();
+  if (summaries.length === 0) {
+    area.innerHTML = `
+      <div class="wodh-empty">
+        <span class="wodh-empty-icon">${ICONS.dumbbell}</span>
+        <div class="wodh-empty-title">עדיין אין אימונים ביומן</div>
+        <div class="wodh-empty-sub">כל אימון שתרשמו יופיע כאן עם השיא שלו, כל הניסיונות וגרף ההתקדמות</div>
+        <button class="wodh-empty-cta" data-action="switch-wod-subtab" data-subtab="log">רישום האימון הראשון${ICONS.chevronsLeft}</button>
+      </div>`;
     return;
   }
-  if (active.length === 0) {
-    area.innerHTML = `<div style="color:var(--steel); text-align:center; padding:20px 0; font-size:13px;">לא נמצא אימון התואם ל-"${esc(wodHistorySearch)}"</div>`;
+  const typed = wodHistorySearch.trim();
+  const q = typed.toLowerCase();
+  const matches = q ? summaries.filter((s) => s.wod.name.toLowerCase().includes(q)) : summaries;
+  if (matches.length === 0) {
+    // A dead end otherwise: the old copy said "no match" and stopped there,
+    // with no hint that the list underneath still has everything in it.
+    area.innerHTML = `
+      <div class="wodh-empty">
+        <span class="wodh-empty-icon">${ICONS.dumbbell}</span>
+        <div class="wodh-empty-title">לא נמצא אימון בשם "${esc(typed)}"</div>
+        <div class="wodh-empty-sub">${summaries.length === 1 ? "רשום אצלכם אימון אחד" : `רשומים אצלכם <span class="mono">${summaries.length}</span> אימונים`} — נסו שם אחר</div>
+        <button class="wodh-empty-cta" data-action="clear-wod-history-search">ניקוי החיפוש</button>
+      </div>`;
     return;
   }
-  area.innerHTML = active.map((w) => {
+  area.innerHTML = matches.map(({ wod: w, count, lastDate }) => {
+    const open = wodHistoryId === w.id;
+    // EMOM has no single comparable score across attempts (see bestWodScore),
+    // so formatWodBest returns "—" for it — which, sitting in the score column
+    // under a heading that reads "all-time records", says "you have no score"
+    // when the truth is "this format isn't scored that way". Count the
+    // attempts instead, which is both true and the number that matters for it.
+    const noBest = w.scoreType === "emom";
+    const attemptWord = count === 1 ? "ניסיון" : "ניסיונות";
+    const dateChip = `<span class="mono">${esc(fmtDate(lastDate))}</span>`;
     const row = `
-      <button class="exercise-row ${wodHistoryId === w.id ? "active" : ""}" data-action="select-wod-history" data-id="${esc(w.id)}" style="${wodHistoryId === w.id ? "margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0;" : ""}">
-        <div class="flex items-center gap-8">
-          <span style="display:inline-flex; transition:transform .2s; transform:rotate(${wodHistoryId === w.id ? "90deg" : "180deg"});">${ICONS.chevron}</span>
-          <div class="dot" style="background:${esc(catColor(w.category))}"></div>
-          <span style="font-weight:700; font-size:14px;">${esc(w.name)}</span>
-        </div>
-        <span class="mono" style="color:var(--brass); font-weight:700; font-size:14px;">${formatWodBest(w.id)}</span>
+      <button class="exercise-row wodh-row${open ? " active" : ""}" data-action="select-wod-history" data-id="${esc(w.id)}" aria-expanded="${open}">
+        <span class="wodh-chev" aria-hidden="true">${ICONS.chevron}</span>
+        <span class="dot wodh-dot" style="background:${esc(catColor(w.category))}"></span>
+        <span class="wodh-body">
+          <span class="wodh-name">${esc(w.name)}</span>
+          <span class="wodh-meta">${noBest ? "" : `${count} ${attemptWord} · `}אחרון ${dateChip}</span>
+        </span>
+        <span class="wodh-score">
+          <span class="wodh-score-val mono">${esc(noBest ? String(count) : formatWodBest(w.id))}</span>
+          <span class="wodh-score-cap">${noBest ? attemptWord : "שיא"}</span>
+        </span>
       </button>`;
-    const detail = wodHistoryId === w.id ? renderWodDetailCard(w) + `<div style="height:8px;"></div>` : "";
-    return row + detail;
+    return row + (open ? renderWodDetailCard(w) : "");
   }).join("");
 }
 
 function renderWodHistorySection() {
+  const summaries = wodHistorySummaries();
+  const attempts = summaries.reduce((n, s) => n + s.count, 0);
   return `
-    ${activeWods().length > 0 ? `
-    <div class="section-label">שיאים כלל-זמנים</div>
-    <div class="search-box" style="margin:0 0 12px;">
+  <div class="wod-history">
+    ${summaries.length > 0 ? `
+    <div class="wodh-head">
+      <div class="wodh-head-kicker">שיאים כלל-זמנים</div>
+      <div class="wodh-head-stats">
+        <span><b class="mono">${summaries.length}</b> ${summaries.length === 1 ? "אימון" : "אימונים"}</span>
+        <span><b class="mono">${attempts}</b> ${attempts === 1 ? "ניסיון" : "ניסיונות"}</span>
+      </div>
+    </div>
+    <div class="search-box wodh-search">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       <input id="wodHistorySearch" dir="auto" placeholder="חיפוש באימונים שלך" aria-label="חיפוש באימונים שלך" value="${esc(wodHistorySearch)}" />
     </div>` : ""}
     <div id="wodHistoryListArea"></div>
+  </div>
   `;
 }
 
@@ -4659,6 +4717,15 @@ document.addEventListener("click", (e) => {
   else if (action === "save-wod") { saveWod(); }
   else if (action === "delete-wod-entry") { deleteWodEntry(el.dataset.id); }
   else if (action === "select-wod-history") { wodHistoryId = wodHistoryId === el.dataset.id ? null : el.dataset.id; renderWodHistoryListArea(); }
+  // The search box lives outside #wodHistoryListArea, so it survives the
+  // re-render — put the caret back in it rather than leaving the user to
+  // find it again after clearing a query that matched nothing.
+  else if (action === "clear-wod-history-search") {
+    wodHistorySearch = "";
+    const box = document.getElementById("wodHistorySearch");
+    if (box) { box.value = ""; box.focus(); }
+    renderWodHistoryListArea();
+  }
 });
 document.getElementById("pickerSearch").addEventListener("input", (e) => renderPickerList(cleanStr(e.target.value, LIMITS.nameLen)));
 document.getElementById("pickerSearch").addEventListener("keydown", (e) => {

@@ -368,6 +368,116 @@
   .rx-btn.active-scaled{ background:rgba(224,178,60,.15); border-color:var(--yellow); color:var(--yellow); }
   .rx-btn.active-type{ background:rgba(201,75,41,.15); border-color:var(--energy); color:var(--energy); }
   .wod-desc{ color:var(--steel); font-size:12px; margin-top:2px; }
+
+  /* ---- WOD ▸ "היסטוריה" sub-tab ----
+     Scoped under .wod-history (the wrapper renderWodHistorySection() emits)
+     because this screen is built almost entirely out of shared primitives —
+     .search-box, .exercise-row, .chart-card, .log-list/.log-row — that the
+     log sub-tab, the benchmarks sub-tab, the pickers and the History tab all
+     use too. Two-class selectors give this one view its own treatment without
+     moving those components anywhere else in the app.
+
+     Stripe budget, same as the log screen: exactly two uses. The rail on the
+     summary header, and the cap on whichever row is currently open (only ever
+     one). Anton carries the read-only numbers — every number on this screen is
+     read-only, so JetBrains Mono appears here only for the bidi isolation that
+     .mono also provides, never as the visible face. */
+  .wod-history{ --wodh-gap:12px; }
+
+  /* Summary header: replaces a bare .section-label with the two counts that
+     actually answer "how much is in here", and gives the stripe a home. */
+  .wod-history .wodh-head{
+    position:relative; overflow:hidden;
+    background:linear-gradient(180deg, var(--surface), var(--surface2));
+    border:1px solid var(--border); border-radius:18px;
+    padding:13px 16px 12px; padding-inline-start:22px;
+    margin-bottom:var(--wodh-gap); box-shadow:var(--shadow-card);
+  }
+  .wod-history .wodh-head::before{
+    content:""; position:absolute; inset-block:0; inset-inline-start:0; width:8px;
+    background-image:var(--stripe);
+  }
+  .wod-history .wodh-head-kicker{ color:var(--steel); font-size:10.5px; font-weight:800; letter-spacing:1.1px; }
+  .wod-history .wodh-head-stats{ display:flex; align-items:baseline; gap:16px; margin-top:5px; color:var(--steel); font-size:12px; font-weight:700; }
+  .wod-history .wodh-head-stats b{
+    font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:21px;
+    letter-spacing:.3px; color:var(--chalk); margin-inline-end:3px;
+  }
+  .wod-history .wodh-search{ margin:0 0 var(--wodh-gap); border-radius:14px; }
+
+  /* One row per trained WOD. Four columns instead of the old two, so the row
+     answers "how often / how recently" as well as "what's my best". */
+  .wod-history .wodh-row{
+    position:relative; overflow:hidden; gap:10px;
+    align-items:center; border-radius:16px; padding:11px 14px;
+    margin-bottom:8px;
+  }
+  .wod-history .wodh-chev{ display:inline-flex; flex-shrink:0; transform:rotate(180deg); transition:transform .2s; }
+  .wod-history .wodh-row[aria-expanded="true"] .wodh-chev{ transform:rotate(90deg); }
+  .wod-history .wodh-dot{ display:block; }
+  .wod-history .wodh-body{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+  /* WOD names are English by product rule — Anton's home turf. A Hebrew custom
+     WOD name falls outside Anton's unicode-range and lands on Rubik on its
+     own, which is what the explicit fallback is for. */
+  .wod-history .wodh-name{
+    font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:19px;
+    line-height:1.15; letter-spacing:.2px; color:var(--chalk);
+    direction:ltr; unicode-bidi:isolate; overflow-wrap:anywhere;
+  }
+  .wod-history .wodh-meta{ color:var(--steel); font-size:11.5px; font-weight:600; }
+  .wod-history .wodh-score{ display:flex; flex-direction:column; align-items:center; gap:1px; flex-shrink:0; }
+  .wod-history .wodh-score-val{
+    font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:21px;
+    line-height:1.1; letter-spacing:.4px; color:var(--brass);
+  }
+  .wod-history .wodh-score-cap{ color:var(--steel); font-size:9.5px; font-weight:800; letter-spacing:.6px; }
+
+  /* Open row + its detail card read as one block: the row loses its bottom
+     radius/shadow and the card (which already pulls itself up by 4px and drops
+     its own top border — see renderWodDetailCard) closes the seam. */
+  .wod-history .wodh-row.active{
+    background:var(--surface); border-color:var(--border);
+    box-shadow:none; margin-bottom:0; padding-top:15px;
+    border-bottom-left-radius:0; border-bottom-right-radius:0;
+  }
+  .wod-history .wodh-row.active::before{
+    content:""; position:absolute; inset-inline:0; top:0; height:4px; background-image:var(--stripe);
+  }
+  .wod-history .chart-card{ margin-bottom:var(--wodh-gap); padding:14px; }
+  /* Attempts inside the card were bordered mini-cards inside a bordered card —
+     boxes in boxes. Flatten them to divided rows so the card is one block. */
+  .wod-history .chart-card .log-list{ gap:0; border-top:1px solid var(--border); }
+  .wod-history .chart-card .log-row{
+    background:transparent; border:none; border-radius:0; box-shadow:none;
+    padding:9px 2px; border-bottom:1px solid var(--border);
+  }
+  .wod-history .chart-card .log-row:last-child{ border-bottom:none; padding-bottom:0; }
+  .wod-history .chart-card .log-row .mono{ font-family:'Anton','Rubik',sans-serif; font-weight:400; letter-spacing:.4px; }
+  /* .mono is load-bearing here only for direction:ltr/unicode-bidi:isolate —
+     these are plain supporting text, not scoreboard numbers, so they keep the
+     isolation and give the monospace face back. */
+  .wod-history .wodh-meta .mono, .wod-history .wodh-empty-sub .mono{ font-family:inherit; }
+
+  /* Both dead ends this view used to have — nothing logged yet, and a search
+     that matched nothing — now say what happened and offer the way out. */
+  .wod-history .wodh-empty{
+    display:flex; flex-direction:column; align-items:center; text-align:center;
+    gap:6px; padding:26px 20px; margin-bottom:var(--wodh-gap);
+    background:var(--surface); border:1px dashed var(--border); border-radius:18px;
+  }
+  .wod-history .wodh-empty-icon{ display:inline-flex; margin-bottom:2px; }
+  .wod-history .wodh-empty-icon svg{ stroke:var(--energy); opacity:.8; }
+  /* The no-match title quotes back whatever was typed — up to LIMITS.nameLen
+     characters of it, possibly with no spaces — so it has to be able to break. */
+  .wod-history .wodh-empty-title{ font-weight:800; font-size:14px; color:var(--chalk); max-width:100%; overflow-wrap:anywhere; }
+  .wod-history .wodh-empty-sub{ color:var(--steel); font-size:12px; line-height:1.5; max-width:34ch; }
+  .wod-history .wodh-empty-cta{
+    display:inline-flex; align-items:center; gap:7px; margin-top:8px;
+    background:var(--energy); color:#1a0d08; border-radius:999px;
+    padding:9px 16px; font-size:13px; font-weight:800;
+  }
+  .wod-history .wodh-empty-cta:active{ opacity:.85; }
+
   .text-input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:var(--chalk); font-size:16px; }
   input[type="date"]{ color-scheme:var(--color-scheme); }
   input[type="date"]::-webkit-calendar-picker-indicator{ cursor:pointer; }
