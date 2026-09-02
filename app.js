@@ -922,9 +922,27 @@ let wodBenchmarksSearch = "";
 let wodBuilderOpen = false;
 let builderFormat = null;
 let builderMovements = bag();
+// Selection order, kept explicitly instead of relying on builderMovements'
+// own key order: JS puts integer-like keys FIRST, in ascending numeric
+// order, ahead of every string key — and a movement name is free text, so a
+// user-added "100" silently jumped to the head of an EMOM rotation. This
+// array is the authoritative order; builderMovements is only the lookup.
+let builderMovementOrder = [];
 let builderMoveSearch = "";
+// Every entry point that adds a movement must start from this exact shape.
+// A partial one (added through the "new movement" row) left durationSeconds
+// undefined, so flipping that movement to time mode rendered an empty
+// stepper and baked `0"` into the WOD description.
+function newBuilderMovement() { return { reps: 10, weight: 0, type: "reps", durationSeconds: 20, isRest: false }; }
+// The read-only shape an unchecked row renders from — hoisted so a full
+// list render doesn't allocate one throwaway object per movement.
+const BUILDER_MOVEMENT_DEFAULTS = Object.freeze(newBuilderMovement());
+// Names in rotation order, defensive against the two ever drifting apart.
+function builderMovementNames() {
+  return builderMovementOrder.filter((n) => Object.prototype.hasOwnProperty.call(builderMovements, n));
+}
 // EMOM-only: how many minutes the rotation runs. Movement order/targets for
-// an EMOM come from builderMovements itself (insertion order = rotation
+// an EMOM come from builderMovementNames() (selection order = rotation
 // order) — see createWodFromBuilder.
 let builderEmomMinutes = 10;
 // Optional, any non-EMOM format — reference-only, never enforced. 0 = no cap.
@@ -2407,6 +2425,7 @@ function openWodBuilder(prefillName) {
   wodBuilderOpen = true;
   builderFormat = null;
   builderMovements = bag();
+  builderMovementOrder = [];
   builderMoveSearch = "";
   builderEmomMinutes = 10;
   builderTimeCapMinutes = 0;
@@ -2428,99 +2447,207 @@ function closeWodBuilder() {
   const overlay = document.getElementById("wodBuilderOverlay");
   if (overlay) overlay.classList.remove("open");
 }
+// Changing the format is a step change, so anything that only means
+// something inside the format being left has to go with it: a station
+// flagged as EMOM "rest" carries no reps, but nothing outside EMOM reads
+// that flag, so leaving it set silently re-published the station as a
+// normal "10 Burpees" line in a For Time / AMRAP description.
+function setBuilderFormat(format) {
+  const wasEmom = builderFormat === "emom";
+  builderFormat = format;
+  if (wasEmom && format !== "emom") {
+    Object.keys(builderMovements).forEach((n) => { builderMovements[n].isRest = false; });
+  }
+  renderWodBuilderFormats();
+  renderWodBuilderMovements();
+}
+// Any validation message on the format hint belongs to the moment it was
+// raised — once the user does the thing it asked for, it has to stop
+// shouting instead of staying red until the next format tap.
+function setBuilderFormatHint(text, isError) {
+  const hint = document.getElementById("wodBuilderFormatHint");
+  if (!hint) return;
+  hint.textContent = text;
+  hint.classList.toggle("is-error", !!isError);
+  document.querySelectorAll("#wodBuilderFormats .format-chip").forEach((btn) => {
+    btn.classList.toggle("is-error", !!isError && !builderFormat);
+  });
+  // The create button is pinned to the bottom of the sheet, so it can be
+  // tapped from anywhere in a long movement list — which means a message
+  // rendered up in the format card can be entirely off screen when it
+  // appears. Bring it to the user rather than the other way round.
+  if (isError && typeof hint.scrollIntoView === "function") hint.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+function clearBuilderFormatHint() {
+  setBuilderFormatHint(builderFormat ? "" : "חובה לבחור אחד", false);
+}
+// The movements list has its own hint line, right above it — a message
+// about the list itself belongs there and not up in the format card, which
+// by then is usually scrolled off the top of the sheet.
+function builderMovesHintText() {
+  return builderFormat === "emom" ? "לפי סדר הבחירה — חובה לפחות אחת" : "אופציונלי";
+}
+function setBuilderMovesHint(text, isError) {
+  const el = document.getElementById("wodBuilderMovesHint");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("is-error", !!isError);
+}
 function renderWodBuilderFormats() {
   document.querySelectorAll("#wodBuilderFormats .format-chip").forEach((btn) => {
     const active = btn.dataset.format === builderFormat;
     btn.classList.toggle("active", active);
     btn.setAttribute("aria-checked", String(active));
-    btn.style.borderColor = "";
   });
-  const hint = document.getElementById("wodBuilderFormatHint");
-  if (hint) {
-    hint.textContent = "חובה לבחור אחד";
-    hint.style.color = "var(--steel)";
-  }
+  clearBuilderFormatHint();
   const isEmom = builderFormat === "emom";
   const emomEl = document.getElementById("wodBuilderEmomOptions");
   if (emomEl) {
     emomEl.innerHTML = isEmom ? `
-      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">כמה דקות</div>
-      <div class="steppers" style="margin-bottom:16px;">${renderStepper("emomMinutes", "דקות", builderEmomMinutes, 1, 1, "builder-emom-minutes")}</div>
+      <div class="wodbuild-field">
+        <div class="wodbuild-label">אורך האימון</div>
+        <div class="steppers wodbuild-steppers">${renderStepper("emomMinutes", "דקות", builderEmomMinutes, 1, 1, "builder-emom-minutes")}</div>
+      </div>
     ` : "";
   }
   const movesLabel = document.getElementById("wodBuilderMovesLabel");
-  if (movesLabel) movesLabel.textContent = isEmom ? "תרגילים (סדר הסיבוב — לפי סדר הבחירה)" : "תרגילים (אופציונלי)";
+  if (movesLabel) movesLabel.textContent = isEmom ? "תחנות הסיבוב" : "תרגילים";
+  setBuilderMovesHint(builderMovesHintText(), false);
   // Reference-only, shown for every format except EMOM (which already has
   // its own minutes) — never enforced or scored against, see saveWod().
   const capEl = document.getElementById("wodBuilderTimeCapOptions");
   if (capEl) {
     capEl.innerHTML = (builderFormat && !isEmom) ? `
-      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">מגבלת זמן (אופציונלי, 0 = ללא)</div>
-      <div class="steppers" style="margin-bottom:16px;">${renderStepper("timeCapMinutes", "דקות", builderTimeCapMinutes, 1, 0, "builder-time-cap")}</div>
+      <div class="wodbuild-field">
+        <div class="wodbuild-label">מגבלת זמן <span class="wodbuild-label-soft">אופציונלי · 0 = ללא</span></div>
+        <div class="steppers wodbuild-steppers">${renderStepper("timeCapMinutes", "דקות", builderTimeCapMinutes, 1, 0, "builder-time-cap")}</div>
+      </div>
     ` : "";
   }
+}
+// The running "what you've picked so far" block. Selections survive a
+// change of search query, but the rows carrying them don't — so without
+// this, typing a second query made everything already chosen disappear off
+// screen with no trace. Doubles as the screen's empty state.
+function renderWodBuilderPicked(picked) {
+  const isEmom = builderFormat === "emom";
+  if (picked.length === 0) {
+    return `
+      <div class="wodbuild-empty">
+        ${ICONS.dumbbell}
+        <div class="wodbuild-empty-title">${isEmom ? "הסיבוב עדיין ריק" : "עוד לא נבחרו תרגילים"}</div>
+        <div class="wodbuild-empty-hint">${isEmom ? "בחרו תחנות מהרשימה — סדר הבחירה הוא סדר הסיבוב" : "חפשו ובחרו מהרשימה, או צרו את האימון גם בלעדיהם"}</div>
+      </div>`;
+  }
+  return `
+    <div class="wodbuild-picked">
+      <div class="wodbuild-picked-head">
+        <span class="wodbuild-picked-title">${isEmom ? "הסיבוב" : "נבחרו"}</span>
+        <span class="wodbuild-num wodbuild-picked-count">${picked.length}</span>
+      </div>
+      <div class="wodbuild-chips">
+        ${picked.map((n, i) => `
+          <button class="wodbuild-chip" data-action="toggle-builder-movement" data-name="${esc(n)}" aria-label="הסרה — ${esc(n)}">
+            ${isEmom ? `<span class="wodbuild-num wodbuild-chip-num">${i + 1}</span>` : ""}
+            <span class="wodbuild-chip-name" dir="auto">${esc(n)}</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>`).join("")}
+      </div>
+    </div>`;
 }
 function renderWodBuilderMovements(query) {
   const el = document.getElementById("wodBuilderMovements");
   if (!el) return;
   if (typeof query === "string") builderMoveSearch = query;
-  const q = builderMoveSearch.trim().toLowerCase();
+  const search = builderMoveSearch.trim();
+  const q = search.toLowerCase();
+  const isEmom = builderFormat === "emom";
+  // Resolved once for the whole render — a per-row lookup into the order
+  // array would be a scan per movement across the full tag list.
+  const pickedNames = builderMovementNames();
+  const rotationIndex = bag();
+  pickedNames.forEach((n, i) => { rotationIndex[n] = i + 1; });
   const filtered = WOD_MOVEMENT_TAGS.filter((m) => m.name.toLowerCase().includes(q));
   const exactMatch = WOD_MOVEMENT_TAGS.some((m) => m.name.toLowerCase() === q);
   const byCategory = bag();
   filtered.forEach((m) => { (byCategory[m.category] = byCategory[m.category] || []).push(m); });
-  const addRow = builderMoveSearch.trim() && !exactMatch
-    ? `<div style="border:1px solid var(--brass); border-radius:12px; padding:10px 12px; margin-bottom:10px;">
-         <div style="font-weight:700; font-size:13px; color:var(--brass); margin-bottom:8px;">הוספת "${esc(builderMoveSearch.trim())}" — לאיזו קטגוריה?</div>
+  const addRow = search && !exactMatch
+    ? `<div class="wodbuild-newmove">
+         <div class="wodbuild-newmove-title">הוספת <span class="wodbuild-iso" dir="auto">${esc(search)}</span> — לאיזו קטגוריה?</div>
          <div class="flex wrap gap-8">
-           ${WOD_MOVE_CATEGORIES.map((cat) => `<button class="format-chip" style="flex:0 0 auto; padding:8px 14px;" data-action="add-builder-movement-tag" data-name="${esc(builderMoveSearch.trim())}" data-category="${cat}">${esc(catLabel(cat))}</button>`).join("")}
+           ${WOD_MOVE_CATEGORIES.map((cat) => `<button class="format-chip wodbuild-minichip" data-action="add-builder-movement-tag" data-name="${esc(search)}" data-category="${cat}">${esc(catLabel(cat))}</button>`).join("")}
          </div>
        </div>`
-    : `<button class="movement-btn" data-action="focus-wod-builder-search" style="border-color:var(--brass); margin-bottom:10px;">
-         <span style="font-weight:700; font-size:14px; color:var(--brass);">+ הוספת תרגיל/סקילס חדש</span>
+    : `<button class="movement-btn wodbuild-addnew" data-action="focus-wod-builder-search">
+         <span>+ הוספת תרגיל/סקילס חדש</span>
        </button>`;
+  const picked = renderWodBuilderPicked(pickedNames);
   if (Object.keys(byCategory).length === 0) {
-    el.innerHTML = addRow + (builderMoveSearch.trim() ? `<div style="color:var(--steel); text-align:center; padding:16px 0; font-size:13px;">לא נמצא תרגיל התואם ל-"${esc(builderMoveSearch)}"</div>` : "");
+    el.innerHTML = picked + addRow + (search ? `
+      <div class="wodbuild-empty">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--border)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <div class="wodbuild-empty-title">לא נמצא תרגיל בשם <span class="wodbuild-iso" dir="auto">${esc(search)}</span></div>
+        <div class="wodbuild-empty-hint">בחרו קטגוריה למעלה כדי להוסיף אותו לרשימה</div>
+      </div>` : "");
     return;
   }
-  el.innerHTML = addRow + Object.entries(byCategory).map(([cat, items]) => `
+  el.innerHTML = picked + addRow + Object.entries(byCategory).map(([cat, items]) => `
     <div class="cat-group">
       <div class="cat-head"><div class="dot" style="background:${esc(catColor(cat))}"></div><span class="cat-name">${esc(catLabel(cat))}</span></div>
       ${items.map((m) => {
         const checked = Object.prototype.hasOwnProperty.call(builderMovements, m.name);
-        const data = builderMovements[m.name] || { reps: 10, weight: 0, type: "reps", durationSeconds: 20, isRest: false };
-        const isEmom = builderFormat === "emom";
+        const data = builderMovements[m.name] || BUILDER_MOVEMENT_DEFAULTS;
         const hasWeight = WOD_MOVE_CATEGORIES_WITH_WEIGHT.has(m.category);
         const isDuration = data.type === "duration";
         const isRest = isEmom && data.isRest;
         // A rotation number instead of a checkmark: EMOM movements are
         // ordered (rotation order = selection order), everything else is an
         // unordered set that just needs to be on/off.
-        const rotationNum = isEmom && checked ? Object.keys(builderMovements).indexOf(m.name) + 1 : null;
+        const rotationNum = isEmom && checked ? rotationIndex[m.name] : null;
         return `
+        <div class="wodbuild-move${checked ? " is-on" : ""}">
         <button class="movecheck-row ${checked ? "checked" : ""}" data-action="toggle-builder-movement" data-name="${esc(m.name)}" role="checkbox" aria-checked="${checked}">
-          <span style="font-weight:600; font-size:14px;">${rotationNum ? `${rotationNum}. ` : ""}${esc(m.name)}${isRest ? " (מנוחה)" : ""}</span>
+          <span class="wodbuild-move-name">${rotationNum ? `<span class="wodbuild-num wodbuild-move-num">${rotationNum}</span>` : ""}<span dir="auto">${esc(m.name)}</span>${isRest ? `<span class="wodbuild-rest-tag">מנוחה</span>` : ""}</span>
           <div class="movecheck-box">${checked ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>' : ""}</div>
         </button>
-        ${checked && isEmom ? `
-        <div class="flex gap-8" style="margin:-2px 0 6px; padding:0 2px;">
-          <button class="format-chip ${isRest ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-rest" data-name="${esc(m.name)}" role="checkbox" aria-checked="${isRest}">מנוחה — סבב ללא תרגיל</button>
+        ${checked ? `<div class="wodbuild-move-body">
+        ${isEmom ? `
+        <div class="flex gap-8 wodbuild-move-toggles">
+          <button class="format-chip wodbuild-minichip ${isRest ? "active" : ""}" data-action="toggle-builder-movement-rest" data-name="${esc(m.name)}" role="checkbox" aria-checked="${isRest}">מנוחה — סבב ללא תרגיל</button>
         </div>` : ""}
-        ${checked && !isRest ? `
-        <div class="flex gap-8" style="margin:-2px 0 6px; padding:0 2px;" role="radiogroup" aria-label="חזרות או זמן — ${esc(m.name)}">
-          <button class="format-chip ${!isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="reps" role="radio" aria-checked="${!isDuration}">${esc(repsFieldLabel(m.name))}</button>
-          <button class="format-chip ${isDuration ? "active" : ""}" style="flex:0 0 auto; padding:6px 12px; font-size:11.5px;" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="duration" role="radio" aria-checked="${isDuration}">זמן</button>
+        ${!isRest ? `
+        <div class="flex gap-8 wodbuild-move-toggles" role="radiogroup" aria-label="חזרות או זמן — ${esc(m.name)}">
+          <button class="format-chip wodbuild-minichip ${!isDuration ? "active" : ""}" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="reps" role="radio" aria-checked="${!isDuration}">${esc(repsFieldLabel(m.name))}</button>
+          <button class="format-chip wodbuild-minichip ${isDuration ? "active" : ""}" data-action="toggle-builder-movement-type" data-name="${esc(m.name)}" data-type="duration" role="radio" aria-checked="${isDuration}">זמן</button>
         </div>
-        <div class="flex" style="gap:8px; margin:0 0 10px; padding:0 2px;">
+        <div class="steppers wodbuild-steppers">
           ${isDuration ? renderStepper(m.name, "שניות", data.durationSeconds, 5, 1, "builder-movement-duration") : renderStepper(m.name, repsFieldLabel(m.name) + (isEmom ? " בכל סבב" : ""), data.reps, 1, 0, "builder-movement-reps")}
           ${hasWeight ? renderStepper(m.name, "ק\"ג", data.weight, 2.5, 0, "builder-movement-weight") : ""}
-        </div>` : ""}`;
+        </div>` : ""}
+        </div>` : ""}
+        </div>`;
       }).join("")}
     </div>`).join("");
 }
 function toggleBuilderMovement(name) {
-  if (Object.prototype.hasOwnProperty.call(builderMovements, name)) delete builderMovements[name];
-  else builderMovements[name] = { reps: 10, weight: 0, type: "reps", durationSeconds: 20, isRest: false };
+  if (Object.prototype.hasOwnProperty.call(builderMovements, name)) {
+    delete builderMovements[name];
+    builderMovementOrder = builderMovementOrder.filter((n) => n !== name);
+  } else {
+    // An EMOM rotation over the cap would be silently truncated back to
+    // LIMITS.emomMovements the next time the WOD is read off disk
+    // (sanitizeCustomWod), taking any already-logged reps for the dropped
+    // stations with it — so the cap is enforced here, where it can still
+    // be explained, instead of after the fact.
+    if (builderFormat === "emom" && builderMovementNames().length >= LIMITS.emomMovements) {
+      setBuilderMovesHint(`אפשר לבחור עד ${LIMITS.emomMovements} תחנות בסיבוב`, true);
+      return;
+    }
+    builderMovements[name] = newBuilderMovement();
+    builderMovementOrder.push(name);
+  }
+  clearBuilderFormatHint();
+  setBuilderMovesHint(builderMovesHintText(), false);
   renderWodBuilderMovements();
 }
 function setBuilderMovementType(name, type) {
@@ -2536,23 +2663,24 @@ function toggleBuilderMovementRest(name) {
 function createWodFromBuilder() {
   const nameInput = document.getElementById("wodBuilderName");
   const name = nameInput ? cleanStr(nameInput.value, LIMITS.nameLen) : "";
-  if (!name) { nameInput.focus(); return; }
+  if (!name) { if (nameInput) nameInput.focus(); return; }
   if (!builderFormat) {
-    const hint = document.getElementById("wodBuilderFormatHint");
-    if (hint) {
-      hint.textContent = "יש לבחור פורמט למעלה כדי להמשיך";
-      hint.style.color = "var(--red)";
-    }
-    document.querySelectorAll("#wodBuilderFormats .format-chip").forEach((btn) => {
-      btn.style.borderColor = "var(--red)";
-    });
+    setBuilderFormatHint("יש לבחור פורמט למעלה כדי להמשיך", true);
     return;
   }
   if (builderFormat === "emom") {
-    const emomMovements = Object.keys(builderMovements);
+    const emomMovements = builderMovementNames();
     if (emomMovements.length === 0) {
-      const hint = document.getElementById("wodBuilderFormatHint");
-      if (hint) { hint.textContent = "יש לבחור לפחות תרגיל אחד לסיבוב"; hint.style.color = "var(--red)"; }
+      setBuilderFormatHint("יש לבחור לפחות תרגיל אחד לסיבוב", true);
+      return;
+    }
+    // Refuse rather than truncate: sanitizeCustomWod caps the rotation at
+    // LIMITS.emomMovements when the WOD is read back off disk, so saving a
+    // longer one here would quietly drop stations (and their logged reps)
+    // on the next app open. toggleBuilderMovement blocks this too — this
+    // catches a selection made before the format was switched to EMOM.
+    if (emomMovements.length > LIMITS.emomMovements) {
+      setBuilderFormatHint(`אפשר לבחור עד ${LIMITS.emomMovements} תחנות בסיבוב`, true);
       return;
     }
     // A rest station carries no reps/duration/weight — the type array is
@@ -2571,7 +2699,7 @@ function createWodFromBuilder() {
     });
     return;
   }
-  addCustomWod(name, builderFormat, builderMovementsToDesc(builderMovements), {
+  addCustomWod(name, builderFormat, builderMovementsToDesc(builderMovements, builderMovementNames()), {
     timeCapSeconds: builderTimeCapMinutes > 0 ? builderTimeCapMinutes * 60 : null,
   });
 }
@@ -2589,11 +2717,20 @@ function emomWodDesc(minutes, movements, types, targetReps, targetDurations, tar
 // Pure by design (no DOM/state reads) so it's directly testable — the
 // builder's per-movement reps/weight/duration fields are never stored as
 // structured data on the WOD itself, only baked into this free-text desc.
-function builderMovementsToDesc(movements) {
-  return Object.entries(movements)
-    .map(([name, d]) => d.type === "duration"
-      ? `${formatDuration(d.durationSeconds)} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`
-      : `${d.reps} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`)
+// `order` is optional and defaults to the object's own key order — pass it
+// (builderMovementNames()) whenever selection order matters, since a plain
+// object reorders integer-like names like "100" ahead of everything else.
+function builderMovementsToDesc(movements, order) {
+  const names = Array.isArray(order)
+    ? order.filter((n) => Object.prototype.hasOwnProperty.call(movements, n))
+    : Object.keys(movements);
+  return names
+    .map((name) => {
+      const d = movements[name];
+      return d.type === "duration"
+        ? `${formatDuration(d.durationSeconds)} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`
+        : `${d.reps} ${name}${d.weight ? ` @ ${d.weight}kg` : ""}`;
+    })
     .join(", ");
 }
 
@@ -4870,7 +5007,7 @@ document.addEventListener("click", (e) => {
     if (el.id === "wodBuilderOverlay" && e.target !== el) return;
     closeWodBuilder();
   }
-  else if (action === "builder-set-format") { builderFormat = el.dataset.format; renderWodBuilderFormats(); renderWodBuilderMovements(); }
+  else if (action === "builder-set-format") { setBuilderFormat(el.dataset.format); }
   else if (action === "toggle-builder-movement") { toggleBuilderMovement(el.dataset.name); }
   else if (action === "toggle-builder-movement-type") { setBuilderMovementType(el.dataset.name, el.dataset.type); }
   else if (action === "toggle-builder-movement-rest") { toggleBuilderMovementRest(el.dataset.name); }
@@ -4881,7 +5018,10 @@ document.addEventListener("click", (e) => {
     if (!WOD_MOVEMENT_TAGS.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
       WOD_MOVEMENT_TAGS.push({ name, category: WOD_MOVE_CATEGORIES.includes(category) ? category : "Gymnastics" });
     }
-    builderMovements[name] = { reps: 10, weight: 0 };
+    // Goes through the same toggle as every other row, so the new movement
+    // gets the full default shape and joins the rotation order properly
+    // (and hits the EMOM station cap like anything else).
+    if (!Object.prototype.hasOwnProperty.call(builderMovements, name)) toggleBuilderMovement(name);
     builderMoveSearch = "";
     const moveSearch = document.getElementById("wodBuilderMoveSearch");
     if (moveSearch) moveSearch.value = "";
