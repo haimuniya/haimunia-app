@@ -1,3 +1,39 @@
+# Fix the bottom nav floating above the true screen edge, add a "what's new" reveal — 2026-09-02
+
+Two changes, reported/requested back to back in the same session as the nav
+restructure above.
+
+**Bug, caught on a real device (not by headless testing)**: the user sent a
+screenshot from an actual phone showing the bottom nav bar floating with a
+visible strip of ordinary page content underneath it, not flush against
+the true bottom edge. Root cause: `.tabbar` and `.bottom-bar` (the save
+button) were two INDEPENDENTLY `position:fixed` elements, each computing
+its own `bottom` offset from `env(safe-area-inset-bottom)`. On a device
+reporting a large inset (confirmed by emulating one via Chrome's
+`Emulation.setSafeAreaInsetsOverride` — 48px reproduces it exactly), that
+offset pushed the bar up and left a gap of real page content exposed below
+it instead of the bar's own background. Fixed by nesting both inside one
+`#bottomNavWrap` fixed container and applying the safe-area inset exactly
+once, as the tab bar's own bottom PADDING (so its `--surface` background is
+what fills that strip, not empty space) rather than as an offset that
+creates a gap — the tab bar is now flush to the true edge regardless of
+how large the inset is on a given device. Re-verified against the exact
+48px-inset condition before shipping, not just re-tested at the default
+(zero-inset) headless viewport that let this through the first time.
+
+**"What's New" reveal**: added a one-time celebratory screen
+(`whatsNewOverlay`, `showWhatsNewIfDue()` in app.js) for a RETURNING user
+whose last-seen version predates this redesign — reuses the PR-celebration
+overlay's star-field/pop-in look instead of the plain bullet-point
+notifications list every routine release gets. A first-time user never
+sees it (nothing to compare the new look to); a user already caught up
+never sees it again. Three highlight rows: one-tap bottom nav, settings
+consolidated under the header's gear button, and the visual refresh itself.
+
+166/166 tests pass (added 4 tests for the reveal's gating logic, in
+test/whats-new.test.mjs, plus strengthened an existing fresh-install test
+to assert the reveal explicitly).
+
 # Nav back to one tap, plus overlay accessibility and a perf fix — 2026-09-02
 
 A research audit of the whole app (requested directly: "what else will we

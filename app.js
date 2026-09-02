@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.32.0";
+const APP_VERSION = "2.33.0";
 const TAB_TITLES = { add: "רישום", history: "התקדמות", calendar: "לוח שנה", wod: "אימונים" };
 
 const WOD_MOVEMENT_TAGS = [
@@ -1341,6 +1341,9 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.33.0", date: "2026-09-02", items: [
+    "תיקון: שורת הניווט התחתונה הייתה יכולה להיראות \"תלויה\" מעל תוכן העמוד במכשירים מסוימים — עכשיו היא תמיד צמודה לתחתית המסך",
+  ] },
   { version: "2.32.0", date: "2026-09-02", items: [
     "הניווט חזר לשורת טאבים למטה — לחיצה אחת לכל מסך, במקום דרך תפריט. כפתור ההגדרות (⚙ למעלה) פותח את ההגדרות ישירות",
     "שיפורי נגישות: כל החלונות הקופצים תומכים עכשיו ב-Escape לסגירה וב-Tab למעבר בין השדות בלי \"לברוח\" מהחלון",
@@ -1471,6 +1474,60 @@ function openNotifications() {
   document.getElementById("notificationsOverlay").classList.add("open");
   if (unseenReleaseNotes().length) { markNotificationsSeen(); updateNotificationsBadge(); }
   trapFocusOnOpen("notificationsOverlay");
+}
+
+// ---------- "What's New" reveal (one-time, for the visual redesign) ----------
+// The regular per-version notifications list (above) is right for routine
+// releases — a quiet bullet list is proportionate. A full-app visual
+// redesign isn't routine, so it gets the app's one "special moment"
+// treatment instead (reuses the PR-celebration overlay's star-field/pop-in
+// look, see whatsNewOverlay in index.html) — shown once, only to a
+// returning user who never saw any part of it. Bumping this to a later
+// version would show it again to anyone still below that version; it isn't
+// meant to move with every release the way RELEASE_NOTES does.
+const WHATS_NEW_MILESTONE = "2.31.0";
+function renderWhatsNewHighlights() {
+  const rows = [
+    { bg: "rgba(232,93,61,.16)", color: "var(--energy)", label: "ניווט בלחיצה אחת", desc: "כל המסכים זמינים למטה, תמיד",
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg>' },
+    { bg: "var(--surface)", color: "var(--steel)", label: "הגדרות במקום אחד", desc: "פרופיל, גיבוי ומראה — מתחת לכפתור ההגדרות למעלה",
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 0 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15z"/></svg>' },
+    { bg: "rgba(232,185,138,.18)", color: "var(--brass)", label: "מראה רענן", desc: "כרטיסים, צללים וצבעים מוקפדים יותר בכל מסך",
+      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M12 2l1.7 7.3L21 11l-7.3 1.7L12 20l-1.7-7.3L3 11l7.3-1.7Z"/></svg>' },
+  ];
+  return rows.map((r) => `
+    <div class="whats-new-row">
+      <span class="whats-new-chip" style="background:${r.bg}; color:${r.color};">${r.icon}</span>
+      <div>
+        <div class="whats-new-label">${esc(r.label)}</div>
+        <div class="whats-new-desc">${esc(r.desc)}</div>
+      </div>
+    </div>`).join("");
+}
+function showWhatsNew() {
+  document.getElementById("whatsNewHighlights").innerHTML = renderWhatsNewHighlights();
+  document.body.style.overflow = "hidden";
+  document.getElementById("whatsNewOverlay").classList.add("open");
+  trapFocusOnOpen("whatsNewOverlay");
+}
+function closeWhatsNew() {
+  restoreFocusOnClose();
+  document.body.style.overflow = "";
+  document.getElementById("whatsNewOverlay").classList.remove("open");
+}
+// Called once from init(), after the regular fresh-install/welcome-modal
+// branch. A fresh install has never seen the old design, so there's nothing
+// to reveal — this only fires for a real returning user whose last-seen
+// version predates the redesign milestone. Marks them fully caught up
+// (same as opening the regular notifications list would) so this — and the
+// small badge/notifications list for the versions the milestone covers —
+// doesn't show again.
+function showWhatsNewIfDue() {
+  if (!lastSeenVersion || compareVersions(lastSeenVersion, WHATS_NEW_MILESTONE) >= 0) return false;
+  markNotificationsSeen();
+  updateNotificationsBadge();
+  showWhatsNew();
+  return true;
 }
 function closeNotifications() {
   restoreFocusOnClose();
@@ -4351,6 +4408,10 @@ document.addEventListener("click", (e) => {
     if (el.id === "celebrationOverlay" && e.target !== el) return;
     closeCelebration();
   }
+  else if (action === "close-whats-new") {
+    if (el.id === "whatsNewOverlay" && e.target !== el) return;
+    closeWhatsNew();
+  }
   else if (action === "open-achievements") { openAchievements(); }
   else if (action === "close-achievements") {
     if (el.id === "achievementsOverlay" && e.target !== el) return;
@@ -4422,6 +4483,7 @@ const OVERLAY_A11Y = {
   settingsOverlay: { close: () => closeSettingsModal(), escapable: true },
   onboardingOverlay: { close: () => closeOnboarding(), escapable: false },
   celebrationOverlay: { close: () => closeCelebration(), escapable: true },
+  whatsNewOverlay: { close: () => closeWhatsNew(), escapable: true },
   welcomeOverlay: { close: () => closeWelcomeModal(), escapable: false },
 };
 // `a[href]`, not bare `[href]` — the achievements modal's medal SVGs use
@@ -4570,7 +4632,7 @@ async function init() {
   updateNotificationsBadge();
 
   if (userName === null) openWelcomeModal();
-  else if (unseenReleaseNotes().length) openNotifications();
+  else if (!showWhatsNewIfDue() && unseenReleaseNotes().length) openNotifications();
 
   // iOS never fires beforeinstallprompt (that's what drives showInstallBanner
   // for Chrome/Android elsewhere), so it needs its own nudge — otherwise an

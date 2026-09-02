@@ -39,6 +39,7 @@ test("a fresh install skips the what's-new popup and shows onboarding only after
   // the fresh-install path init() is meant to special-case.
   assert.equal(window.document.getElementById("welcomeOverlay").classList.contains("open"), true, "welcome modal should be showing");
   assert.equal(window.document.getElementById("notificationsOverlay").classList.contains("open"), false, "no changelog for someone who's never used the app");
+  assert.equal(window.document.getElementById("whatsNewOverlay").classList.contains("open"), false, "no redesign reveal either — there's no old design for a first-time user to compare it to");
   assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false, "onboarding waits for the welcome form, not shown yet");
 
   window.saveWelcomeForm("בודק");
