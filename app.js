@@ -1547,16 +1547,21 @@ function renderNotificationsList() {
   // marks them seen, otherwise the list would always render empty.
   const unseen = unseenReleaseNotes();
   if (!unseen.length) {
-    el.innerHTML = `<div class="empty">אין עדכונים חדשים</div>`;
+    el.innerHTML = `
+      <div class="chrome-empty">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <div class="chrome-empty-title">אין עדכונים חדשים</div>
+        <div class="chrome-empty-hint">כשתצא גרסה חדשה נספר לכם כאן בדיוק מה השתנה</div>
+      </div>`;
     return;
   }
   el.innerHTML = unseen.slice().reverse().map((r) => `
-    <div class="cat-group">
-      <div class="cat-head flex items-center gap-8">
-        <span class="cat-name mono" style="direction:ltr; unicode-bidi:isolate;">${esc(r.version)}</span>
-        <span style="color:var(--steel); font-size:11px; margin-inline-start:auto;">${esc(fmtDate(r.date))}</span>
+    <div class="notif-group">
+      <div class="notif-head">
+        <span class="notif-version">v${esc(r.version)}</span>
+        <span class="notif-date">${esc(fmtDate(r.date))}</span>
       </div>
-      <ul style="margin:6px 0 4px; padding-inline-start:20px; color:var(--chalk); font-size:13.5px; line-height:1.6;">
+      <ul class="notif-items">
         ${r.items.map((i) => `<li>${esc(i)}</li>`).join("")}
       </ul>
     </div>`).join("");
@@ -1997,6 +2002,12 @@ function renderUserGreeting() {
   const el = document.getElementById("userGreeting");
   if (!el) return;
   el.innerHTML = userName ? `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">שלום ${esc(userName)}</span>${ICONS.chevronsLeft}` : "";
+  // Someone who skipped the name prompt stores "" — the button then rendered
+  // empty but stayed in the DOM as a real, focusable, zero-content control
+  // (reached by Tab and announced as a nameless button). Take it out of the
+  // layout and the tab order entirely instead; the "לכל המדליות" link right
+  // below it already leads to the same screen.
+  el.style.display = userName ? "" : "none";
   if (userName) el.setAttribute("aria-label", `שלום ${userName} — פתיחת עיטורים והישגים`);
   else el.removeAttribute("aria-label");
 }
@@ -2118,11 +2129,16 @@ function setThemePref(pref) {
   const row = document.getElementById("themeRow");
   if (row) row.outerHTML = renderThemeRow();
 }
+// A real segmented control, not a row of 11px underlined links separated by
+// "·" — the old markup styled an interactive control in var(--border) (under
+// 2:1 against the sheet) with a ~20px tap target. Same id/data-action/
+// aria-checked contract as before, so setThemePref()'s outerHTML swap and the
+// existing tests are unaffected.
 function renderThemeRow() {
   const opts = [["dark", "כהה"], ["light", "בהיר"], ["auto", "אוטומטי"]];
-  return `<div id="themeRow" class="flex items-center justify-center gap-8" role="radiogroup" aria-label="מראה" style="margin-bottom:8px;">
-    ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-theme" data-pref="${val}" role="radio" aria-checked="${themePref === val}" style="${themePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;" aria-hidden="true">·</span>')}
-  </div>`;
+  return `<div id="themeRow" class="settings-seg" role="radiogroup" aria-label="מראה">${
+    opts.map(([val, label]) => `<button class="settings-seg-btn" data-action="set-theme" data-pref="${val}" role="radio" aria-checked="${themePref === val}">${label}</button>`).join("")
+  }</div>`;
 }
 
 // Text size, same reasoning and mechanism as theme above — localStorage
@@ -2152,9 +2168,9 @@ function setTextScalePref(pref) {
 }
 function renderTextScaleRow() {
   const opts = [["normal", "רגיל"], ["large", "גדול"]];
-  return `<div id="textScaleRow" class="flex items-center justify-center gap-8" role="radiogroup" aria-label="גודל טקסט" style="margin-bottom:8px;">
-    ${opts.map(([val, label]) => `<button class="link-btn" data-action="set-text-scale" data-pref="${val}" role="radio" aria-checked="${textScalePref === val}" style="${textScalePref === val ? "color:var(--chalk); font-weight:700; text-decoration:none;" : ""}">${label}</button>`).join('<span style="color:var(--border); font-size:11px;" aria-hidden="true">·</span>')}
-  </div>`;
+  return `<div id="textScaleRow" class="settings-seg" role="radiogroup" aria-label="גודל טקסט">${
+    opts.map(([val, label]) => `<button class="settings-seg-btn" data-action="set-text-scale" data-pref="${val}" role="radio" aria-checked="${textScalePref === val}">${label}</button>`).join("")
+  }</div>`;
 }
 
 const LAST_EXPORT_KEY = "boxlog:lastExportAt";
@@ -2919,7 +2935,30 @@ function flashPR() {
 function showUpdateBanner() {
   const el = document.getElementById("updateBanner");
   if (el) el.style.display = "block";
-  dismissInstallBanner();
+  // Step the install banner aside — they share the fixed-top slot — but hide
+  // the ELEMENT only. This used to call dismissInstallBanner(), which also
+  // writes the sessionStorage "the user dismissed this" flag; one update
+  // banner then suppressed the install prompt for the whole session (and
+  // sessionStorage survives reloads in the same tab, so the post-update
+  // reload didn't clear it either). "An update took the slot" and "the user
+  // tapped ✕" are not the same event and must not share a latch.
+  const installEl = document.getElementById("installBanner");
+  if (installEl) installEl.style.display = "none";
+  syncTopBannerOffset();
+}
+
+// Both banners are position:fixed at top:0, so whatever they cover is simply
+// unreachable while they're up — including the header's gear/bell buttons and
+// the greeting. Push the page down by exactly the banner's own measured
+// height (their padding already includes the safe-area inset, so offsetHeight
+// is the whole thing) rather than guessing a constant that would be wrong on
+// any device reporting a different inset.
+function syncTopBannerOffset() {
+  const shown = ["updateBanner", "installBanner"]
+    .map((id) => document.getElementById(id))
+    .filter((el) => el && el.style.display === "block");
+  const h = shown.reduce((max, el) => Math.max(max, el.offsetHeight || 0), 0);
+  document.documentElement.style.setProperty("--top-banner-offset", h ? h + "px" : "0px");
 }
 
 // ---------- Icons ----------
@@ -3929,8 +3968,19 @@ function renderHistoryTab() {
 // renderSettingsModalBody(). Storage errors and a stale backup both need to
 // stay visible without an extra tap, so they stay on every tab.
 function renderFooter() {
+  // setImportMessage() is not import-only: finishing a ladder/superset
+  // ("הסולם נשמר — 3 סטים") and saving a session note ("ההערה נשמרה") both go
+  // through it from the Log and Calendar tabs. This line used to live here and
+  // moved wholesale into the settings modal with everything else — which left
+  // those two confirmations rendering into a sheet that is closed at the
+  // moment they fire, i.e. nowhere. Rendered here only when the settings
+  // modal isn't already showing the same text, so an import's own progress
+  // message isn't announced twice by a screen reader.
+  const settingsEl = document.getElementById("settingsOverlay");
+  const settingsOpen = !!settingsEl && settingsEl.classList.contains("open");
   return `
     <div class="footer">
+      ${importMessage && !settingsOpen ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); font-weight:700; font-size:12.5px;">${esc(importMessage)}</div>` : ""}
       <div class="footer-note"${storageOK ? "" : ' style="color:var(--red);" role="alert"'}>${storageOK ? "נשמר במכשיר הזה בלבד, ללא שרת" : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
       ${(() => {
         const hasData = entries.length || wodEntries.length || bodyweightEntries.length || measureTypes.length;
@@ -3962,40 +4012,65 @@ function renderSettingsModalBody() {
   const days = daysSinceLastExport();
   const stale = hasData && (days === null || days >= 21);
   const initial = userName && userName.trim() ? userName.trim().charAt(0) : "?";
+  const warnIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
+  // NOTE: the two backup buttons carry their icon with no whitespace around
+  // the label on purpose — their textContent has to stay exactly the Hebrew
+  // label (see test/import-export-ui.test.mjs).
   return `
-    <div style="padding:0 16px 20px;">
+    <div class="settings-pane">
       <button data-action="edit-user-name" class="menu-profile-card">
         <div class="menu-avatar">${esc(initial)}</div>
         <div style="text-align:right; flex:1; min-width:0;">
-          <div style="font-weight:800; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${userName ? esc(userName) : "אורח"}</div>
+          <div style="font-weight:800; font-size:15.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${userName ? esc(userName) : "אורח"}</div>
           <div style="color:var(--steel); font-size:12px; margin-top:2px;">עריכת פרופיל</div>
         </div>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--steel)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
-      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">גודל טקסט</div>
-      ${renderTextScaleRow()}
-      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin:14px 0 6px;">מראה</div>
-      ${renderThemeRow()}
-      <div style="height:1px; background:var(--border); margin:18px 0 16px;"></div>
-      ${stale ? `<div class="footer-note" style="color:var(--yellow); margin-bottom:10px; text-align:center;">${esc(days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`)} — ייצוא גיבוי למטה</div>` : ""}
-      <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
-        <button class="link-btn" data-action="export-data" style="font-size:13px;">ייצוא גיבוי</button>
-        <span style="color:var(--border); font-size:11px;">·</span>
-        <button class="link-btn" data-action="import-data" style="font-size:13px;">ייבוא גיבוי</button>
+
+      <div class="settings-block">
+        <div class="settings-block-title">תצוגה</div>
+        <div class="settings-row">
+          <span class="settings-row-label">גודל טקסט</span>
+          ${renderTextScaleRow()}
+        </div>
+        <div class="settings-row">
+          <span class="settings-row-label">מראה</span>
+          ${renderThemeRow()}
+        </div>
       </div>
-      <div class="footer-note" style="text-align:center; margin-bottom:16px;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל שם, היסטוריית משקל גוף ויומן אימונים מלא — שמרו אותו במקום בטוח</div>
-      ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px; text-align:center;">${esc(importMessage)}</div>` : ""}
-      <div style="text-align:center;">
-        ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">מחיקת כל הנתונים</button>` : `
-          <div class="flex items-center justify-center gap-10">
-            <span style="color:var(--steel); font-size:11px;">למחוק הכל?</span>
-            <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">כן, מחיקה</button>
-            <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">ביטול</button>
-          </div>`}
+
+      <div class="settings-block">
+        <div class="settings-block-title">גיבוי ושחזור</div>
+        ${stale ? `<div class="settings-warn">${warnIcon}<span>${esc(days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`)} — ייצאו קובץ עכשיו כדי לא לאבד את היומן</span></div>` : ""}
+        <div class="settings-actions">
+          <button class="settings-btn" data-action="export-data"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>ייצוא גיבוי</button>
+          <button class="settings-btn" data-action="import-data"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M4 21h16"/></svg>ייבוא גיבוי</button>
+        </div>
+        <div class="settings-note">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל את יומן האימונים המלא, היסטוריית משקל הגוף והמדדים שלכם — שמרו אותו במקום בטוח</div>
+        ${importMessage ? `<div class="settings-status" role="status" aria-live="polite">${esc(importMessage)}</div>` : ""}
       </div>
-      <div style="text-align:center; margin-top:14px;">
-        <a href="mailto:haimuniya@gmail.com" class="link-btn" style="font-size:13px;">יצירת קשר / דיווח על תקלה</a>
+
+      <div class="settings-block">
+        <div class="settings-block-title">אזור מסוכן</div>
+        ${!confirmClear
+          ? `<button class="settings-btn settings-btn-danger" data-action="ask-clear" style="width:100%;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>מחיקת כל הנתונים</button>
+             <div class="settings-note">מוחק לצמיתות את כל הסטים, האימונים והמדדים במכשיר הזה. אין דרך לשחזר בלי קובץ גיבוי.</div>`
+          : `<div class="settings-confirm">
+               <div class="settings-confirm-q">למחוק הכל? הפעולה אינה הפיכה</div>
+               <button class="settings-btn settings-btn-danger" data-action="do-clear">כן, מחיקה</button>
+               <button class="settings-btn" data-action="cancel-clear">ביטול</button>
+             </div>`}
       </div>
-      <div class="footer-note" style="text-align:center; margin-top:8px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
+
+      <a class="settings-support" href="mailto:haimuniya@gmail.com">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+        יש שאלה או רעיון? כתבו לנו
+      </a>
+
+      <div class="settings-foot">
+        <div class="settings-version">v${esc(APP_VERSION)}</div>
+        <div>© ${new Date().getFullYear()} Shahaf Rachmany</div>
+      </div>
     </div>`;
 }
 function openSettingsModal() {
@@ -4008,6 +4083,12 @@ function closeSettingsModal() {
   restoreFocusOnClose();
   document.body.style.overflow = "";
   document.getElementById("settingsOverlay").classList.remove("open");
+  // Disarm a half-completed "delete everything". confirmClear was only ever
+  // reset by tapping ביטול or by going through with the deletion, so arming
+  // it and then closing the sheet (backdrop, ✕ or Escape) left the NEXT open
+  // of settings sitting on a live "כן, מחיקה" button — one stray tap from
+  // wiping the log, with no re-confirmation.
+  confirmClear = false;
 }
 
 function updateLogQuickUI(field) {
@@ -4910,12 +4991,14 @@ function showInstallBanner() {
     if (subtitle) subtitle.textContent = "גישה מהירה ישירות ממסך הבית";
   }
   el.style.display = "block";
+  syncTopBannerOffset();
 }
 
 function dismissInstallBanner() {
   const el = document.getElementById("installBanner");
   if (el) el.style.display = "none";
   try { sessionStorage.setItem(INSTALL_DISMISS_KEY, "1"); } catch (e) {}
+  syncTopBannerOffset();
 }
 
 async function installApp() {
@@ -4938,6 +5021,10 @@ window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
   dismissInstallBanner();
 });
+// A banner's height changes with its text wrapping, so a rotation or an
+// on-screen keyboard opening can leave the offset stale. Cheap when nothing
+// is showing: syncTopBannerOffset() reads no geometry at all in that case.
+window.addEventListener("resize", syncTopBannerOffset);
 
 // ---------- Event delegation ----------
 document.addEventListener("click", (e) => {

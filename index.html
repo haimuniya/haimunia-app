@@ -137,10 +137,14 @@
   .justify-center{ justify-content:center; }
   .gap-6{ gap:6px; } .gap-8{ gap:8px; } .gap-10{ gap:10px; }
   .wrap{ flex-wrap:wrap; }
-  #app{ max-width:480px; margin:0 auto; padding: calc(env(safe-area-inset-top,0px) + 20px) 16px calc(env(safe-area-inset-bottom,0px) + 200px); overflow-x:hidden; }
+  /* --top-banner-offset is set from JS (syncTopBannerOffset in app.js) to the
+     live height of whichever fixed top banner is showing. Both banners are
+     position:fixed at top:0, so without this the header — gear button, logo,
+     greeting — sat underneath them and was unreachable while one was up. */
+  #app{ max-width:480px; margin:0 auto; padding: calc(env(safe-area-inset-top,0px) + 20px + var(--top-banner-offset,0px)) 16px calc(env(safe-area-inset-bottom,0px) + 200px); overflow-x:hidden; transition:padding-top .2s; }
   .header{ display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:14px; }
   .header-logo{ height:46px; width:auto; display:block; }
-  .icon-btn{ width:38px; height:38px; border-radius:12px; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--steel); flex-shrink:0; box-shadow:var(--shadow-sm); transition:opacity .15s; }
+  .icon-btn{ width:40px; height:40px; border-radius:12px; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; color:var(--steel); flex-shrink:0; box-shadow:var(--shadow-sm); transition:opacity .15s; }
   .icon-btn:active{ opacity:.7; }
   .page-title{ font-weight:800; font-size:21px; color:var(--chalk); margin-bottom:16px; }
   .brand-stripe{ height:6px; border-radius:4px; background-image:var(--stripe); margin-bottom:18px; }
@@ -153,8 +157,16 @@
      comment in index.html for why: a floating-with-gap layout broke on a
      real device reporting a large inset). */
   .tabbar{ max-width:480px; margin:0 auto; display:flex; background:var(--surface); border-top:1px solid var(--border); padding:8px 10px calc(env(safe-area-inset-bottom,0px) + 8px); gap:2px; box-shadow:0 -4px 16px rgba(0,0,0,.18); }
-  .tabbtn{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 2px; border-radius:14px; font-weight:700; font-size:10.5px; color:var(--steel); border:1px solid transparent; transition:all .15s; white-space:nowrap; }
+  /* transition narrowed from `all` — the only properties that actually change
+     between states are the background and the text/icon color, and animating
+     `all` on four always-mounted buttons made every unrelated style
+     recalculation on this bar a transition candidate. */
+  .tabbtn{ position:relative; flex:1; min-width:0; display:flex; flex-direction:column; align-items:center; gap:3px; padding:10px 2px 8px; border-radius:14px; font-weight:700; font-size:10.5px; color:var(--steel); border:1px solid transparent; transition:background-color .15s, color .15s; white-space:nowrap; }
   .tabbtn.active{ background:rgba(232,93,61,.14); color:var(--energy); }
+  /* A short energy-colored cap above the active tab: the tinted pill alone
+     read as "slightly different background" at a glance mid-workout, which is
+     exactly when this bar has to answer "where am I?" without being studied. */
+  .tabbtn.active::before{ content:""; position:absolute; top:2px; left:50%; transform:translateX(-50%); width:20px; height:3px; border-radius:2px; background:var(--energy); }
   .card{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:12px 14px; box-shadow:var(--shadow-card); }
   .exercise-select{ width:100%; display:flex; align-items:center; justify-content:space-between; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px 16px; margin-bottom:12px; box-shadow:var(--shadow-card); }
   .dot{ width:8px; height:8px; border-radius:999px; flex-shrink:0; }
@@ -327,8 +339,15 @@
   .save-btn{ width:100%; max-width:448px; background:var(--energy); color:#1a0d08; font-family:'Anton',sans-serif; font-weight:400; letter-spacing:0.5px; font-size:19px; padding:16px 0; border-radius:16px; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 8px 28px rgba(232,93,61,.4); transition:opacity .15s; }
   .save-btn:active{ opacity:.85; }
   .footer{ text-align:center; margin-top:28px; }
-  .footer-note{ color:var(--border); font-size:11px; margin-bottom:8px; }
-  .link-btn{ color:var(--border); font-size:11px; text-decoration:underline; }
+  /* Both were var(--border) — a color picked to be nearly invisible against
+     the surface it outlines, which is the wrong job for body text and very
+     much the wrong job for a tappable control (.link-btn backs real actions:
+     the header's medals link, the welcome modal's skip, "add a second
+     exercise", "save note"). var(--steel) is the token that already means
+     "muted text" and clears 4.5:1 in both themes. */
+  .footer-note{ color:var(--steel); font-size:11px; margin-bottom:8px; }
+  .link-btn{ color:var(--steel); font-size:11px; text-decoration:underline; text-underline-offset:2px; }
+  .link-btn:active{ opacity:.6; }
   .modal-overlay{ position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:50; display:none; align-items:flex-end; overflow:hidden; }
   .modal-overlay.open{ display:flex; }
   .modal-sheet{ background:var(--bg); border-top-left-radius:22px; border-top-right-radius:22px; width:100%; max-height:85%; padding-bottom:env(safe-area-inset-bottom,0px); display:flex; flex-direction:column; border:1px solid var(--border); border-bottom:none; overflow-x:hidden; }
@@ -964,13 +983,71 @@
   }
   @keyframes celebrationPop{ 0%{ transform:scale(.85); opacity:0; } 100%{ transform:scale(1); opacity:1; } }
 
-  /* ---- Settings modal ---- */
+  /* ---- Settings modal ----
+     Everything below is scoped under .settings-pane (or #settingsOverlay) so
+     it cannot leak into the five other sheets that share .modal-sheet /
+     .modal-list. Follows the Log screen's visual language: a handful of solid
+     blocks on one gap rhythm instead of a run of loose centered mini-links,
+     the orange stripe used exactly twice as brand punctuation (the profile
+     card's leading rail and the sheet header's hairline), and Anton reserved
+     for the one read-only number here — the version. */
   #settingsOverlay.open{ display:flex; }
-  .menu-profile-card{ width:100%; display:flex; align-items:center; gap:12px; background:var(--surface2); border:1px solid var(--border); border-radius:16px; padding:14px 16px; margin-bottom:18px; text-align:right; }
+  #settingsOverlay .modal-head{ position:relative; padding-bottom:12px; }
+  #settingsOverlay .modal-head::after{ content:""; position:absolute; inset-inline:16px; bottom:4px; height:3px; border-radius:2px; background-image:var(--stripe); }
+  .settings-pane{ display:flex; flex-direction:column; gap:14px; padding:4px 16px 20px; }
+  .settings-block{ background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:14px; box-shadow:var(--shadow-card); }
+  .settings-block-title{ color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:12px; }
+
+  .menu-profile-card{ position:relative; overflow:hidden; width:100%; display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:14px 16px; padding-inline-start:22px; text-align:right; box-shadow:var(--shadow-card); }
+  .menu-profile-card::before{ content:""; position:absolute; inset-block:0; inset-inline-start:0; width:7px; background-image:var(--stripe); }
+  .menu-profile-card:active{ opacity:.85; }
   .menu-avatar{ width:48px; height:48px; border-radius:50%; background:linear-gradient(135deg, var(--brass), var(--energy)); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:18px; color:#1a0d08; flex-shrink:0; }
 
+  /* Label on one side, control on the other — one row per preference, split
+     by a hairline rather than each floating in its own bordered card. */
+  .settings-row{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 12px; }
+  .settings-row + .settings-row{ margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+  .settings-row-label{ font-weight:700; font-size:14px; color:var(--chalk); }
+  /* Replaces a row of 11px underlined links in var(--border) — under 2:1
+     contrast, and a ~20px tap target for a control people reach for
+     one-handed. */
+  .settings-seg{ display:flex; background:var(--surface2); border:1px solid var(--border); border-radius:13px; padding:3px; gap:2px; flex-shrink:0; }
+  .settings-seg-btn{ padding:8px 13px; border-radius:10px; font-weight:700; font-size:12.5px; color:var(--steel); white-space:nowrap; transition:background-color .15s, color .15s; }
+  .settings-seg-btn[aria-checked="true"]{ background:var(--surface); color:var(--chalk); box-shadow:var(--shadow-sm); }
+
+  .settings-actions{ display:flex; gap:10px; }
+  .settings-btn{ flex:1; display:flex; align-items:center; justify-content:center; gap:7px; padding:12px 8px; border-radius:13px; border:1px solid var(--border); background:var(--surface2); color:var(--chalk); font-weight:700; font-size:13.5px; transition:opacity .15s; }
+  .settings-btn:active{ opacity:.7; }
+  .settings-btn-danger{ background:transparent; border-color:var(--red); color:var(--red); }
+  .settings-note{ color:var(--steel); font-size:11.5px; line-height:1.55; margin-top:11px; }
+  .settings-warn{ display:flex; align-items:flex-start; gap:8px; background:rgba(224,178,60,.12); border:1px solid var(--yellow); color:var(--yellow); border-radius:13px; padding:10px 12px; font-size:12px; font-weight:600; line-height:1.45; margin-bottom:12px; }
+  .settings-warn svg{ flex-shrink:0; margin-top:1px; }
+  .settings-status{ color:var(--brass); font-size:12.5px; font-weight:700; text-align:center; margin-top:11px; }
+  .settings-confirm{ display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .settings-confirm-q{ color:var(--chalk); font-size:13px; font-weight:700; width:100%; text-align:center; margin-bottom:2px; }
+  /* Support link and version live outside the blocks, as sheet fine print. */
+  .settings-support{ display:flex; align-items:center; justify-content:center; gap:8px; padding:12px; border:1.5px dashed var(--border); border-radius:14px; color:var(--brass); font-size:13px; font-weight:700; text-decoration:none; }
+  .settings-support:active{ opacity:.7; }
+  .settings-foot{ text-align:center; color:var(--steel); font-size:11px; line-height:1.7; }
+  .settings-version{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:14px; letter-spacing:.6px; color:var(--chalk); direction:ltr; unicode-bidi:isolate; }
+
+  /* ---- Bell / "what's new" list (see notificationsOverlay) ---- */
+  .notif-group{ background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:12px 14px; margin-bottom:10px; box-shadow:var(--shadow-card); }
+  .notif-head{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  /* Anton, not the mono face: a version is a read-only badge here, and
+     JetBrains Mono stays reserved for numbers you can actually edit. */
+  .notif-version{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:14px; letter-spacing:.5px; color:var(--energy); direction:ltr; unicode-bidi:isolate; }
+  .notif-date{ color:var(--steel); font-size:11px; margin-inline-start:auto; }
+  .notif-items{ margin:0; padding-inline-start:18px; color:var(--chalk); font-size:13.5px; line-height:1.6; }
+  .notif-items li + li{ margin-top:6px; }
+  /* Shared invite-shaped empty state for the app-chrome sheets — dashed
+     outline, icon, one line of Hebrew — instead of a bare centered sentence. */
+  .chrome-empty{ display:flex; flex-direction:column; align-items:center; gap:8px; text-align:center; border:1.5px dashed var(--border); border-radius:18px; padding:30px 20px; color:var(--steel); }
+  .chrome-empty-title{ font-weight:700; font-size:14px; color:var(--chalk); }
+  .chrome-empty-hint{ font-size:12.5px; color:var(--steel); line-height:1.5; }
+
   /* ---- What's New reveal (see whatsNewOverlay) ---- */
-  .whats-new-row{ display:flex; align-items:center; gap:12px; background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:11px 14px; }
+  .whats-new-row{ display:flex; align-items:center; gap:12px; background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:11px 14px; box-shadow:var(--shadow-sm); }
   .whats-new-chip{ width:38px; height:38px; border-radius:11px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
   .whats-new-label{ font-weight:800; font-size:13.5px; color:var(--chalk); }
   .whats-new-desc{ color:var(--steel); font-size:12px; margin-top:1px; }
@@ -1109,6 +1186,12 @@
   }
   .log-screen .movement-btn{ border-radius:16px; }
   .log-screen .empty{ padding:18px 0 6px; }
+
+  /* ---- First-run onboarding (see onboardingOverlay) ---- */
+  .onb-row{ display:flex; align-items:center; gap:12px; background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:11px 13px; }
+  .onb-chip{ width:38px; height:38px; border-radius:11px; background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--brass); }
+  .onb-label{ font-weight:800; font-size:14px; color:var(--chalk); }
+  .onb-desc{ color:var(--steel); font-size:12.5px; margin-top:1px; line-height:1.45; }
 </style>
 </head>
 <body>
@@ -1418,22 +1501,22 @@
     <div style="padding:28px 22px calc(env(safe-area-inset-bottom,0px) + 24px);">
       <div id="onboardingTitle" style="color:var(--chalk); font-weight:800; font-size:19px; margin-bottom:4px; text-align:center;">כמה מילים על האפליקציה</div>
       <div style="color:var(--steel); font-size:13px; margin-bottom:22px; text-align:center;">ארבעה מסכים, כל אחד למטרה שלו</div>
-      <div style="display:flex; flex-direction:column; gap:16px; margin-bottom:24px;">
-        <div class="flex items-center gap-10">
-          <span style="color:var(--brass); flex-shrink:0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg></span>
-          <div><div style="font-weight:700; font-size:14px;">רישום</div><div style="color:var(--steel); font-size:12.5px;">רישום סטים ואימונים, כולל סולם של כמה סטים ברצף</div></div>
+      <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:24px;">
+        <div class="onb-row">
+          <span class="onb-chip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg></span>
+          <div><div class="onb-label">רישום</div><div class="onb-desc">רישום סטים ואימונים, כולל סולם של כמה סטים ברצף</div></div>
         </div>
-        <div class="flex items-center gap-10">
-          <span style="color:var(--brass); flex-shrink:0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V12M12 20V4M20 20v-7"/></svg></span>
-          <div><div style="font-weight:700; font-size:14px;">התקדמות</div><div style="color:var(--steel); font-size:12.5px;">גרפים, שיאים אישיים, משקל גוף ומדדים</div></div>
+        <div class="onb-row">
+          <span class="onb-chip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V12M12 20V4M20 20v-7"/></svg></span>
+          <div><div class="onb-label">התקדמות</div><div class="onb-desc">גרפים, שיאים אישיים, משקל גוף ומדדים</div></div>
         </div>
-        <div class="flex items-center gap-10">
-          <span style="color:var(--brass); flex-shrink:0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
-          <div><div style="font-weight:700; font-size:14px;">לוח שנה</div><div style="color:var(--steel); font-size:12.5px;">כל האימונים שלכם לפי תאריך, ונפח אימון לפי קטגוריה</div></div>
+        <div class="onb-row">
+          <span class="onb-chip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
+          <div><div class="onb-label">לוח שנה</div><div class="onb-desc">כל האימונים שלכם לפי תאריך, ונפח אימון לפי קטגוריה</div></div>
         </div>
-        <div class="flex items-center gap-10">
-          <span style="color:var(--brass); flex-shrink:0;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg></span>
-          <div><div style="font-weight:700; font-size:14px;">אימונים</div><div style="color:var(--steel); font-size:12.5px;">רישום WOD, כולל בנצ׳מארקים מוכרים או אימון מותאם אישית</div></div>
+        <div class="onb-row">
+          <span class="onb-chip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l3 2M9 2h6M12 2v3"/></svg></span>
+          <div><div class="onb-label">אימונים</div><div class="onb-desc">רישום WOD, כולל בנצ׳מארקים מוכרים או אימון מותאם אישית</div></div>
         </div>
       </div>
       <button data-action="close-onboarding" class="save-btn" style="max-width:none;">בואו נתחיל</button>
