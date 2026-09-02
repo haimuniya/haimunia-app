@@ -47,8 +47,9 @@ test("loadThemePref reads a previously-saved preference back from localStorage",
   assert.equal(window.document.documentElement.getAttribute("data-theme"), "light");
 });
 
-test("the footer's theme row reflects the current selection across all three options", async () => {
+test("the settings modal's theme row reflects the current selection across all three options", async () => {
   const window = await bootApp();
+  window.openSettingsModal();
   window.setThemePref("light");
   const active = window.document.querySelector("[data-action='set-theme'][data-pref='light']");
   assert.equal(active.getAttribute("aria-checked"), "true");

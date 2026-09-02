@@ -51,8 +51,9 @@ test("loadTextScalePref reads a previously-saved preference back from localStora
   assert.equal(window.document.documentElement.getAttribute("data-text-scale"), "large");
 });
 
-test("the footer's text-scale row reflects the current selection, and only offers רגיל/גדול", async () => {
+test("the settings modal's text-scale row reflects the current selection, and only offers רגיל/גדול", async () => {
   const window = await bootApp();
+  window.openSettingsModal();
   assert.equal(window.document.querySelector("[data-action='set-text-scale'][data-pref='xlarge']"), null, "the removed xlarge option should not be offered in the UI");
 
   window.setTextScalePref("large");

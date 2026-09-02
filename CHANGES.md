@@ -1,3 +1,58 @@
+# Redesign: hamburger menu, settings modal, visual polish pass — 2026-09-02
+
+Full-app visual refresh built directly to a reference design the user
+provided (screenshots of the target direction), same brand palette (dark
+navy/energy-orange, unchanged tokens) but "more beautiful": bumped card
+radii, added a `--shadow-card`/`--shadow-sm` token pair (per theme) applied
+across `.card`, `.exercise-select`, `.stat-card`, `.chart-card`,
+`.bar-wrap`, `.movement-btn`, `.exercise-row`, `.log-row`, `.report-row`.
+
+Primary navigation moved off the always-visible top tab bar and into a new
+hamburger menu (☰ button added to the header, next to the notification
+bell): a full-screen slide-in sheet with a profile card, the four tab
+destinations as colored icon-chip rows (active tab highlighted), and a
+settings row. The old `.tabbar` pill row stays in the DOM (display:none)
+purely so `render()`'s existing tab-button sync loop has real elements to
+write into — no JS there needed to change. A new `#pageTitle` heading shows
+the current tab's name where the pill row used to be.
+
+Settings (theme, text size, profile edit, box start date via profile edit,
+export/import backup, delete-everything) moved out of the footer — which
+was the original complaint, everything buried at the bottom of every
+screen — into a dedicated settings modal reached from the menu. The footer
+now only carries the two safety-relevant notices (storage errors, stale
+backup reminder) that need to stay visible without an extra tap.
+
+Two real bugs turned up from actually verifying this instead of trusting
+the diff, both the same root cause — jsdom's test suite can't see
+paint/z-index issues, so neither was caught by `npm test` alone:
+
+- Caught by a real browser walkthrough: the new full-screen menu sheet
+  reaches the top of the viewport, unlike every other bottom-sheet modal in
+  the app, so it rendered *underneath* the install/update banners (z-index
+  59/60) — the menu's own title and close button were invisible whenever a
+  banner was showing. Fixed by giving `#menuOverlay` z-index 61.
+- Caught by an independent `/code-review` pass over the same diff: raising
+  `#menuOverlay` to 61 created a second instance of the exact same bug one
+  level down — tapping "עריכת פרופיל" on the menu's own profile card opened
+  `#welcomeOverlay` (no z-index override, base 50) *underneath* the still-open
+  menu, with no visible way to edit the name. Fixed by closing the menu
+  before opening the profile modal from that entry point.
+
+Verified with a real headless-Chrome walkthrough (Chrome DevTools Protocol,
+no extra installs — Node's native WebSocket client driving the existing
+Chrome install) through the full user journey: welcome → onboarding → log
+a set → PR celebration → hamburger menu → settings → history → calendar →
+WOD → theme toggle. Zero console errors/exceptions. Added
+`test/hamburger-menu.test.mjs` (8 new tests: open/close, backdrop-click
+guard, active-tab highlighting, tab switching, settings routing, the
+delete-confirm flow re-rendering correctly inside the still-open modal,
+profile-edit access) and updated the three existing tests that queried the
+now-moved footer controls (`import-export-ui`, `text-scale`, `theme`) to
+open the settings modal first.
+
+149/149 tests pass.
+
 # Fix the medal frame rendering as an oval, and offline medal images — 2026-08-27
 
 Found by an independent code review of the previous square-glow fix, not

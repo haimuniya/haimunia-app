@@ -100,7 +100,8 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.30.4";
+const APP_VERSION = "2.31.0";
+const TAB_TITLES = { add: "רישום", history: "התקדמות", calendar: "לוח שנה", wod: "אימונים" };
 
 const WOD_MOVEMENT_TAGS = [
   // Gymnastics (bodyweight)
@@ -1320,6 +1321,14 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.31.0", date: "2026-09-02", items: [
+    "עיצוב מחודש: תפריט המבורגר חדש (הכפתור ☰ למעלה) עם כל המסכים העיקריים, במקום שורת הטאבים הקבועה",
+    "ההגדרות, גיבוי/שחזור נתונים ומחיקת נתונים עברו מהפוטר לתפריט ⟵ הגדרות — פחות עומס בתחתית כל מסך",
+    "ריענון ויזואלי לכרטיסים בכל האפליקציה — פינות, צללים ומרווחים מוקפדים יותר",
+  ] },
+  { version: "2.30.5", date: "2026-09-02", items: [
+    "תזכורת גיבוי מוקדמת יותר: הודעה על גיבוי שלא בוצע תופיע אחרי 21 יום במקום 30, כדי לצמצם סיכון לאובדן נתונים",
+  ] },
   { version: "2.30.4", date: "2026-08-30", items: [
     "תיקון: גרף ההתקדמות הציג ירידה מזויפת ביום עם כמה סטים (למשל סולם יורד) — עכשיו הוא מציג את השיא של כל יום, לא כל סט בנפרד",
     "לפעמים הטלפון לא שומר את נתוני האפליקציה (כמו השם שלכם) בין פתיחות — זה קורה בעיקר כשלא מתקינים את האפליקציה למסך הבית. אם זה קורה לכם, כדאי להתקין דרך שיתוף ⬆️ ואז \"הוספה למסך הבית\". יש רעיון לשיפור או נתקלתם בבעיה? תפנו אלינו.",
@@ -3297,6 +3306,11 @@ function renderHistoryTab() {
   `;
 }
 
+// Trimmed to just the two safety-relevant notices — everything else that
+// used to live here (profile edit, text scale, theme, backup, delete) moved
+// into the settings modal reachable from the hamburger menu; see
+// renderSettingsModalBody(). Storage errors and a stale backup both need to
+// stay visible without an extra tap, so they stay on every tab.
 function renderFooter() {
   return `
     <div class="footer">
@@ -3305,31 +3319,107 @@ function renderFooter() {
         const hasData = entries.length || wodEntries.length || bodyweightEntries.length || measureTypes.length;
         if (!hasData) return "";
         const days = daysSinceLastExport();
-        if (days !== null && days < 30) return "";
+        // Tightened from 30 to 21: iOS Safari/PWA storage can be evicted under disk
+        // pressure with no warning, so a shorter reminder window reduces the odds of
+        // data loss between backups.
+        if (days !== null && days < 21) return "";
         const msg = days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`;
-        return `<div class="footer-note" style="color:var(--yellow); margin-bottom:8px;">${esc(msg)} — ייצוא גיבוי למטה</div>`;
+        return `<div class="footer-note" style="color:var(--yellow);">${esc(msg)} — ייצוא גיבוי בתפריט ⟵ הגדרות</div>`;
       })()}
-      <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
-        <button class="link-btn" data-action="edit-user-name">עריכת פרופיל</button>
-        <span style="color:var(--border); font-size:11px;">·</span>
-        <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
-        <span style="color:var(--border); font-size:11px;">·</span>
-        <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
+    </div>`;
+}
+
+// ---------- Hamburger menu ----------
+const MENU_NAV_ITEMS = [
+  { t: "add", label: "רישום", color: "var(--energy)", bg: "rgba(232,93,61,.16)",
+    icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9v6M20 9v6M2 10v4M22 10v4M7 12h10"/></svg>' },
+  { t: "history", label: "התקדמות", color: "var(--blue)", bg: "rgba(62,111,217,.16)", icon: ICONS.chartIcon },
+  { t: "calendar", label: "לוח שנה", color: "var(--brass)", bg: "rgba(232,185,138,.18)", icon: ICONS.calendarIcon },
+  { t: "wod", label: "אימונים", color: "var(--purple)", bg: "rgba(155,111,217,.16)", icon: ICONS.stopwatchIcon },
+];
+const SETTINGS_GEAR_ICON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 0 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15z"/></svg>';
+function renderMenuBody() {
+  const initial = userName && userName.trim() ? userName.trim().charAt(0) : "?";
+  return `
+    <button data-action="edit-user-name" class="menu-profile-card">
+      <div class="menu-avatar">${esc(initial)}</div>
+      <div style="text-align:right; flex:1; min-width:0;">
+        <div style="font-weight:800; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${userName ? esc(userName) : "אורח"}</div>
+        <div style="color:var(--steel); font-size:12px; margin-top:2px;">עריכת פרופיל</div>
       </div>
-      <div class="footer-note" style="margin-bottom:8px;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל שם, היסטוריית משקל גוף ויומן אימונים מלא — שמרו אותו במקום בטוח</div>
+    </button>
+    <div>
+      ${MENU_NAV_ITEMS.map((it) => `
+        <button data-action="menu-nav" data-tab="${it.t}" class="menu-nav-item ${tab === it.t ? "active" : ""}" role="tab" aria-selected="${tab === it.t}">
+          <span class="menu-nav-label">${esc(it.label)}</span>
+          <span class="menu-icon-chip" style="background:${it.bg}; color:${it.color};">${it.icon}</span>
+        </button>`).join("")}
+    </div>
+    <div class="menu-divider"></div>
+    <button data-action="open-settings-modal" class="menu-nav-item">
+      <span class="menu-nav-label">הגדרות</span>
+      <span class="menu-icon-chip" style="background:var(--surface2); color:var(--steel);">${SETTINGS_GEAR_ICON}</span>
+    </button>
+    <div style="text-align:center; color:var(--border); font-size:11px; margin-top:22px;">האימוניה · v${APP_VERSION}</div>
+  `;
+}
+function openMenu() {
+  document.body.style.overflow = "hidden";
+  document.getElementById("menuBody").innerHTML = renderMenuBody();
+  document.getElementById("menuOverlay").classList.add("open");
+}
+function closeMenu() {
+  document.body.style.overflow = "";
+  document.getElementById("menuOverlay").classList.remove("open");
+}
+
+// ---------- Settings modal ----------
+// Everything that used to sit at the bottom of every tab's footer, now
+// reachable from the hamburger menu instead — same actions/state, just a
+// different mount point. Kept as one function (rather than folding back into
+// renderFooter) so render()'s refresh-if-open hook below has one thing to
+// re-render on every state change, same as achievements/notifications.
+function renderSettingsModalBody() {
+  const hasData = entries.length || wodEntries.length || bodyweightEntries.length || measureTypes.length;
+  const days = daysSinceLastExport();
+  const stale = hasData && (days === null || days >= 21);
+  return `
+    <div style="padding:0 16px 20px;">
+      <div class="flex items-center justify-center" style="margin-bottom:18px;">
+        <button class="link-btn" data-action="edit-user-name" style="font-size:14px;">עריכת פרופיל</button>
+      </div>
       <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">גודל טקסט</div>
       ${renderTextScaleRow()}
-      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:6px;">מראה</div>
+      <div style="color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin:14px 0 6px;">מראה</div>
       ${renderThemeRow()}
-      ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
-      ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">מחיקת כל הנתונים</button>` : `
-        <div class="flex items-center justify-center gap-10">
-          <span style="color:var(--steel); font-size:11px;">למחוק הכל?</span>
-          <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">כן, מחיקה</button>
-          <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">ביטול</button>
-        </div>`}
-      <div class="footer-note" style="margin-top:10px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
+      <div style="height:1px; background:var(--border); margin:18px 0 16px;"></div>
+      ${stale ? `<div class="footer-note" style="color:var(--yellow); margin-bottom:10px; text-align:center;">${esc(days === null ? "עדיין לא ביצעתם גיבוי" : `הגיבוי האחרון לפני ${days} ימים`)} — ייצוא גיבוי למטה</div>` : ""}
+      <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
+        <button class="link-btn" data-action="export-data" style="font-size:13px;">ייצוא גיבוי</button>
+        <span style="color:var(--border); font-size:11px;">·</span>
+        <button class="link-btn" data-action="import-data" style="font-size:13px;">ייבוא גיבוי</button>
+      </div>
+      <div class="footer-note" style="text-align:center; margin-bottom:16px;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל שם, היסטוריית משקל גוף ויומן אימונים מלא — שמרו אותו במקום בטוח</div>
+      ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px; text-align:center;">${esc(importMessage)}</div>` : ""}
+      <div style="text-align:center;">
+        ${!confirmClear ? `<button class="link-btn" data-action="ask-clear">מחיקת כל הנתונים</button>` : `
+          <div class="flex items-center justify-center gap-10">
+            <span style="color:var(--steel); font-size:11px;">למחוק הכל?</span>
+            <button data-action="do-clear" style="color:var(--red); font-size:11px; font-weight:700;">כן, מחיקה</button>
+            <button data-action="cancel-clear" style="color:var(--steel); font-size:11px;">ביטול</button>
+          </div>`}
+      </div>
+      <div class="footer-note" style="text-align:center; margin-top:14px;">© ${new Date().getFullYear()} Shahaf Rachmany · v${APP_VERSION}</div>
     </div>`;
+}
+function openSettingsModal() {
+  document.body.style.overflow = "hidden";
+  document.getElementById("settingsBody").innerHTML = renderSettingsModalBody();
+  document.getElementById("settingsOverlay").classList.add("open");
+}
+function closeSettingsModal() {
+  document.body.style.overflow = "";
+  document.getElementById("settingsOverlay").classList.remove("open");
 }
 
 function updateLogQuickUI(field) {
@@ -3471,9 +3561,19 @@ function render() {
     btn.className = "tabbtn" + (tab === t ? " active" : "");
     btn.setAttribute("aria-selected", String(tab === t));
   });
+  const pageTitleEl = document.getElementById("pageTitle");
+  if (pageTitleEl) pageTitleEl.textContent = TAB_TITLES[tab] || "";
   document.getElementById("bottomBar").style.display = tab === "add" ? "flex" : "none";
   updateStreakLabel();
   document.getElementById("content").innerHTML = content + renderFooter();
+  // The settings modal renders its own confirm/import-message state, which
+  // several actions (ask-clear, import) update by calling this same render()
+  // rather than reaching into the modal directly — keep it in sync whenever
+  // it's open instead of patching every one of those call sites.
+  const settingsOverlayEl = document.getElementById("settingsOverlay");
+  if (settingsOverlayEl && settingsOverlayEl.classList.contains("open")) {
+    document.getElementById("settingsBody").innerHTML = renderSettingsModalBody();
+  }
   try {
     if (tab === "add") {
       const dateInput = document.getElementById("logDateInput");
@@ -4108,6 +4208,17 @@ document.addEventListener("click", (e) => {
   else if (action === "install-app") { installApp(); }
   else if (action === "dismiss-install-hint") { dismissInstallBanner(); }
   else if (action === "switch-tab") { tab = el.dataset.tab; render(); }
+  else if (action === "open-menu") { openMenu(); }
+  else if (action === "close-menu") {
+    if (el.id === "menuOverlay" && e.target !== el) return;
+    closeMenu();
+  }
+  else if (action === "menu-nav") { tab = el.dataset.tab; closeMenu(); render(); }
+  else if (action === "open-settings-modal") { closeMenu(); openSettingsModal(); }
+  else if (action === "close-settings") {
+    if (el.id === "settingsOverlay" && e.target !== el) return;
+    closeSettingsModal();
+  }
   else if (action === "view-log-date-calendar") {
     tab = "calendar";
     const d = new Date(logDate + "T00:00:00");
@@ -4235,7 +4346,15 @@ document.addEventListener("click", (e) => {
   else if (action === "save-user-name") { saveWelcomeForm(document.getElementById("welcomeNameInput").value); }
   else if (action === "skip-user-name") { saveWelcomeForm(""); }
   else if (action === "cancel-welcome-name") { closeWelcomeModal(); }
-  else if (action === "edit-user-name") { openWelcomeModal(true); }
+  else if (action === "edit-user-name") {
+    // Reachable from the menu's profile card (#menuOverlay, z-index 61) as
+    // well as the settings modal and elsewhere — #welcomeOverlay has no
+    // z-index override (base .modal-overlay: 50), so it would open hidden
+    // behind an open menu. closeMenu() is a harmless no-op when it wasn't
+    // open (same fix shape as the install/update-banner one above).
+    closeMenu();
+    openWelcomeModal(true);
+  }
   else if (action === "open-profile-from-achievements") { closeAchievements(); openWelcomeModal(true); }
   else if (action === "close-celebration") {
     if (el.id === "celebrationOverlay" && e.target !== el) return;

@@ -11,12 +11,17 @@
 // HTMLInputElement.prototype.click(), capture `this` the one time it's a
 // file input, then drive it exactly like a real file picker would: set
 // .files and fire a change event.
+//
+// Export/import moved from the footer into the settings modal (reachable
+// from the hamburger menu) — open it with window.openSettingsModal() before
+// looking for these buttons; they only exist in the DOM while it's open.
 import { test } from "node:test";
 import assert from "node:assert";
 import { bootApp } from "./helpers/boot.mjs";
 
-test("clicking ייצוא גיבוי in the footer exports without throwing and records the export time", async () => {
+test("clicking ייצוא גיבוי in settings exports without throwing and records the export time", async () => {
   const window = await bootApp();
+  window.openSettingsModal();
   assert.equal(window.document.querySelector("[data-action='export-data']").textContent, "ייצוא גיבוי");
 
   assert.doesNotThrow(() => window.document.querySelector("[data-action='export-data']").click());
@@ -27,6 +32,7 @@ test("clicking ייצוא גיבוי in the footer exports without throwing and 
 
 test("clicking ייבוא גיבוי opens a real file picker, and selecting a backup file imports it", async () => {
   const window = await bootApp();
+  window.openSettingsModal();
 
   let capturedInput = null;
   const origClick = window.HTMLInputElement.prototype.click;
@@ -56,7 +62,7 @@ test("clicking ייבוא גיבוי opens a real file picker, and selecting a b
   }
 });
 
-test("the footer's no-backup-yet warning clears once a real export happens", async () => {
+test("the no-backup-yet warning clears once a real export happens", async () => {
   const window = await bootApp();
   // The warning only shows once there's actually something worth backing
   // up — log a set first so hasData is true.
@@ -68,6 +74,7 @@ test("the footer's no-backup-yet warning clears once a real export happens", asy
 
   assert.ok(window.document.body.textContent.includes("עדיין לא ביצעתם גיבוי"), "with real data and no export yet, the reminder should show");
 
+  window.openSettingsModal();
   window.document.querySelector("[data-action='export-data']").click();
   await new Promise((r) => setTimeout(r, 0));
 
