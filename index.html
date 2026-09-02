@@ -478,6 +478,67 @@
   }
   .wod-history .wodh-empty-cta:active{ opacity:.85; }
 
+  /* ---- WOD log form (.wod-log) + expanded history card (.wod-detail) ----
+     The WOD analogue of the Log screen's set-builder: instead of six small
+     floating bordered blocks stacked down the page, two blocks — a hero card
+     that says WHAT you're scoring (name in Anton, format, best/last) and a
+     form card that holds every field you actually fill in — then the save
+     button. One 14px gap rhythm between them.
+     Anton is used only for read-only key numbers/names; JetBrains Mono
+     (.mono) stays on the editable stepper inputs. .mono still carries the
+     bidi isolation on those read-only numbers, with Anton layered over its
+     font-family by the higher-specificity rules below. Anton has no Hebrew
+     glyphs, hence the 'Rubik' fallback in every stack.
+     The orange stripe appears exactly twice on this screen: the hero's edge
+     rail and the (normally hidden) PR flash. */
+  .wod-log-empty{ background:var(--surface); border:1.5px dashed var(--border); border-radius:20px; padding:30px 18px 22px; text-align:center; margin-bottom:16px; }
+  .wod-log-empty-title{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:21px; letter-spacing:.4px; margin-bottom:4px; }
+  .wod-log-editbar{ display:flex; align-items:center; justify-content:space-between; gap:10px; background:rgba(232,185,138,.12); border:1px solid var(--brass); border-radius:14px; padding:10px 14px; margin-bottom:12px; }
+  .wod-log-editbar b{ color:var(--brass); font-weight:700; font-size:13px; }
+  .wod-log-editbar button{ color:var(--steel); font-size:12px; text-decoration:underline; }
+  .wod-log-hero{ position:relative; background:var(--surface); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow-card); overflow:hidden; margin-bottom:14px; }
+  /* Stripe use 1 of 2 on this screen — a rail down the leading edge. */
+  .wod-log-hero::before{ content:""; position:absolute; top:0; bottom:0; inset-inline-start:0; width:6px; background-image:var(--stripe); }
+  .wod-log .exercise-select{ background:transparent; border:none; border-radius:0; box-shadow:none; margin:0; padding:15px 16px 13px; padding-inline-start:22px; align-items:flex-start; }
+  .wod-log-name{ display:block; font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:21px; line-height:1.15; letter-spacing:.4px; }
+  .wod-log-stats{ display:flex; border-top:1px solid var(--border); background:var(--surface2); }
+  .wod-log-stat{ flex:1 1 0; min-width:0; padding:9px 12px; }
+  .wod-log-stat + .wod-log-stat{ border-inline-start:1px solid var(--border); }
+  .wod-log .wod-log-statval{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:18px; line-height:1.25; letter-spacing:.3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wod-log .wod-log-statval.brass{ color:var(--brass); }
+  .wod-log-statsub{ color:var(--steel); font-size:10.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wod-log-form{ background:var(--surface); border:1px solid var(--border); border-radius:18px; box-shadow:var(--shadow-card); padding:14px; margin-bottom:14px; }
+  .wod-log-fieldlabel{ color:var(--steel); font-size:11px; font-weight:700; letter-spacing:.5px; margin-bottom:7px; }
+  .wod-log-daterow{ display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .wod-log-date{ flex:1; min-width:0; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:11px 12px; color:var(--chalk); font-size:14px; font-weight:700; font-family:inherit; }
+  .wod-log-today{ background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:11px 14px; color:var(--steel); font-weight:700; font-size:13px; white-space:nowrap; }
+  .wod-log-form .steppers{ margin-bottom:14px; }
+  .wod-log-form .rx-toggle{ margin-bottom:0; }
+  /* An EMOM rotation can be five-plus stations; side-by-side steppers squeeze
+     each one below its own minimum width and clip the movement labels. One
+     row per station instead — label leading, stepper trailing. */
+  .wod-log .wod-log-emom{ display:flex; flex-direction:column; gap:8px; }
+  .wod-log .wod-log-emom .stepper{ flex-direction:row; align-items:center; justify-content:space-between; gap:10px; background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:5px; padding-inline-start:12px; }
+  .wod-log .wod-log-emom .stepper-label{ flex:1 1 auto; min-width:0; white-space:normal; text-align:start; font-size:12px; }
+  .wod-log .wod-log-emom .stepper-box{ width:auto; flex:0 0 auto; background:var(--surface); }
+  .wod-log-scaled{ margin-top:14px; padding-top:14px; border-top:1px dashed var(--border); }
+  .wod-log-scaled .text-input{ margin-top:2px; }
+  .wod-log-lastscaled{ display:block; width:100%; margin-top:8px; color:var(--steel); font-size:12px; text-align:start; }
+  .wod-log-recent{ display:flex; flex-wrap:wrap; gap:8px; }
+  .wod-log-chip{ background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:6px 10px; font-size:12.5px; font-weight:700; color:var(--steel); }
+  .wod-log .wod-log-chip b{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:13.5px; color:var(--chalk); }
+  /* Stripe use 2 of 2 — hidden until saveWod() flashes it on a new PR. */
+  .wod-log-flash{ display:none; align-items:center; justify-content:center; gap:6px; background-image:var(--stripe); border-radius:14px; padding:10px 0; margin-bottom:14px; color:#fff; font-weight:800; font-size:14px; text-shadow:0 1px 3px rgba(0,0,0,.5); }
+  /* Joins seamlessly onto the history row that expanded it (that row squares
+     off its own bottom corners) — keep the negative offset and the dropped
+     top border together or the two stop reading as one card. */
+  .wod-detail{ margin-top:-4px; border-top:none; border-top-left-radius:0; border-top-right-radius:0; }
+  .wod-detail-name{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:17px; letter-spacing:.3px; }
+  .wod-detail .wod-detail-best{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:15px; letter-spacing:.3px; color:var(--brass); white-space:nowrap; }
+  .wod-detail .log-row{ background:var(--surface2); box-shadow:none; }
+  .wod-detail .wod-detail-score{ font-family:'Anton','Rubik',sans-serif; font-weight:400; font-size:16px; letter-spacing:.3px; }
+  .wod-detail-tag{ flex-shrink:0; border:1px solid var(--border); border-radius:999px; padding:1px 8px; color:var(--steel); font-size:10.5px; font-weight:700; letter-spacing:.3px; }
+
   .text-input{ width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:10px 12px; color:var(--chalk); font-size:16px; }
   input[type="date"]{ color-scheme:var(--color-scheme); }
   input[type="date"]::-webkit-calendar-picker-indicator{ cursor:pointer; }
