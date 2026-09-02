@@ -36,8 +36,14 @@
 
 <!-- Pinch-zoom is deliberately NOT blocked: user-scalable=no fails WCAG 1.4.4
      and modern iOS ignores it anyway. Accidental double-tap zoom is suppressed
-     in app.js instead, which leaves intentional zoom working. -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+     in app.js instead, which leaves intentional zoom working.
+     interactive-widget=resizes-content (Chrome 108+, ignored elsewhere) makes
+     the on-screen keyboard actually shrink the layout viewport instead of
+     just the visual one — without it, #bottomNavWrap's position:fixed;bottom:0
+     stays anchored to the pre-keyboard layout and floats up mid-screen, on
+     top of whatever input just opened the keyboard (reported: the bottom nav
+     covering the WOD builder's time-cap stepper while typing into it). -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>האימוניה</title>
 <meta name="theme-color" content="#152342" />
 <meta name="mobile-web-app-capable" content="yes" />

@@ -100,7 +100,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "2.33.0";
+const APP_VERSION = "2.34.0";
 const TAB_TITLES = { add: "רישום", history: "התקדמות", calendar: "לוח שנה", wod: "אימונים" };
 
 const WOD_MOVEMENT_TAGS = [
@@ -366,7 +366,7 @@ function fieldMax(action, field) {
   if (action === "builder-movement-weight") return LIMITS.weight;
   if (action === "builder-movement-duration") return LIMITS.duration;
   if (action === "builder-emom-minutes") return LIMITS.minutes;
-  if (action === "builder-time-cap") return LIMITS.minutes;
+  if (action === "builder-time-cap") return field === "timeCapSeconds" ? LIMITS.seconds : LIMITS.minutes;
   if (action === "wod-emom-step") return LIMITS.reps;
   if (action === "measure-step") return LIMITS.measurement;
   return Object.prototype.hasOwnProperty.call(FIELD_MAX, field) ? FIELD_MAX[field] : LIMITS.weight;
@@ -945,8 +945,9 @@ function builderMovementNames() {
 // an EMOM come from builderMovementNames() (selection order = rotation
 // order) — see createWodFromBuilder.
 let builderEmomMinutes = 10;
-// Optional, any non-EMOM format — reference-only, never enforced. 0 = no cap.
+// Optional, any non-EMOM format — reference-only, never enforced. 0/0 = no cap.
 let builderTimeCapMinutes = 0;
+let builderTimeCapSeconds = 0;
 let confirmClear = false;
 let storageOK = true;
 let storageErrMsg = "";
@@ -1441,6 +1442,13 @@ function closeCelebration() {
 // the bell — once an entry's been seen it disappears from the list (see
 // renderNotificationsList()), it doesn't stick around as a permanent log.
 const RELEASE_NOTES = [
+  { version: "2.34.0", date: "2026-09-02", items: [
+    "עיצוב מחודש למסכי הרישום, ה-WOD, ההיסטוריה, לוח השנה וההישגים",
+    "מסך הרישום כבר לא \"מניח\" ש-Back Squat זה מה שעשיתם — הוא שואל מה עשיתם היום, עד שתבחרו בעצמכם",
+    "בבניית אימון אפשר עכשיו לקבוע מגבלת זמן גם בשניות, לא רק בדקות",
+    "תיקון: המקלדת בטלפון הייתה יכולה לכסות שדה שממש הקלדתם לתוכו",
+    "יש שאלה, רעיון או תקלה לדווח? בהגדרות יש עכשיו קישור ישיר אלינו",
+  ] },
   { version: "2.33.0", date: "2026-09-02", items: [
     "תיקון: שורת הניווט התחתונה הייתה יכולה להיראות \"תלויה\" מעל תוכן העמוד במכשירים מסוימים — עכשיו היא תמיד צמודה לתחתית המסך",
   ] },
@@ -2501,6 +2509,7 @@ function openWodBuilder(prefillName) {
   builderMoveSearch = "";
   builderEmomMinutes = 10;
   builderTimeCapMinutes = 0;
+  builderTimeCapSeconds = 0;
   document.body.style.overflow = "hidden";
   const overlay = document.getElementById("wodBuilderOverlay");
   overlay.style.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight) + "px";
@@ -2592,7 +2601,10 @@ function renderWodBuilderFormats() {
     capEl.innerHTML = (builderFormat && !isEmom) ? `
       <div class="wodbuild-field">
         <div class="wodbuild-label">מגבלת זמן <span class="wodbuild-label-soft">אופציונלי · 0 = ללא</span></div>
-        <div class="steppers wodbuild-steppers">${renderStepper("timeCapMinutes", "דקות", builderTimeCapMinutes, 1, 0, "builder-time-cap")}</div>
+        <div class="steppers wodbuild-steppers">
+          ${renderStepper("timeCapMinutes", "דקות", builderTimeCapMinutes, 1, 0, "builder-time-cap")}
+          ${renderStepper("timeCapSeconds", "שניות", builderTimeCapSeconds, 5, 0, "builder-time-cap")}
+        </div>
       </div>
     ` : "";
   }
@@ -2772,7 +2784,7 @@ function createWodFromBuilder() {
     return;
   }
   addCustomWod(name, builderFormat, builderMovementsToDesc(builderMovements, builderMovementNames()), {
-    timeCapSeconds: builderTimeCapMinutes > 0 ? builderTimeCapMinutes * 60 : null,
+    timeCapSeconds: (builderTimeCapMinutes > 0 || builderTimeCapSeconds > 0) ? builderTimeCapMinutes * 60 + builderTimeCapSeconds : null,
   });
 }
 // Pure by design, same reasoning as builderMovementsToDesc — a compact,
@@ -4128,7 +4140,7 @@ function getFieldValue(action, field) {
   if (action === "builder-movement-weight") return builderMovements[field] ? builderMovements[field].weight : 0;
   if (action === "builder-movement-duration") return builderMovements[field] ? builderMovements[field].durationSeconds : 0;
   if (action === "builder-emom-minutes") return builderEmomMinutes;
-  if (action === "builder-time-cap") return builderTimeCapMinutes;
+  if (action === "builder-time-cap") return field === "timeCapSeconds" ? builderTimeCapSeconds : builderTimeCapMinutes;
   if (action === "wod-emom-step") return typeof wodEmomReps[+field] === "number" ? wodEmomReps[+field] : 0;
   if (action === "measure-step") return typeof measureValues[field] === "number" ? measureValues[field] : 0;
   return 0;
@@ -4159,7 +4171,8 @@ function setFieldState(action, field, value) {
   } else if (action === "builder-emom-minutes") {
     builderEmomMinutes = value;
   } else if (action === "builder-time-cap") {
-    builderTimeCapMinutes = value;
+    if (field === "timeCapSeconds") builderTimeCapSeconds = value;
+    else builderTimeCapMinutes = value;
   } else if (action === "wod-emom-step") {
     wodEmomReps[+field] = value;
   } else if (action === "measure-step") {
@@ -4190,8 +4203,8 @@ function applyFieldValue(action, field, value) {
     const inp = document.querySelector(`.stepper-val[data-action="builder-emom-minutes"]`);
     if (inp) inp.value = builderEmomMinutes;
   } else if (action === "builder-time-cap") {
-    const inp = document.querySelector(`.stepper-val[data-action="builder-time-cap"]`);
-    if (inp) inp.value = builderTimeCapMinutes;
+    const inp = document.querySelector(`.stepper-val[data-action="builder-time-cap"][data-field="${cssSel(field)}"]`);
+    if (inp) inp.value = field === "timeCapSeconds" ? builderTimeCapSeconds : builderTimeCapMinutes;
   } else if (action === "wod-emom-step") {
     const inp = document.querySelector(`.stepper-val[data-action="wod-emom-step"][data-field="${cssSel(field)}"]`);
     if (inp) inp.value = value;

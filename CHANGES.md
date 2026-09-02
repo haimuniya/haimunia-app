@@ -1,3 +1,59 @@
+# Redesign the log/WOD/history/calendar/achievements screens, add a support link, fix keyboard-covers-input and minutes-only time cap — 2026-09-02
+
+Requested as a redesign of the log-a-set ("רישום") screen to match a reference
+look, plus a support contact and a fix for the screen always defaulting to
+Back Squat before the user chose anything. The Back-Squat default turned out
+to be `selectedId` initializing to `MOVEMENTS[0]` with no way to tell "the id
+a save would use" from "what the user actually told us" — fixed with a
+`movementExplicitlyChosen` flag; the screen now prompts "מה עשינו היום?"
+until a real choice is made, and the same pattern was checked for (and found
+in one place) across the rest of the app.
+
+Once that screen looked right, the same visual language (the brand's orange
+stripe motif used twice per screen as punctuation, Anton for read-only
+numbers/names with a Rubik fallback, consolidating floating cards into fewer
+bordered blocks) was extended to every other real screen — History (incl.
+bodyweight/measurements), Calendar (incl. volume report), and the whole WOD
+tab (browse/benchmarks, the shared exercise/WOD pickers, the log form, WOD
+history, the custom WOD builder), Achievements/celebrations, and Settings/app
+chrome — nine areas total, each done as a QA pass + code review + redesign,
+in parallel isolated git worktrees, then rebased onto the log-screen commit
+and merged one at a time with the full suite re-run after each merge (166 to
+195 tests over the course of the merges; every merge conflict was two
+agents' independently-scoped CSS blocks landing next to each other, never
+overlapping logic).
+
+Real bugs fixed along the way (see individual worktree reports for the
+complete list per area): a literal "null kg" rendered for hold-only
+movements in History; strength-only weekly/monthly stats disagreeing with
+the streak flame on WOD-only weeks; a stale search surviving a full data
+wipe; bodyweight accepting 0 kg with no way to delete a bad entry; month
+navigation wiping an unsaved session note; a dead "Custom" row in the volume
+report that could only ever read 0/0; a WOD's PR flash never appearing
+(fired before the DOM it targeted was replaced); "For Time" trend charts
+plotting improvement as an upward line; a scaling note leaking from one WOD
+to the next; a false achievement-celebration replay after restoring a
+backup; an update banner permanently suppressing the install prompt for the
+session; and a stray delete-everything confirmation surviving closing the
+settings sheet.
+
+Two more bugs came in live from the user's phone after this landed locally
+(nothing had been deployed yet, so these are pre-existing production bugs,
+not regressions): the fixed-position bottom nav floating up on top of a
+focused input when the on-screen keyboard opens on Android Chrome — fixed by
+adding `interactive-widget=resizes-content` to the viewport meta so Chrome
+actually resizes the layout instead of leaving fixed elements floating over
+it; and the WOD builder's time cap only accepting whole minutes — added a
+matching seconds stepper next to it, mirroring the minutes+seconds pattern
+already used for WOD "For Time" scores elsewhere in the app.
+
+Also added: a `mailto:haimuniya@gmail.com` support link in Settings for bug
+reports/questions.
+
+195/195 tests pass (166 baseline + 29 new, across history-tab.test.mjs,
+bodyweight-measurements.test.mjs, wod-history-list.test.mjs,
+wod-log-form.test.mjs, achievements.test.mjs, app-chrome.test.mjs).
+
 # Fix the bottom nav floating above the true screen edge, add a "what's new" reveal — 2026-09-02
 
 Two changes, reported/requested back to back in the same session as the nav
