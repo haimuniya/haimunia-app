@@ -14,7 +14,8 @@
 //   TARGET_URL=<url> node text-scale.mjs # a deployed site
 import { chromium } from "playwright";
 import { resolveTarget } from "./lib/target.mjs";
-import { dismissWelcomeModal, consoleErrorCollector } from "./lib/actions.mjs";
+import { switchTab, openSettings, dismissWelcomeModal, selectBenchmarkWod, consoleErrorCollector } from "./lib/actions.mjs";
+import { installMockCloud } from "./lib/mockCloud.mjs";
 
 let failed = false;
 function check(label, ok, detail = "") {
@@ -29,6 +30,14 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 800 } });
 const errors = await consoleErrorCollector(page);
 
+// COMM-333: cloud.js boots unconditionally regardless of which tab a
+// script visits, and cloud-config.js points at the real, live production
+// Supabase project - without this, an offline-only check like this one
+// still fires real network calls (session restore, anonymous sign-in via
+// the auto-backup bootstrap, etc.) against production in the background,
+// which is both a safety risk (see lib/mockCloud.mjs's own comment) and
+// the source of intermittent 401/409 console errors this suite saw.
+await installMockCloud(page);
 await page.goto(target.url, { waitUntil: "networkidle" });
 await page.waitForSelector("#app", { state: "visible" });
 await dismissWelcomeModal(page);
@@ -51,8 +60,12 @@ const measureFooterLabel = () => page.evaluate(() => {
   return el ? el.getBoundingClientRect().height : null;
 });
 
-await page.evaluate(() => document.getElementById("content").scrollIntoView());
-await page.mouse.wheel(0, 4000);
+// Theme/text-scale live in the settings screen now, reached through the
+// nav menu rather than glued under every tab's content — open it before
+// measuring or clicking either control (a hidden overlay's contents
+// report a zero-size rect, and Playwright's .click() requires real
+// visibility, unlike jsdom).
+await openSettings(page);
 await page.waitForTimeout(150);
 const heightBefore = await measureFooterLabel();
 
@@ -68,6 +81,8 @@ const heightAfter = await measureFooterLabel();
 check("the control's own rendered size actually grew (zoom is applying, not just the attribute)", heightAfter > heightBefore * 1.1, `${heightBefore} -> ${heightAfter}`);
 
 check("no horizontal overflow on the main tab at the larger size", await noOverflow());
+await page.click("button[data-action='close-settings']");
+await page.waitForTimeout(150);
 
 await page.reload({ waitUntil: "networkidle" });
 const attrAfterReload = await page.evaluate(() => document.documentElement.getAttribute("data-text-scale"));
@@ -76,10 +91,14 @@ check("preference persists across a reload", attrAfterReload === "large", attrAf
 // The real risk case: a position:fixed modal at the larger text size.
 // inset:0 must still cover the true viewport (not get scaled away), while
 // the content inside it still visibly scales with the rest of the page.
-await page.click("#tabWodBtn");
+await switchTab(page, "tabWodBtn");
 await page.waitForTimeout(150);
-// No WOD is pre-selected on a fresh load anymore — its own direct build
-// button in the empty state replaces the old picker-then-builder detour.
+await selectBenchmarkWod(page, "fran");
+// Reaching the builder now goes through the WOD picker overlay (tap the
+// current WOD to open it, then its own "build a custom WOD" button), not
+// a direct empty-state button.
+await page.click("[data-action='open-wod-picker']");
+await page.waitForSelector("#wodPickerOverlay.open");
 await page.click("[data-action='open-wod-builder']");
 await page.waitForSelector("#wodBuilderOverlay.open");
 await page.waitForTimeout(150);

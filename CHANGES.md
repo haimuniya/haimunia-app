@@ -1,3 +1,48 @@
+# 3.0.0 — the new design and features, without the community, in place over 2.34.0 — 2026-09-23
+
+This release replaces 2.34.0 at the same address with the training log from
+the community edition (haimuniya/haimunia-app-demo), with the community taken
+out: no feed, posts, profiles, directory, challenges, events, coach tools,
+notifications, sign-in or accounts. Everything else comes across — the
+design and its assets (colours and tokens, typography, icons, logo and
+wordmark, both themes, large text, Hebrew RTL throughout, the gym's scene
+photographs), supersets and ladders, Rx/scaled/Rx+, the plate visualiser, WOD
+logging and the builder, the workout library, benchmarks with retest
+reminders, strength percentages from 1RM, bodyweight and custom measurements,
+charts, the calendar, streaks, achievements and levels, install prompts, and
+export/import.
+
+**Members' data stays where it is.** The edition opens the 2.x database by its
+own name and version (`box-log-db` v7), adds no store, and reads every
+setting and localStorage key under the name 2.x wrote it (`haimunia:*`,
+`boxlog:lastExportAt`, `sessionNote:<date>`). Nothing is copied or
+migrated. Rolling back to 2.34.0 (tagged `rollback-2.34.0`) still opens the
+data, because the version never moved. The service worker keeps the
+`haimunia-v` cache prefix but now deletes only its own older caches, not every
+cache on the shared github.io origin.
+
+Kept from 2.x rather than lost in the move: the custom EMOM model (rest
+minutes, timed stations, weights, compacted results — ported into the
+community edition first, then carried here); the calendar's "log for this
+date" button; the "clear search" button on an empty History/WOD search; PR
+medals 2.x already awarded (the new bronze threshold is three PRs, but a medal
+a member has already seen stays earned); and the re-baseline of seen medals
+after an import, which the community edition had dropped (now a union, so it
+can never un-see a medal).
+
+New for upgraded members only: a one-time card on the log screen offering a
+backup file before anything else happens, and a `haimunia:schemaEdition`
+marker written once it is answered, so a future migration starts from a known
+edition. A fresh install gets the marker straight away. `isFreshInstall` now
+counts measurements and custom WODs too.
+
+The Content-Security-Policy allows no origin but the app's own. The privacy
+page is new and describes this edition only. `test/upgrade-in-place.test.mjs`
+boots the edition on a device snapshot produced by driving the real 2.34.0
+app (`scripts/v2-device-snapshot.mjs`), and
+`scripts/browser-check/upgrade-rehearsal.mjs` does the whole upgrade — and the
+rollback — in real Chromium, through 2.34.0's own update banner.
+
 # Redesign the log/WOD/history/calendar/achievements screens, add a support link, fix keyboard-covers-input and minutes-only time cap — 2026-09-02
 
 Requested as a redesign of the log-a-set ("רישום") screen to match a reference

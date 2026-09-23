@@ -20,7 +20,7 @@
 // way a user would, rather than reading internal state directly.
 import { test } from "node:test";
 import assert from "node:assert";
-import { bootApp } from "./helpers/boot.mjs";
+import { bootApp, answerWodRx } from "./helpers/boot.mjs";
 
 test("picking a different exercise mid-edit does not overwrite the original entry", async () => {
   const window = await bootApp();
@@ -34,7 +34,7 @@ test("picking a different exercise mid-edit does not overwrite the original entr
   const [originalEntry] = window.entriesFor(original.id);
   assert.ok(originalEntry, "original entry should exist");
 
-  window.startEditEntry(originalEntry.id);
+  await window.startEditEntry(originalEntry.id);
   assert.ok(window.document.querySelector("[data-action='cancel-edit-entry']"), "edit banner should show while an edit is in flight");
 
   // Pick a different exercise WITHOUT cancelling the edit first — this is
@@ -44,7 +44,14 @@ test("picking a different exercise mid-edit does not overwrite the original entr
 
   assert.equal(window.document.querySelector("[data-action='cancel-edit-entry']"), null, "picking a different exercise mid-edit should cancel the edit, not carry it over");
 
-  window.applyFieldValue("step", "weight", 999);
+  // 99, not the 999 this test used to type: since 2026-09-18 a movement's
+  // FIRST set is checked against a per-category ceiling, and 999 kg on a
+  // brand-new Press movement now (correctly) opens the sanity-confirm dialog
+  // instead of saving. This test is about edit navigation, not that guard -
+  // its own coverage is in absurd-weight-first-set.test.mjs - so it types a
+  // number a person could actually lift. It is still distinct from the
+  // original entry's 50, which is all the assertion below needs.
+  window.applyFieldValue("step", "weight", 99);
   window.applyFieldValue("step", "reps", 1);
   window.applyFieldValue("step", "sets", 1);
   await window.saveSet();
@@ -56,7 +63,7 @@ test("picking a different exercise mid-edit does not overwrite the original entr
 
   const otherAfter = window.entriesFor(other.id);
   assert.equal(otherAfter.length, 1, "the new exercise should get its own new entry");
-  assert.equal(otherAfter[0].weight, 999);
+  assert.equal(otherAfter[0].weight, 99);
   assert.notEqual(otherAfter[0].id, originalEntry.id, "the new entry must not reuse the original entry's id");
 });
 
@@ -66,11 +73,12 @@ test("picking a different WOD mid-edit does not overwrite the original WOD entry
   const original = window.allWods().find((w) => w.name === "Test Original WOD");
 
   window.applyFieldValue("wod-step", "wodWeight", 100);
+  answerWodRx(window);
   await window.saveWod();
   const [originalEntry] = window.wodEntriesFor(original.id);
   assert.ok(originalEntry, "original WOD entry should exist");
 
-  window.startEditWodEntry(originalEntry.id);
+  await window.startEditWodEntry(originalEntry.id);
   assert.ok(window.document.querySelector("[data-action='cancel-edit-wod-entry']"), "WOD edit banner should show while an edit is in flight");
 
   // Switch to a built-in benchmark WITHOUT cancelling the edit — the exact
@@ -87,6 +95,7 @@ test("picking a different WOD mid-edit does not overwrite the original WOD entry
 
   window.applyFieldValue("wod-step", "wodMinutes", 5);
   window.applyFieldValue("wod-step", "wodSeconds", 30);
+  answerWodRx(window);
   await window.saveWod();
 
   const originalAfter = window.wodEntriesFor(original.id);
