@@ -166,13 +166,30 @@ test("a count that could not be sent is tried once more later, not lost and not 
   assert.deepEqual(pending, [], "and nothing is left waiting");
 });
 
-test("Settings says in one plain sentence what is counted", async () => {
+test("Settings says what is counted, that the id links one phone's days, the IP logs, and 180 days", async () => {
   const window = await bootApp({ beforeScripts: recorder().beforeScripts });
   window.openSettings();
   await tick(30);
   const text = window.document.getElementById("settingsBody").textContent;
   assert.ok(text.includes("ספירת שימוש"), "the row is there");
   assert.match(text, /פתיחת האפליקציה, רישום אימון ופתיחת מסך/, "it names the three facts");
+  assert.match(text, /מזהה אקראי קבוע של הטלפון/, "it names the id");
+  assert.match(text, /מקשר את הספירות של הטלפון הזה לאורך הימים/, "pseudonymous: it says the id links days");
+  assert.match(text, /יומני השרת שומרים את כתובת ה־IP לזמן קצר/, "it names the IP in request logs");
+  assert.match(text, /נמחקות אחרי 180 יום/, "it states the retention");
+  assert.doesNotMatch(text, /אנונימי/, "it does not claim anonymity");
+});
+
+test("the privacy page says the same: pseudonymous, linked across days, IP logs, 180 days, totals only", () => {
+  const html = read("privacy.html");
+  const section = html.slice(html.indexOf('id="usage-counting"'), html.indexOf("</section>", html.indexOf('id="usage-counting"')));
+  assert.match(section, /המזהה הוא כינוי, לא אנונימיות מלאה/);
+  assert.match(section, /מקשר את\s+הספירות של טלפון אחד לאורך הימים/);
+  assert.match(section, /יומני הבקשות של ספק השרת \(Supabase\) שומרים\s+אותם לזמן קצר/);
+  assert.match(section, /נמחקת אוטומטית אחרי 180 יום/);
+  assert.match(section, /אף אחד לא רואה את השורות עצמן, גם לא צוות המועדון/);
+  assert.doesNotMatch(html, /אנונימי(?!ות מלאה)/, "nowhere claims the counts are anonymous");
+  assert.match(html, /עודכן לאחרונה: 23 בספטמבר 2026/);
 });
 
 test("the CSP opens exactly one origin, for this endpoint, and only for connect", () => {

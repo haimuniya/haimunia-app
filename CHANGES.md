@@ -1,12 +1,16 @@
-# 3.1.0 — anonymous usage counting, with a switch to turn it off — 2026-09-23
+# 3.1.0 — usage counting, with a switch to turn it off — 2026-09-23
 
 The club wants to know how many people use the app and how many log
 workouts. `src/usage.js` sends exactly three facts — the app opened, a
 workout was logged (a new one, never an edit), a screen was opened — each at
 most once a day, with a random id made on the phone and nothing else: no
-name, no workout content, no time. They go to one endpoint in the club's
+name, no workout content, no time. The id is pseudonymous, not anonymous: it
+links one phone's counts across days, and the privacy page and the Settings
+line both say so, along with the IP in the server's short-lived request logs
+and the 180-day retention. They go to one endpoint in the club's
 Supabase project (`training_log_usage`, added in haimuniya/haimunia-app-demo
-with a staff-only report); the CSP opens that one host for connections and
+with a totals-only staff report, a 1,000-row daily cap and a nightly
+180-day purge); the CSP opens that one host for connections and
 nothing else. The publishable key in `app-config.js` can only insert a count.
 
 Settings has a "ספירת שימוש" row with one plain sentence saying what is
