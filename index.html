@@ -632,12 +632,14 @@
      band roughly 20-55% down the original frame - "top" showed ceiling
      vents on a real render, checked by viewing the source file directly
      rather than assumed from the filename. */
-  .scene-page--history{ --scene-image:url('./assets/club-photos/history-open-floor.jpg'); --scene-position:44% 20%; }
+  /* The training-log edition ships only photographs with no people in them:
+     the calendar and the workouts library reuse the plates and rings shots. */
+  .scene-page--history{ --scene-image:url('./assets/club-photos/achievements-plates.jpg'); --scene-position:center 40%; }
   /* center 18%: keeps the rings + rig crossbar in frame (checked against
      the source file - they sit roughly 10-55% down) instead of the ceiling
      AC units at the very top. */
   .scene-page--progress{ --scene-image:url('./assets/club-photos/progress-blue-rig.jpg'); --scene-position:center 18%; }
-  .scene-page--library{ --scene-image:url('./assets/club-photos/library-equipment.jpg'); }
+  .scene-page--library{ --scene-image:url('./assets/club-photos/library-rings.jpg'); --scene-position:center 45%; }
   .scene-page--community{ --scene-image:url('./assets/club-photos/community-logo-wall.jpg'); }
   .scene-page--achievements{ --scene-image:url('./assets/club-photos/achievements-plates.jpg'); }
   .scene-page__scrim{ position:absolute; z-index:-2; inset:0; pointer-events:none;
