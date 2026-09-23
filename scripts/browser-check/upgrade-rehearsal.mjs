@@ -21,13 +21,14 @@
 // Local-only by nature: it needs to swap what the server serves.
 import { chromium } from "playwright";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { projectRoot } from "./lib/target.mjs";
 import { startPagesServer } from "./lib/pages-server.mjs";
 
 const OLD_COMMIT = process.env.OLD_COMMIT || "16d0cd8";
+const NEW_VERSION = readFileSync(path.join(projectRoot, "app.js"), "utf8").match(/const APP_VERSION = "([^"]+)";/)[1];
 let failed = false;
 function check(label, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${detail ? " — " + detail : ""}`);
@@ -43,7 +44,12 @@ console.log(`Serving ${OLD_COMMIT} at ${server.url}`);
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
 const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
 const foreign = [];
-ctx.on("request", (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith("data:") && !r.url().startsWith("blob:")) foreign.push(r.url()); });
+ctx.on("request", (r) => { if (!r.url().startsWith(origin) && !r.url().startsWith("data:") && !r.url().startsWith("blob:") && !r.url().includes("/rest/v1/training_log_usage")) foreign.push(r.url()); });
+// The anonymous usage count is the one request allowed out, and it must
+// fail silently: here it always fails, as it would offline or blocked, and
+// the checks below still expect a working app with no page errors.
+const usageTries = [];
+await ctx.route("**/rest/v1/training_log_usage", (route) => { usageTries.push(route.request().method()); return route.abort(); });
 
 const waitActive = (page) => page.waitForFunction(() => navigator.serviceWorker.controller && navigator.serviceWorker.controller.state === "activated", null, { timeout: 20000 });
 const version = (page) => page.evaluate(() => (typeof APP_VERSION === "string" ? APP_VERSION : null));
@@ -118,12 +124,12 @@ try {
 
   // ---- 4. what the member has now ----
   const v = await version(page);
-  check("the NEW version is what runs after the update, not the old cached one", v === "3.0.0", `APP_VERSION=${v}`);
+  check("the NEW version is what runs after the update, not the old cached one", v === NEW_VERSION, `APP_VERSION=${v}`);
   check("and its new index.html, not an HTTP-cached 2.34.0 one (which would pair old markup with new scripts)",
     await page.evaluate(() => !!document.querySelector('script[src="./src/db.js"]')));
   const ctrl = await page.evaluate(() => navigator.serviceWorker.controller && navigator.serviceWorker.controller.scriptURL);
   const newCaches = await page.evaluate(() => caches.keys());
-  check("the new worker's cache exists", newCaches.includes("haimunia-v3.0.0"), JSON.stringify(newCaches));
+  check("the new worker's cache exists", newCaches.includes(`haimunia-v${NEW_VERSION}`), JSON.stringify(newCaches));
   check("2.34.0's cache is gone", oldCaches.every((k) => !newCaches.includes(k)), `before=${JSON.stringify(oldCaches)}`);
   check("the page is controlled by the worker at the same URL", !!ctrl && ctrl.endsWith("/haimunia-app/sw.js"), ctrl);
 
@@ -171,22 +177,23 @@ try {
   const tab2Alive = await tab2.evaluate(() => dbLoadAll().then((l) => l.length)).catch((e) => String(e));
   check("the second, still-open 2.34.0 tab can still read the database", tab2Alive === 3, String(tab2Alive));
   await tab2.reload({ waitUntil: "networkidle" });
-  check("and reloading it brings the new version", (await version(tab2)) === "3.0.0");
+  check("and reloading it brings the new version", (await version(tab2)) === NEW_VERSION);
   await tab2.close();
 
   const fresh = await ctx.newPage();
   await fresh.goto(server.url, { waitUntil: "networkidle" });
-  check("a fresh tab opens the new version", (await version(fresh)) === "3.0.0");
+  check("a fresh tab opens the new version", (await version(fresh)) === NEW_VERSION);
   await fresh.close();
 
   await ctx.setOffline(true);
   await page.reload({ waitUntil: "load" });
   await page.waitForFunction(() => document.getElementById("loading")?.style.display === "none", null, { timeout: 15000 });
-  check("offline: the new version loads from its own cache", (await version(page)) === "3.0.0");
+  check("offline: the new version loads from its own cache", (await version(page)) === NEW_VERSION);
   check("offline: with the data", await page.evaluate(() => entriesFor("back-squat").length === 3));
   await ctx.setOffline(false);
 
   check("nothing requested any other origin", foreign.length === 0, foreign.slice(0, 5).join(", "));
+  check("the new version did try its anonymous count, and its failing broke nothing", usageTries.length > 0, `${usageTries.length} attempts`);
   check("no uncaught page errors", pageErrors.length === 0, pageErrors.slice(0, 3).join(" | "));
 
   // ---- 5. rollback ----

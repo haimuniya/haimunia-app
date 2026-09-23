@@ -39,6 +39,7 @@
 //   TARGET_URL=<url> node bidi-measurement-order.mjs # a deployed site
 import { chromium } from "playwright";
 import { resolveTarget } from "./lib/target.mjs";
+import { installMockCloud } from "./lib/mockCloud.mjs";
 import {
   dismissWelcomeModal,
   selectMovement,
@@ -169,6 +170,8 @@ console.log(`Viewport: ${VIEWPORT.width}x${VIEWPORT.height}`);
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: VIEWPORT, locale: "he-IL" });
+// Keeps the anonymous usage count off the real endpoint (see lib/mockCloud.mjs).
+await installMockCloud(page);
 const errors = await consoleErrorCollector(page);
 await page.goto(target.url, { waitUntil: "networkidle" });
 await dismissWelcomeModal(page);

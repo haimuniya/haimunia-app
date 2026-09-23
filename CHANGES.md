@@ -1,3 +1,22 @@
+# 3.1.0 — anonymous usage counting, with a switch to turn it off — 2026-09-23
+
+The club wants to know how many people use the app and how many log
+workouts. `src/usage.js` sends exactly three facts — the app opened, a
+workout was logged (a new one, never an edit), a screen was opened — each at
+most once a day, with a random id made on the phone and nothing else: no
+name, no workout content, no time. They go to one endpoint in the club's
+Supabase project (`training_log_usage`, added in haimuniya/haimunia-app-demo
+with a staff-only report); the CSP opens that one host for connections and
+nothing else. The publishable key in `app-config.js` can only insert a count.
+
+Settings has a "ספירת שימוש" row with one plain sentence saying what is
+counted, and an on/off switch; off stops every request and deletes the id.
+Every failure — offline, blocked, server down — is silent, and a count that
+could not be sent is tried once more with the next one, never in a loop. The
+privacy page has a new section on it, and the summary no longer says "no
+tracking". The browser checks now answer the counting endpoint themselves
+and abort everything else, so no check can ever write a real count.
+
 # 3.0.0 — the new design and features, without the community, in place over 2.34.0 — 2026-09-23
 
 This release replaces 2.34.0 at the same address with the training log from
