@@ -5696,8 +5696,6 @@ function renderHistoryTab() {
       <div class="stat-card" style="text-align:center;"><div class="stat-value mono" style="font-size:20px;">${totalSetsLogged}</div><div class="stat-label">סטים שנרשמו</div></div>
     </div>
 
-    <div id="benchmarkArea"></div>
-
     ${activeExercises().length > 0 ? `
     <h2 class="section-label">שיאים כלל-זמנים</h2>
     <div class="search-box" style="margin:0 0 12px;">
@@ -5706,6 +5704,11 @@ function renderHistoryTab() {
     </div>` : ""}
 
     <div id="historyListArea" role="region" aria-label="שיאים כלל-זמנים"></div>
+
+    <!-- Benchmarks sit below the member's own movements, not above them
+         (owner's call after testing on an iPhone, 2026-09-24): the list a
+         member opens Progress for comes first. -->
+    <div id="benchmarkArea"></div>
 
     <div id="bodyweightArea" role="region" aria-label="משקל גוף"></div>
 
