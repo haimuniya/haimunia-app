@@ -54,16 +54,18 @@
   check costs nothing real and closes the gap this meta tag cannot. See
   that file for the live-confirmed exploit chain that motivated it.
 -->
-<!-- Everything this edition loads is its own file. No script, style, font,
-     image or connection leaves the origin, so an injected <script> or a
-     remote beacon has nowhere to go. -->
+<!-- Everything this edition loads is its own file. No script, style, font
+     or image comes from anywhere else, and the one connection allowed out is
+     the anonymous usage count (src/usage.js) to the club's Supabase project,
+     named here by its exact host - so an injected <script> has nowhere else
+     to send anything. -->
 <meta http-equiv="Content-Security-Policy" content="
   default-src 'self';
   script-src 'self';
   style-src 'self' 'unsafe-inline';
   font-src 'self';
   img-src 'self' data: blob:;
-  connect-src 'self';
+  connect-src 'self' https://jajmlyrjlkhclgphbfbb.supabase.co;
   frame-src 'none';
   manifest-src 'self';
   worker-src 'self';
@@ -3503,6 +3505,7 @@
      before first paint. -->
 <script defer src="./src/shared/safe-helpers.js"></script>
 <script defer src="./app-config.js"></script>
+<script defer src="./src/usage.js"></script>
 <script defer src="./src/constants.js"></script>
 <script defer src="./src/format.js"></script>
 <script defer src="./src/sanitize.js"></script>

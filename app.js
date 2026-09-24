@@ -15,7 +15,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "3.0.0";
+const APP_VERSION = "3.1.0";
 
 // A movement typed into the WOD builder that isn't in the built-in list
 // above - persisted (see WODTAGSTORE), same "custom X" pattern as
@@ -1414,6 +1414,9 @@ function closeCelebration() {
 // history members actually saw, and their stored lastSeenVersion ("2.34.0")
 // is what makes only the entries above it show on first open.
 const RELEASE_NOTES = [
+  { version: "3.1.0", date: "2026-09-23", items: [
+    "ספירת שימוש: המועדון יודע כמה משתמשים באפליקציה וכמה רושמים אימונים, לפי מזהה אקראי של הטלפון — בלי שם ובלי שום פרט מהאימונים. אפשר לכבות בהגדרות ← ספירת שימוש",
+  ] },
   { version: "3.0.0", date: "2026-09-23", items: [
     "כל האימונים, המדידות, האימונים שבניתם וההגדרות שלכם נשארו בדיוק איפה שהיו — אין צורך לעשות כלום",
     "עיצוב חדש לכל האפליקציה: תמונות מהמועדון, מצב כהה ובהיר, ואפשרות לטקסט גדול",
@@ -2215,6 +2218,8 @@ async function saveSet(sanityConfirmed) {
         mov ? `נשמר: ${mov.name} — ${celebrationLabel}` : "נשמר");
     }
   }
+  // A new entry is a workout logged; correcting an old one is not.
+  if (!existing) countUsage("workout_logged");
   } finally { savingSet = false; }
 }
 // A ladder (working-set session: same exercise/day, different weight+reps
@@ -4033,6 +4038,8 @@ async function saveWod(sanityConfirmed) {
     celebrateAfterSave(celebratePR ? `${w.name} — ${formatWodEntry(entry)}` : null,
       `נשמר: ${w.name} — ${formatWodEntry(entry)}`);
   }
+  // Same rule as saveSet(): a new result counts, an edit does not.
+  if (!existing) countUsage("workout_logged");
   } finally { savingWod = false; }
 }
 // Live bug hunt (2026-09-11): same two-tab staleness fix as startEditEntry()
@@ -4483,6 +4490,15 @@ function renderUpgradeBackupCard() {
         <button class="chip-btn" data-action="upgrade-backup-dismiss" style="flex:1; min-height:44px;">לא עכשיו</button>
       </div>
     </div>`;
+}
+// The visible switch for src/usage.js. Same segmented control as the text
+// size and theme rows, so it reads as one of the member's own settings.
+function renderUsageCountingRow() {
+  const on = !window.HaimuniaUsage || window.HaimuniaUsage.isOn();
+  const opts = [["on", "פעיל"], ["off", "כבוי"]];
+  return `<div id="usageCountingRow" class="segmented" role="radiogroup" aria-label="ספירת שימוש" style="margin-top:0;">
+    ${opts.map(([val, label]) => `<button class="segmented-opt" data-action="set-usage-counting" data-pref="${val}" role="radio" aria-checked="${(val === "on") === on}">${label}</button>`).join("")}
+  </div>`;
 }
 function renderTourCard() {
   if (!shouldShowTourCard()) return "";
@@ -5827,6 +5843,12 @@ function renderSettingsBody() {
       </div>
 
       <div class="settings-block">
+        <div class="settings-block-title">ספירת שימוש</div>
+        <div class="footer-note" style="margin-bottom:8px;">כדי שהמועדון ידע כמה משתמשים באפליקציה, נספרים רק פתיחת האפליקציה, רישום אימון ופתיחת מסך — בלי שם ובלי שום פרט מהאימונים. לכל ספירה מצורף מזהה אקראי קבוע של הטלפון: הוא לא מגלה מי אתם, אבל מקשר את הספירות של הטלפון הזה לאורך הימים. יומני השרת שומרים את כתובת ה־IP לזמן קצר, והספירות עצמן נמחקות אחרי 180 יום.</div>
+        ${renderUsageCountingRow()}
+      </div>
+
+      <div class="settings-block">
         <div class="settings-block-title">משפטי</div>
         <div class="flex items-center justify-center gap-8"><a class="link-btn" href="./privacy.html" target="_blank" rel="noopener">פרטיות</a></div>
       </div>
@@ -6078,6 +6100,15 @@ function findFieldByIdentity(key) {
     return form && form.elements ? form.elements[key.slice(at + 2)] : null;
   } catch (e) { return null; }
 }
+// Anonymous usage counting (src/usage.js). The one door from this file into
+// it: fire and forget, never awaited, never able to throw into a render or a
+// save. With counting switched off, or no network, it does nothing at all.
+function countUsage(event, screen) {
+  try { if (window.HaimuniaUsage) window.HaimuniaUsage.count(event, screen); } catch (e) { /* counting never breaks the app */ }
+}
+// Counted where the screen is drawn rather than at each of the several
+// places that set `tab`, so no route to a screen can be missed.
+let lastCountedScreen = null;
 function render() {
   let content;
   try {
@@ -6176,6 +6207,7 @@ function render() {
   // ordinary light chrome).
   const scene = PAGE_SCENES[tab];
   if (scene) document.body.dataset.scene = scene.className; else delete document.body.dataset.scene;
+  if (tab !== lastCountedScreen) { lastCountedScreen = tab; countUsage("screen_open", tab); }
   // Captured BEFORE the swap, restored after - see focusFieldIdentity.
   const focusKey = focusFieldIdentity(document.activeElement);
   let caret = null, typed = null;
@@ -7486,6 +7518,16 @@ document.addEventListener("click", (e) => {
   else if (action === "set-bar-weight") { setBarWeight(+el.dataset.kg); }
   else if (action === "set-theme") { setThemePref(el.dataset.pref); }
   else if (action === "set-text-scale") { setTextScalePref(el.dataset.pref); }
+  else if (action === "set-usage-counting") {
+    if (window.HaimuniaUsage) window.HaimuniaUsage.setOn(el.dataset.pref === "on");
+    // Swap only the row, as the text-size row does, so focus stays put.
+    const row = document.getElementById("usageCountingRow");
+    if (row) {
+      row.outerHTML = renderUsageCountingRow();
+      const chosen = document.querySelector(`#usageCountingRow [data-pref="${el.dataset.pref === "on" ? "on" : "off"}"]`);
+      if (chosen) chosen.focus();
+    }
+  }
   else if (action === "delete-entry") { askDeleteEntry(el.dataset.id); }
   else if (action === "app-confirm-yes") { runAppConfirm(); }
   else if (action === "app-confirm-no") { closeAppConfirm(); }
@@ -7932,6 +7974,7 @@ async function init() {
   // which a duplicate credential field is live in the document.
   setSettingsInert(true);
   renderUserGreeting();
+  countUsage("app_open");
   render();
   maybeShowIOSInstallBanner();
 

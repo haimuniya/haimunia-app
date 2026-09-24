@@ -138,7 +138,7 @@ test("medals and streak: a PR bronze the old app awarded at its one-PR threshold
   assert.ok(window.document.getElementById("streakLabel"), "the streak label exists");
 });
 
-test("what's new opens on first boot with the one 3.0.0 entry, and nothing about a community", async () => {
+test("what's new opens on first boot with what came after 2.34.0, and nothing about a community", async () => {
   const window = await bootUpgraded();
   const overlay = window.document.getElementById("notificationsOverlay");
   assert.ok(overlay.classList.contains("open"), "the sheet opens by itself: lastSeenVersion was 2.34.0");
@@ -146,7 +146,8 @@ test("what's new opens on first boot with the one 3.0.0 entry, and nothing about
   assert.ok(text.includes("3.0.0"), "the new entry is shown");
   assert.ok(!text.includes("2.34.0"), "entries the member already saw are not repeated");
   assert.ok(!/קהילה|פיד|פרופיל/.test(text), text);
-  assert.equal(await window.dbGetSetting("haimunia:lastSeenVersion"), "3.0.0", "and it is marked seen, so it shows once");
+  const appVersion = readFileSync(new URL("../app.js", import.meta.url), "utf8").match(/const APP_VERSION = "([^"]+)";/)[1];
+  assert.equal(await window.dbGetSetting("haimunia:lastSeenVersion"), appVersion, "and it is marked seen, so it shows once");
 });
 
 test("booting rewrites no record, adds no store and keeps the database at version 7 - so rolling back to 2.34.0 still opens it", async () => {
