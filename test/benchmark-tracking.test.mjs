@@ -173,6 +173,22 @@ test("all eight named benchmarks are there from day one, before the member has d
     "and none of them is 'due for a retest' - there is nothing to re-test");
 });
 
+test("on Progress, benchmarks come after the member's own movements, not before them", async () => {
+  const window = await bootApp();
+  await seedLift(window, "Back Squat", daysAgo(window, 3), 100, 1);
+  turnKeyOn(window);
+  openProgress(window);
+  const list = window.document.getElementById("historyListArea");
+  const bench = area(window);
+  assert.ok(list.textContent.includes("Back Squat"), "the member's movement is listed");
+  assert.ok(rows(window).length > 0, "and the benchmarks are rendered");
+  assert.ok(list.compareDocumentPosition(bench) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+    "the benchmarks section follows the movements list");
+  const search = window.document.getElementById("historySearch");
+  assert.ok(search.compareDocumentPosition(bench) & window.Node.DOCUMENT_POSITION_FOLLOWING,
+    "and follows the movements' heading and search box too");
+});
+
 test("an attempt shows up with its best, its history and a chart", async () => {
   const window = await bootApp();
   await seedWod(window, "fran", daysAgo(window, 30), 320);
