@@ -5460,17 +5460,19 @@ function renderMeasureArea() {
 
 // ---------- Benchmark tracking (club_features.benchmarks) ----------
 //
-// WHAT THIS IS. A fixed list of the classic named workouts, plus every lift
-// this member has actually logged a 1RM estimate for, each one showing every
-// attempt over time, the best result, and the same progress chart the rest of
-// this screen draws. Plus a reminder when a benchmark has not been retested
-// for BENCHMARK_RETEST_DAYS.
+// WHAT THIS IS. A fixed list of the classic named workouts, each one showing
+// every attempt over time, the best result, and the same progress chart the
+// rest of this screen draws. Plus a reminder when a benchmark has not been
+// retested for BENCHMARK_RETEST_DAYS.
+//
+// No lifts here. The member's lifts, with their estimated 1RM, are already
+// the exercise list at the top of this screen; a second copy of them under
+// this heading (as 3.0.0 shipped) showed every lift twice.
 //
 // WHAT IT DELIBERATELY IS NOT: a second store. A Fran attempt IS a wod_entry
-// and a 1RM attempt IS a strength_entry - the rows this app has always
-// written, already queued through queueSyncRecord() into private_records,
-// already covered by buildBackupPayload(), already re-applied by
-// applyRemotePrivateRecord(). So attempts sync exactly like every other
+// - the row this app has always written, already queued through
+// queueSyncRecord() into private_records, already covered by
+// buildBackupPayload(), already re-applied by applyRemotePrivateRecord(). So attempts sync exactly like every other
 // record because they ARE every other record, and nothing here writes
 // anything. A `benchmark_attempt` record type would also have needed a
 // migration to get past private_records' record_type check constraint
@@ -5520,20 +5522,6 @@ function benchmarkWodAttempt(e) {
     effort: e.rx, text: formatWodEntry(e),
   };
 }
-// One attempt at a LIFT. "Attempt" here is a training DAY, not a set: a member
-// logs five sets of back squat in a session and that is one go at the
-// benchmark, so the day's best estimate stands for it - which is also exactly
-// what renderDetailCard() charts a few hundred lines up, so the two pictures
-// of the same movement agree.
-//
-// The value is the ESTIMATE (Epley, off the best set), not a tested single.
-// This app has one firm habit about that number - it says so wherever it
-// prints it - and this surface says so too, on the row and in the card.
-function benchmarkLiftAttempts(list) {
-  return bestPerDay((list || []).filter((e) => e.type !== "duration"), (e) => e.est1RM)
-    .map((e) => ({ id: e.id, date: e.date, ts: e.ts || 0, value: e.est1RM, effort: true, text: `${e.est1RM} ק״ג` }));
-}
-
 // THE FIXED EIGHT. Always all eight, in this order, whether or not the member
 // has ever done one: the list is the club's, not the member's, and a benchmark
 // never attempted is the most useful row on the screen for somebody new.
@@ -5558,22 +5546,7 @@ function benchmarkWodItems() {
     });
   }).filter(Boolean);
 }
-// THE MEMBER'S OWN 1RM LIFTS - every movement they have a rep-based entry for,
-// which is the only definition of "your lifts" this app can give without
-// asking them to curate a list. A movement logged only as holds has no 1RM at
-// all (bestEst1RM returns null, not 0) and is simply not a lift benchmark.
-function benchmarkLiftItems() {
-  const index = entriesByExercise();
-  return activeExercises().map((m) => {
-    const attempts = benchmarkLiftAttempts(index.get(m.id) || []);
-    if (!attempts.length) return null;
-    return benchmarkItem({
-      id: `lift:${m.id}`, kind: "lift", refId: m.id, name: m.name, subtitle: null,
-      scoreType: "load", effort: true, all: attempts, tracked: attempts,
-    });
-  }).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
-}
-// The derived half both kinds share, so "best", "how long ago" and "is it due"
+// The derived half of every item, so "best", "how long ago" and "is it due"
 // are computed once rather than per caller.
 function benchmarkItem(base) {
   const best = benchmarkBest(base.tracked, base.scoreType);
@@ -5589,7 +5562,7 @@ function benchmarkItem(base) {
     retestDue: daysSince !== null && daysSince > BENCHMARK_RETEST_DAYS,
   });
 }
-function benchmarkItems() { return benchmarkWodItems().concat(benchmarkLiftItems()); }
+function benchmarkItems() { return benchmarkWodItems(); }
 function formatBenchmarkValue(item, value) { return formatWodScore(item.scoreType, value); }
 
 function renderBenchmarkAttemptRow(item, attempt) {
@@ -5629,9 +5602,7 @@ function renderBenchmarkCard(item) {
       ${item.kind === "wod" && item.effort !== null && item.tracked.length < item.all.length
         ? `<div class="footer-note" style="margin-top:10px; text-align:center;">הגרף והשיא מציגים את הניסיונות ב${esc(wodEffortLabel(item.effort))} בלבד — תוצאות בדרגות מאמץ שונות אינן ברות השוואה. כל הניסיונות מופיעים ברשימה למטה.</div>` : ""}
       ${attempts.length ? `<h3 class="section-label" style="margin-top:14px;">כל הניסיונות</h3>${attempts.map((a) => renderBenchmarkAttemptRow(item, a)).join("")}` : ""}
-      ${item.kind === "lift"
-        ? `<div class="footer-note" style="margin-top:10px; text-align:center;">1RM משוער — חישוב מהסט הטוב ביותר בכל יום אימון, לא הרמה שבוצעה</div>`
-        : `<button class="link-btn" data-action="log-benchmark" data-id="${esc(item.refId)}" style="display:block; margin:12px auto 0;">רישום ניסיון ב-${esc(item.name)}</button>`}
+      <button class="link-btn" data-action="log-benchmark" data-id="${esc(item.refId)}" style="display:block; margin:12px auto 0;">רישום ניסיון ב-${esc(item.name)}</button>
     </div>
     <div style="height:8px;"></div>`;
 }
@@ -5648,8 +5619,7 @@ function renderBenchmarkRow(item) {
       </div>
       <span style="text-align:left;">
         ${best
-          ? `<span class="mono" style="display:block; color:var(--brass); font-weight:700; font-size:14px;">${bidiUnit(best)}</span>
-             ${item.kind === "lift" ? `<span style="display:block; color:var(--steel); font-weight:600; font-size:11px;">1RM משוער</span>` : ""}`
+          ? `<span class="mono" style="display:block; color:var(--brass); font-weight:700; font-size:14px;">${bidiUnit(best)}</span>`
           : `<span style="display:block; color:var(--steel); font-size:12px;">טרם נוסה</span>`}
       </span>
     </button>`;
