@@ -11,28 +11,42 @@
 // HTMLInputElement.prototype.click(), capture `this` the one time it's a
 // file input, then drive it exactly like a real file picker would: set
 // .files and fire a change event.
-//
-// Export/import moved from the footer into the settings modal (reachable
-// from the hamburger menu) — open it with window.openSettingsModal() before
-// looking for these buttons; they only exist in the DOM while it's open.
 import { test } from "node:test";
 import assert from "node:assert";
-import { bootApp } from "./helpers/boot.mjs";
+import { bootApp, waitFor } from "./helpers/boot.mjs";
+import { readFileSync } from "node:fs";
 
-test("clicking ייצוא גיבוי in settings exports without throwing and records the export time", async () => {
+// Live bug hunt, round 9 (2026-09-11): exportData() is now async
+// (buildBackupPayload() reads session notes off IndexedDB before
+// downloading), so a bare click no longer completes synchronously. Polling
+// for the actual expected outcome is robust to however many ticks that
+// chain now takes, the same fix bodyweight-measurements.test.mjs's own
+// save-button tests needed for the same underlying reason.
+async function pollUntil(checkAsync, timeoutMs = 2000, intervalMs = 5) {
+  const start = Date.now();
+  for (;;) {
+    if (await checkAsync()) return;
+    if (Date.now() - start > timeoutMs) throw new Error("pollUntil timed out");
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+test("clicking ייצוא גיבוי in the footer exports without throwing and records the export time", async () => {
   const window = await bootApp();
-  window.openSettingsModal();
   assert.equal(window.document.querySelector("[data-action='export-data']").textContent, "ייצוא גיבוי");
 
   assert.doesNotThrow(() => window.document.querySelector("[data-action='export-data']").click());
 
+  await pollUntil(async () => {
+    const stored = await window.dbGetSetting("boxlog:lastExportAt");
+    return typeof stored === "number" && stored > 0;
+  });
   const stored = await window.dbGetSetting("boxlog:lastExportAt");
   assert.ok(typeof stored === "number" && stored > 0, "exporting should record when the last export happened");
 });
 
 test("clicking ייבוא גיבוי opens a real file picker, and selecting a backup file imports it", async () => {
   const window = await bootApp();
-  window.openSettingsModal();
 
   let capturedInput = null;
   const origClick = window.HTMLInputElement.prototype.click;
@@ -62,7 +76,7 @@ test("clicking ייבוא גיבוי opens a real file picker, and selecting a b
   }
 });
 
-test("the no-backup-yet warning clears once a real export happens", async () => {
+test("the footer's no-backup-yet warning clears once a real export happens", async () => {
   const window = await bootApp();
   // The warning only shows once there's actually something worth backing
   // up — log a set first so hasData is true.
@@ -74,9 +88,32 @@ test("the no-backup-yet warning clears once a real export happens", async () => 
 
   assert.ok(window.document.body.textContent.includes("עדיין לא ביצעתם גיבוי"), "with real data and no export yet, the reminder should show");
 
-  window.openSettingsModal();
   window.document.querySelector("[data-action='export-data']").click();
-  await new Promise((r) => setTimeout(r, 0));
+  await pollUntil(async () => {
+    const stored = await window.dbGetSetting("boxlog:lastExportAt");
+    return typeof stored === "number" && stored > 0;
+  });
+  window.render();
 
   assert.ok(!window.document.body.textContent.includes("עדיין לא ביצעתם גיבוי"), "exporting should clear the no-backup-yet reminder");
+});
+
+// N9 / SEC-L8. The export note already said the file is plain JSON and to keep
+// it somewhere safe. What it did not say is where the file actually goes and
+// who else can reach it: a browser download lands in the device's Downloads
+// folder and stays there, so on a shared phone - the case this warning exists
+// for - anyone who uses the device afterwards can open a full training log,
+// bodyweight and measurements. "Keep it somewhere safe" is advice about where
+// to PUT it; this is about where it already is.
+test("N9: the export note warns about a shared device and says to clear the download", () => {
+  const appJs = readFileSync(new URL("../app.js", import.meta.url), "utf8");
+  const note = /קובץ הגיבוי הוא טקסט פשוט \(JSON\)[^<]*/.exec(appJs);
+  assert.ok(note, "the export note is still rendered next to the button");
+  const text = note[0];
+  assert.match(text, /תיקיית ההורדות/, "it says where the file lands");
+  assert.match(text, /במכשיר משותף/, "it names the shared-device case explicitly");
+  assert.match(text, /מחקו אותו מההורדות/, "and tells the member what to do about it");
+  // The existing facts must survive: this is an addition, not a rewrite.
+  assert.match(text, /טקסט פשוט \(JSON\)/, "still says the file is plain text");
+  assert.match(text, /בלי השם שלכם/, "still says the name is not in it");
 });

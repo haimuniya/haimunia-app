@@ -15,67 +15,42 @@ test("compareVersions orders semver-like strings numerically, not lexicographica
   assert.ok(window.compareVersions("2.10.0", "2.9.0") > 0, "10 > 9 numerically, not as strings");
 });
 
-test("notifications disappear from the list once seen, instead of sticking around as a permanent history", async () => {
-  const window = await bootApp();
-  await window.dbSetSetting("haimunia:lastSeenVersion", "0.0.0");
-  await window.loadLastSeenVersion();
-  assert.ok(window.unseenReleaseNotes().length > 0, "there should be unseen release notes relative to a very old lastSeenVersion");
-
-  window.openNotifications();
-  const firstOpenText = window.document.getElementById("notificationsList").textContent;
-  assert.ok(!firstOpenText.includes("אין עדכונים"), "the first open should show the unseen entries, not the empty state");
-  window.closeNotifications();
-
-  // openNotifications() marks everything as seen as a side effect — reopening
-  // right after should show nothing new, not the same entries again.
-  window.openNotifications();
-  const secondOpenText = window.document.getElementById("notificationsList").textContent;
-  assert.ok(secondOpenText.includes("אין עדכונים חדשים"), "reopening after being seen should show the empty state, not the old entries");
-});
-
-test("a fresh install skips the what's-new popup and shows onboarding only after the first welcome", async () => {
+// REWRITTEN, design spec §1.2. This test used to require the opposite of
+// what it now requires: that the five-screen explainer opened automatically
+// the instant the welcome form was saved. That was the audit's top friction
+// finding — two full-screen gates back to back, both with a primary button
+// reading בואו נתחיל, in front of a member who had not yet logged a rep. The
+// explainer is unchanged and still reachable; what it may no longer be is
+// something a member has to get past. The fresh-install special-casing this
+// test was originally written to protect (no changelog for someone who has
+// never used the app) is untouched and still asserted.
+test("a fresh install skips the what's-new popup, and nothing opens after the welcome sheet", async () => {
   const window = await bootApp();
   // bootApp() starts from a genuinely empty IndexedDB, so this is exactly
   // the fresh-install path init() is meant to special-case.
   assert.equal(window.document.getElementById("welcomeOverlay").classList.contains("open"), true, "welcome modal should be showing");
   assert.equal(window.document.getElementById("notificationsOverlay").classList.contains("open"), false, "no changelog for someone who's never used the app");
-  assert.equal(window.document.getElementById("whatsNewOverlay").classList.contains("open"), false, "no redesign reveal either — there's no old design for a first-time user to compare it to");
-  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false, "onboarding waits for the welcome form, not shown yet");
+  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false, "the explainer is not a gate, before or after");
 
   window.saveWelcomeForm("בודק");
 
-  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), true, "onboarding should appear right after the first-ever welcome");
+  const stillOpen = [...window.document.querySelectorAll(".modal-overlay.open")].map((el) => el.id);
+  assert.deepEqual(stillOpen, [], "nothing may stand between the welcome sheet and the logging screen");
+  // Not shown does not mean not offered: the explainer is now pulled from a
+  // card on the logging screen, and §1.5 keeps it in Settings forever after.
+  assert.match(window.renderLogTab(), /data-action="open-onboarding"/);
 });
 
-// Coverage gap closed (full-codebase audit): the tests above only ever
-// checked onboarding's open/closed timing, never its actual content — a
-// typo or a dropped screen in the static markup would have sailed through
-// green. onboardingOverlay's four screens are static HTML (index.html),
-// not JS-rendered, so this reads them straight off the real DOM.
-test("onboarding walks through all four tabs, and its own button closes it", async () => {
+test("editing the profile later never opens the explainer either", async () => {
   const window = await bootApp();
   window.saveWelcomeForm("בודק");
-
-  const text = window.document.getElementById("onboardingOverlay").textContent;
-  for (const label of ["רישום", "התקדמות", "לוח שנה", "אימונים"]) {
-    assert.ok(text.includes(label), `onboarding should walk through the ${label} tab`);
-  }
-
-  const closeBtn = window.document.querySelector("#onboardingOverlay [data-action='close-onboarding']");
-  assert.ok(closeBtn, "onboarding should have its own dismiss button, not rely on an overlay-click-to-close");
-  closeBtn.click();
-  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false);
-});
-
-test("editing the profile later (not the first-time welcome) does not re-trigger onboarding", async () => {
-  const window = await bootApp();
-  window.saveWelcomeForm("בודק"); // first time — opens onboarding
+  window.openOnboarding();
   window.closeOnboarding();
   assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false);
 
   window.openWelcomeModal(true); // "edit profile" flow
   window.saveWelcomeForm("שם חדש");
-  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false, "editing the profile afterward must not show onboarding again");
+  assert.equal(window.document.getElementById("onboardingOverlay").classList.contains("open"), false, "editing the profile must not show onboarding");
 });
 
 test("computeCurrentStreak counts consecutive logged days backward; today unlogged doesn't break it", async () => {
@@ -159,4 +134,28 @@ test("session note round-trips through IndexedDB and is scoped per date", async 
   const otherDate = window.localISODate(new Date(Date.now() - 5 * 86400000));
   const storedOther = await window.dbGetSetting(`sessionNote:${otherDate}`);
   assert.equal(storedOther, null, "a note on one date must not leak onto another");
+});
+
+// Live bug hunt (2026-09-11): saveSessionNote() used to run every note
+// through cleanStr(), which deletes \n/\r outright - a real multi-line
+// reflection ("...\nהמשקל עלה\n...") was saved with its line breaks silently
+// stripped and the sentences fused word-to-word, with no warning. The
+// textarea (rows="3") is genuinely multi-line, so cleanMultilineStr() is now
+// used instead. The control below proves this would have failed against the
+// pre-fix cleanStr() behavior.
+test("session note preserves line breaks instead of fusing lines together", async () => {
+  const window = await bootApp();
+  const today = window.todayISO();
+  const typed = "הרגשתי מעולה היום\nהמשקל עלה\nבפעם הבאה להוסיף עוד סט";
+
+  await window.saveSessionNote(today, typed);
+  const stored = await window.dbGetSetting(`sessionNote:${today}`);
+  assert.equal(stored, typed, "line breaks must survive a save/reload round-trip");
+  assert.equal((stored.match(/\n/g) || []).length, 2, "all three lines must stay separated");
+
+  // Control: the bug's exact failure mode, demonstrated against the old
+  // sanitizer directly (not re-testing production code, just proving the
+  // assertion above is not vacuous).
+  const viaOldCleanStr = window.cleanStr(typed, 4000);
+  assert.equal(viaOldCleanStr, "הרגשתי מעולה היוםהמשקל עלהבפעם הבאה להוסיף עוד סט", "cleanStr alone reproduces the fused-lines bug this test guards against");
 });

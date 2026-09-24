@@ -58,7 +58,7 @@ test("editing an existing entry overwrites it in place rather than duplicating i
   await window.saveSet();
 
   const [entry] = window.entriesFor(movement.id);
-  window.startEditEntry(entry.id);
+  await window.startEditEntry(entry.id);
   window.applyFieldValue("step", "weight", 110);
   await window.saveSet();
 
@@ -133,8 +133,19 @@ test("the PR celebration popup is suppressed mid-ladder but fires normally other
   window.toggleLadderMode(); // finish the ladder
 
   await window.addMovement("Test Celebration Deadlift", "Deadlift");
-  window.applyFieldValue("step", "weight", 120);
   window.applyFieldValue("step", "reps", 3);
+  // UX-audit recalibration (design spec 5.3.1, MIN_ENTRIES_BEFORE_PR): a
+  // celebration needs 3 prior entries for the exercise to beat, so this used
+  // to pass on the movement's FIRST set - the "with no history every set is
+  // a record" behaviour the audit flagged. The point under test here is the
+  // ladder suppression above and that a normal save still celebrates, both
+  // unchanged; only the baseline this save is measured against is new.
+  for (const kg of [100, 105, 110]) {
+    window.applyFieldValue("step", "weight", kg);
+    await window.saveSet();
+    window.closeCelebration();
+  }
+  window.applyFieldValue("step", "weight", 120);
   await window.saveSet();
   assert.equal(isCelebrationOpen(), true, "a normal (non-ladder) PR save should still celebrate");
 });
@@ -189,7 +200,7 @@ test("editing an unrelated entry mid-ladder ends it; editing the ladder's own ro
 
   // Fixing a typo in the ladder's own round (same session) must NOT end it —
   // otherwise a quick correction would strand anyone about to log set 2+.
-  window.startEditEntry(ladderRound.id);
+  await window.startEditEntry(ladderRound.id);
   assert.equal(isOn(), true, "editing the active ladder's own round should not end it");
   window.applyFieldValue("step", "weight", 62.5);
   await window.saveSet();
@@ -197,7 +208,7 @@ test("editing an unrelated entry mid-ladder ends it; editing the ladder's own ro
   assert.equal(window.currentLadderRounds()[0].weight, 62.5);
 
   // Editing a genuinely unrelated entry, by contrast, should end it.
-  window.startEditEntry(unrelatedEntry.id);
+  await window.startEditEntry(unrelatedEntry.id);
   assert.equal(isOn(), false, "editing an unrelated entry should end the ladder, same as switching exercise does");
   window.applyFieldValue("step", "weight", 125);
   await window.saveSet();

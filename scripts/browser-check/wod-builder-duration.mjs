@@ -12,7 +12,8 @@
 //   TARGET_URL=<url> node wod-builder-duration.mjs # a deployed site
 import { chromium } from "playwright";
 import { resolveTarget } from "./lib/target.mjs";
-import { dismissWelcomeModal, consoleErrorCollector } from "./lib/actions.mjs";
+import { switchTab, dismissWelcomeModal, selectBenchmarkWod, consoleErrorCollector } from "./lib/actions.mjs";
+import { installMockCloud } from "./lib/mockCloud.mjs";
 
 let failed = false;
 function check(label, ok, detail = "") {
@@ -27,14 +28,26 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 420, height: 1000 } });
 const errors = await consoleErrorCollector(page);
 
+// COMM-333: cloud.js boots unconditionally regardless of which tab a
+// script visits, and cloud-config.js points at the real, live production
+// Supabase project - without this, an offline-only check like this one
+// still fires real network calls (session restore, anonymous sign-in via
+// the auto-backup bootstrap, etc.) against production in the background,
+// which is both a safety risk (see lib/mockCloud.mjs's own comment) and
+// the source of intermittent 401/409 console errors this suite saw.
+await installMockCloud(page);
 await page.goto(target.url, { waitUntil: "networkidle" });
 await page.waitForSelector("#app", { state: "visible" });
 await dismissWelcomeModal(page);
 
-await page.click("#tabWodBtn");
+await switchTab(page, "tabWodBtn");
 await page.waitForTimeout(200);
-// No WOD is pre-selected on a fresh load anymore — its own direct build
-// button in the empty state replaces the old picker-then-builder detour.
+// COMM-360: selectedWodId now defaults to unset - pick a real WOD first
+// (same as a real user must) before the exercise-select/open-wod-picker
+// button exists to click.
+await selectBenchmarkWod(page, "fran");
+await page.click("[data-action='open-wod-picker']");
+await page.waitForTimeout(200);
 await page.click("[data-action='open-wod-builder']");
 await page.waitForSelector("#wodBuilderOverlay.open", { timeout: 5000 });
 

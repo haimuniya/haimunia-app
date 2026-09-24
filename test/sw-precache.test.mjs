@@ -1,29 +1,59 @@
-// The three weight-plate medal images (assets/medal-bronze/silver/gold.png,
-// referenced by app.js's tiered-achievement markup) were added without
-// being added to sw.js's ASSETS precache list. isPrecached() gates what
-// gets written to cache on a successful fetch, so these never got cached
-// for offline use even after loading once online - a member opening the
-// achievements modal or a medal-unlock celebration offline (common at a
-// gym) saw a broken image for every tiered medal while every other app
-// asset kept working offline as intended.
+// THE SERVICE WORKER IS THE UPDATE PATH AND THE OFFLINE PATH.
+//
+// A file index.html loads but sw.js does not precache works online and
+// breaks offline with no signal. A REQUIRED asset that does not exist makes
+// install fail, and the previous version keeps running - safe, but the update
+// never arrives. Both are checked against the files on disk.
 import { test } from "node:test";
 import assert from "node:assert";
-import fs from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { SCRIPT_FILES } from "./helpers/boot.mjs";
 
-const sw = fs.readFileSync(new URL("../sw.js", import.meta.url), "utf8");
-const app = fs.readFileSync(new URL("../app.js", import.meta.url), "utf8");
+const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const read = (f) => readFileSync(path.join(root, f), "utf8");
+const sw = read("sw.js");
+const list = (name) => {
+  const m = sw.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`));
+  return [...m[1].matchAll(/"\.\/([^"]*)"/g)].map((x) => x[1]);
+};
+const REQUIRED = list("REQUIRED_ASSETS");
+const OPTIONAL = list("OPTIONAL_ASSETS");
 
-test("every assets/medal-*.png referenced by app.js is in sw.js's ASSETS precache list", () => {
-  const assetsMatch = sw.match(/const ASSETS = \[([\s\S]*?)\];/);
-  assert.ok(assetsMatch, "sw.js must define an ASSETS array");
-  const assetsBlock = assetsMatch[1];
+test("every script index.html loads is a REQUIRED asset", () => {
+  for (const f of SCRIPT_FILES) assert.ok(REQUIRED.includes(f), `${f} is loaded but not in REQUIRED_ASSETS`);
+  for (const f of ["index.html", "theme-init.js", "frame-guard.js"]) assert.ok(REQUIRED.includes(f), f);
+});
 
-  // app.js builds the path as a template literal (`./assets/medal-${ach.tier}.png`),
-  // so it can't be regex-matched as a literal string - confirm the
-  // template exists, then check every real tier value it's built from.
-  assert.match(app, /\.\/assets\/medal-\$\{ach\.tier\}\.png/, "app.js should build the tiered-medal image path from ach.tier");
-  for (const tier of ["bronze", "silver", "gold"]) {
-    const path = `./assets/medal-${tier}.png`;
-    assert.ok(assetsBlock.includes(`"${path}"`), `${path} must be precached (sw.js ASSETS) so tiered medals don't break offline`);
+test("every precached path exists on disk", () => {
+  for (const f of [...REQUIRED, ...OPTIONAL]) {
+    if (f === "") continue; // "./" is the directory index
+    assert.ok(existsSync(path.join(root, f)), `sw.js precaches ./${f}, which does not exist`);
   }
+});
+
+test("every asset the app references is precached", () => {
+  const src = read("index.html") + read("app.js");
+  const refs = new Set([...src.matchAll(/\.?\/?(assets\/[A-Za-z0-9_./-]+\.(?:png|jpe?g|woff2))/g)].map((m) => m[1]));
+  assert.ok(refs.size > 10, "found the asset references");
+  for (const r of refs) assert.ok(OPTIONAL.includes(r) || REQUIRED.includes(r), `${r} is used but not precached`);
+});
+
+test("the worker answers SKIP_WAITING - the message 2.x's update banner sends", () => {
+  assert.match(sw, /e\.data && e\.data\.type === "SKIP_WAITING"\) self\.skipWaiting\(\)/);
+  const install = sw.slice(sw.indexOf('addEventListener("install"'), sw.indexOf('addEventListener("activate"'));
+  assert.doesNotMatch(install, /self\.skipWaiting\(\)/, "install must not skip waiting on its own: the page decides when to swap");
+});
+
+test("no push or notification handlers survive from the community edition", () => {
+  assert.doesNotMatch(sw, /addEventListener\("(push|notificationclick)"/);
+});
+
+test("APP_VERSION and SW_VERSION agree and are above 2.34.0", () => {
+  const app = read("app.js").match(/const APP_VERSION = "([^"]+)";/)[1];
+  const swv = sw.match(/const SW_VERSION = "([^"]+)";/)[1];
+  assert.equal(app, swv);
+  const [a, b, c] = app.split(".").map(Number);
+  assert.ok(a > 2 || (a === 2 && (b > 34 || (b === 34 && c > 0))), `${app} must sort above 2.34.0 for the update and the what's-new list`);
 });

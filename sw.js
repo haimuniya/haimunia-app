@@ -1,16 +1,44 @@
-// Service worker for האימוניה.
-// Version is the single source of truth for the cache name — bumping
-// APP_VERSION in app.js is what ships an update. Don't edit SW_VERSION by
-// hand: run `npm run sync-version` (see app.js) to copy it here.
-const SW_VERSION = "2.34.0";
-const CACHE = `haimunia-v${SW_VERSION}`;
+// Service worker for the training-log edition, served at
+// haimuniya.github.io/haimunia-app/sw.js with scope ./ - the same URL and
+// scope as the 2.x app it replaces, which is what lets it take over in place.
+//
+// HOW AN INSTALLED 2.x PHONE GETS THIS VERSION. The browser re-fetches this
+// file on navigation (bypassing the HTTP cache for the script itself), sees
+// the bytes changed, and installs this worker alongside the old one. The old
+// page's own update flow - reg.onupdatefound -> offerUpdate() -> postMessage
+// SKIP_WAITING -> controllerchange -> reload - talks to whatever worker is
+// waiting, and this one answers SKIP_WAITING below. Nothing new is needed on
+// the old side, which matters because the old side is already on members'
+// phones and cannot be changed.
+//
+// SW_VERSION is written by scripts/sync-version.mjs from APP_VERSION in
+// app.js; the cache name carries it, so every release is a fresh cache.
+const SW_VERSION = "3.0.0";
+// The 2.x app's own prefix, kept: its caches are "haimunia-v2.34.0" and so
+// on, and the cleanup below removes them by this prefix.
+const CACHE_PREFIX = "haimunia-v";
+const CACHE = `${CACHE_PREFIX}${SW_VERSION}`;
 
-// Everything the app shell needs to boot with no network.
-const ASSETS = [
+// Everything the app cannot start without. If any of these fails to
+// download, install fails and the PREVIOUS version keeps running - the safe
+// outcome, since a half-cached new version would break offline.
+const REQUIRED_ASSETS = [
   "./",
   "./index.html",
   "./app.js",
+  "./app-config.js",
+  "./frame-guard.js",
   "./theme-init.js",
+  "./src/shared/safe-helpers.js",
+  "./src/constants.js",
+  "./src/format.js",
+  "./src/sanitize.js",
+  "./src/db.js",
+];
+// What the app degrades gracefully without: pages, icons, photos, fonts.
+// A miss is logged and install continues.
+const OPTIONAL_ASSETS = [
+  "./privacy.html",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
@@ -23,6 +51,12 @@ const ASSETS = [
   "./assets/medal-bronze.png",
   "./assets/medal-silver.png",
   "./assets/medal-gold.png",
+  "./assets/photos/club-rig-wide.jpeg",
+  "./assets/club-photos/add-stripe-wall.jpg",
+  "./assets/club-photos/progress-blue-rig.jpg",
+  "./assets/club-photos/achievements-plates.jpg",
+  "./assets/club-photos/library-rings.jpg",
+  "./assets/club-photos/community-logo-wall.jpg",
   "./assets/fonts/rubik-400-latin.woff2",
   "./assets/fonts/rubik-400-hebrew.woff2",
   "./assets/fonts/rubik-600-latin.woff2",
@@ -36,32 +70,36 @@ const ASSETS = [
   "./assets/fonts/jbmono-500-latin.woff2",
   "./assets/fonts/jbmono-700-latin.woff2",
   "./assets/fonts/anton-400-latin.woff2",
+  "./assets/fonts/secularone-400-hebrew.woff2",
 ];
+const ASSETS = [...REQUIRED_ASSETS, ...OPTIONAL_ASSETS];
 
-// Precache each asset independently. addAll() is all-or-nothing: a single
-// missing file used to fail the whole install and silently leave the app with
-// no offline support at all.
 self.addEventListener("install", (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((cache) =>
-      Promise.allSettled(
-        ASSETS.map((url) =>
+    caches.open(CACHE).then(async (cache) => {
+      // cache: "reload" so a stale HTTP-cached copy of the OLD file can never
+      // be precached under the new version's name.
+      await Promise.all(REQUIRED_ASSETS.map((url) => cache.add(new Request(url, { cache: "reload" }))));
+      await Promise.allSettled(
+        OPTIONAL_ASSETS.map((url) =>
           cache.add(new Request(url, { cache: "reload" }))
             .catch((err) => console.warn("[sw] precache miss:", url, err))
         )
-      )
-    )
+      );
+    })
   );
-  // No skipWaiting() here on purpose. The page shows an update banner and the
-  // user decides when to swap; activating under a running page would leave the
-  // old app.js talking to a new cache.
+  // No skipWaiting() here: the page decides when to swap (SKIP_WAITING
+  // below), so a running page never finds its assets replaced mid-session.
 });
 
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     (async () => {
+      // Only this app's own older caches. haimuniya.github.io is shared by
+      // every repository the organisation publishes, and the 2.x worker's
+      // "delete every cache but mine" took other apps' caches with it.
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
+      await Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE).map((k) => caches.delete(k)));
       if (self.registration.navigationPreload) {
         await self.registration.navigationPreload.enable().catch(() => {});
       }
@@ -70,18 +108,12 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// The update banner in index.html triggers the swap explicitly.
 self.addEventListener("message", (e) => {
   if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
-// Only app-shell files get written back to the cache, so a stray same-origin
-// request can't grow the cache without bound.
 function isPrecached(url) {
-  return ASSETS.some((a) => {
-    const rel = a.replace(/^\.\//, "");
-    return rel === "" ? url.pathname.endsWith("/") : url.pathname.endsWith("/" + rel);
-  });
+  return ASSETS.some((a) => new URL(a, self.location).pathname === url.pathname);
 }
 
 self.addEventListener("fetch", (e) => {
@@ -96,6 +128,7 @@ self.addEventListener("fetch", (e) => {
   // third-party response sit in the app's cache indefinitely.
   if (url.origin !== self.location.origin) return;
   if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") return;
+
 
   // Navigations: serve the shell. Matching with ignoreSearch is what makes the
   // manifest shortcuts (./index.html?tab=add) work offline — an exact-URL match
@@ -129,7 +162,18 @@ self.addEventListener("fetch", (e) => {
       const cached = await cache.match(req, { ignoreSearch: true });
       const network = fetch(req)
         .then((res) => {
-          if (res && res.ok && res.type === "basic" && isPrecached(url)) {
+          // Security hunt (2026-09-11): res.redirected was never checked here.
+          // A same-origin redirect still yields type:"basic"/ok:true per the
+          // Fetch spec, so if a precached path were ever redirected, this
+          // would have cached the REDIRECTED body under the ORIGINAL trusted
+          // key - confirmed live by actually redirecting a precached path and
+          // watching the redirected content get served back later, fully
+          // offline. No mechanism on this app's real static-hosting origin
+          // can currently produce such a redirect (checked), so this was not
+          // reachable in production, but it was strictly looser than the
+          // "only cache what was actually asked for" invariant this whole
+          // block exists to enforce, and cheap to close outright.
+          if (res && res.ok && !res.redirected && res.type === "basic" && isPrecached(url)) {
             cache.put(req, res.clone()).catch(() => {});
           }
           return res;

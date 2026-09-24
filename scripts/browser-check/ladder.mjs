@@ -10,7 +10,8 @@
 //   TARGET_URL=<url> node ladder.mjs # a deployed site
 import { chromium } from "playwright";
 import { resolveTarget } from "./lib/target.mjs";
-import { dismissWelcomeModal, selectMovement, dismissCelebrationIfOpen, consoleErrorCollector } from "./lib/actions.mjs";
+import { switchTab, dismissWelcomeModal, selectMovement, dismissCelebrationIfOpen, consoleErrorCollector, readAppConfirm, resolveAppConfirm } from "./lib/actions.mjs";
+import { installMockCloud } from "./lib/mockCloud.mjs";
 
 let failed = false;
 function check(label, ok, detail = "") {
@@ -25,6 +26,14 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 420, height: 1000 } });
 const errors = await consoleErrorCollector(page);
 
+// COMM-333: cloud.js boots unconditionally regardless of which tab a
+// script visits, and cloud-config.js points at the real, live production
+// Supabase project - without this, an offline-only check like this one
+// still fires real network calls (session restore, anonymous sign-in via
+// the auto-backup bootstrap, etc.) against production in the background,
+// which is both a safety risk (see lib/mockCloud.mjs's own comment) and
+// the source of intermittent 401/409 console errors this suite saw.
+await installMockCloud(page);
 await page.goto(target.url, { waitUntil: "networkidle" });
 await page.waitForSelector("#app", { state: "visible" });
 await dismissWelcomeModal(page);
@@ -54,7 +63,7 @@ for (let i = 0; i < rungs.length; i++) {
 check("all 5 rungs saved with ladder mode staying on throughout", !failed);
 check("PR celebration stayed suppressed for all 5 rungs", celebrations === 0, `fired ${celebrations}/5`);
 
-await page.click("#tabCalendarBtn");
+await switchTab(page, "tabCalendarBtn");
 await page.waitForTimeout(200);
 const dayRows = await page.evaluate(() =>
   [...document.querySelectorAll("#calDetail .log-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim())
@@ -65,25 +74,60 @@ check("all 5 weight/rep pairs present in order", dayRows[0]?.includes("6×60") &
 const editButtons = page.locator("#calDetail button[data-action='edit-entry']");
 await editButtons.nth(2).click();
 await page.waitForTimeout(150);
-await page.click("#tabAddBtn");
+await switchTab(page, "tabAddBtn");
 await page.waitForTimeout(150);
 await page.fill("[data-field='weight'].stepper-val", "82.5");
 await page.dispatchEvent("[data-field='weight'].stepper-val", "change");
 await page.click("[data-action='save-set']");
 await page.waitForTimeout(250);
 await dismissCelebrationIfOpen(page);
-await page.click("#tabCalendarBtn");
+await switchTab(page, "tabCalendarBtn");
 await page.waitForTimeout(200);
 const afterEdit = await page.evaluate(() => document.querySelector("#calDetail .log-row")?.textContent || "");
 check("editing one round updates it in place, still grouped", afterEdit.includes("4×82.5") && afterEdit.includes("5 סטים"));
 
-const delBefore = await page.locator("#calDetail button[data-action='delete-entry']").count();
-await page.locator("#calDetail button[data-action='delete-entry']").last().click();
-await page.waitForTimeout(200);
-const delAfter = await page.locator("#calDetail button[data-action='delete-entry']").count();
-check("deleting one round removes exactly one", delBefore === 5 && delAfter === 4, `${delBefore} -> ${delAfter}`);
+// Deleting a logged round now asks first (8afbc57). Previously the bin
+// icon deleted on mousedown with no dialog and no undo, while blocking a
+// club member did confirm - the least guarded action in the app destroying
+// the only data in it that cannot be recreated. The confirmation is the
+// fix, so this drives it rather than routing around it, and covers both
+// answers: cancel must destroy nothing, confirm must destroy exactly one.
+const rounds = () => page.locator("#calDetail button[data-action='delete-entry']").count();
+const delBefore = await rounds();
 
-await page.click("#tabAddBtn");
+// --- cancel: the safety property the confirmation exists for ---
+await page.locator("#calDetail button[data-action='delete-entry']").last().click();
+const dialog = await readAppConfirm(page);
+check(
+  "deleting a round asks first, and the question names the set it will destroy",
+  dialog.title.includes("מחיקת סט") && dialog.message.includes("Strict Press"),
+  `${dialog.title} | ${dialog.message.slice(0, 90)}`,
+);
+check("the confirm button is styled as destructive, not a bare OK", dialog.destructive);
+check("focus lands inside the dialog, not behind it", dialog.focused.startsWith("app-confirm"), dialog.focused);
+const duringDialog = await rounds();
+check("nothing is deleted while the dialog is still open", duringDialog === delBefore, `${duringDialog}`);
+
+await resolveAppConfirm(page, false);
+await page.waitForTimeout(200);
+const afterCancel = await rounds();
+check("cancelling the confirmation deletes nothing", afterCancel === delBefore, `${delBefore} -> ${afterCancel}`);
+const undoAfterCancel = await page.locator("#appToastBar").count();
+check("a cancelled delete offers no undo, because nothing was undone", undoAfterCancel === 0);
+
+// --- confirm: still removes exactly one, and offers the undo ---
+await page.locator("#calDetail button[data-action='delete-entry']").last().click();
+await readAppConfirm(page);
+await resolveAppConfirm(page, true);
+await page.waitForTimeout(200);
+const delAfter = await rounds();
+check("confirming deletes exactly one round", delBefore === 5 && delAfter === 4, `${delBefore} -> ${delAfter}`);
+// A confirmation stops the accident; the undo repairs the confirmed delete
+// of the wrong row, which is the one a dialog cannot catch.
+const undoOffered = await page.locator("#appToastBar [data-action='toast-action']").count();
+check("a confirmed delete offers a short undo", undoOffered === 1);
+
+await switchTab(page, "tabAddBtn");
 await page.waitForTimeout(150);
 await page.click("[data-action='toggle-ladder-mode']"); // finish, without switching tabs afterward
 await page.waitForTimeout(150);
