@@ -1,3 +1,13 @@
+# 3.1.1 — Progress lists each lift once — 2026-09-24
+
+The Progress screen showed every logged lift twice: in the exercise list
+(sets and estimated 1RM), and again at the end of Benchmarks, after the
+eight named workouts, with only the estimated 1RM. Those extra rows came
+from `benchmarkLiftItems()`, added in 3.0.0. Benchmarks is now the named
+workouts only; the estimated 1RM stays on the exercise cards, and the order
+is unchanged: exercises, Benchmarks, body weight.
+`test/progress-no-duplicate-lifts.test.mjs` fails if a lift appears twice.
+
 # 3.1.0 — usage counting, with a switch to turn it off — 2026-09-23
 
 The club wants to know how many people use the app and how many log
