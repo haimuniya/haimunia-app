@@ -1,3 +1,20 @@
+# 3.2.0 — The move to the new app, built and switched off — 2026-11-12
+
+Two things for the move to the new club app (haimunia.pages.dev), both behind
+`HAIMUNIA_CONFIG.newApp.enabled`, which ships `false`. Members see no change
+until the owner turns it on.
+
+- An invitation card on the home screen: "same log, with the club, move when
+  you like, this app keeps working". Dismissed once, it stays dismissed.
+- "Create transfer code" in Settings and from the card. The whole backup,
+  body weight and session notes included, plus the device settings, is
+  gzipped and encrypted on the phone (HKDF + AES-GCM) with a key that exists
+  only in the 21-character code. Only ciphertext goes to the box-log Edge
+  Function transfer-put, kept 24 hours and handed out once. The new app
+  decrypts it on the member's phone.
+
+This app keeps working with no end date.
+
 # 3.1.2 — Usage counts reach the club project again — 2026-11-12
 
 The Supabase project that received the anonymous usage counts was deleted,
