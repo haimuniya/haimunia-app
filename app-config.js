@@ -13,8 +13,8 @@ window.HAIMUNIA_CONFIG = Object.freeze({
   supportEmail: "haimuniya@gmail.com",
 
   usage: Object.freeze({
-    url: "https://jajmlyrjlkhclgphbfbb.supabase.co",
-    key: "sb_publishable_DBnlKZMDKGR83DUtk-4VAA_nFlOdDI4",
+    url: "https://hvwakffluwvegedefoth.supabase.co",
+    key: "sb_publishable_MRSX0PLMZjoDIX4iuDbI2g_G2EdMRu6",
   }),
 
   brand: Object.freeze({
