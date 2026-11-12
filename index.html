@@ -3013,6 +3013,46 @@
   html[data-layout="desktop"][data-staff="1"] .staff-home > .page-title{ margin-bottom:14px; }
 
   /* ---- Audit 2026-11 fixes ---- */
+  /* 8: backup actions are real buttons, export first. */
+  .backup-actions{ display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+  .backup-btn{ width:100%; min-height:48px; border-radius:14px; font-size:15px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+  .backup-btn-primary{ background:var(--energy); color:#1a0d08; border:0; }
+  .backup-btn-secondary{ min-height:44px; background:transparent; color:var(--chalk); border:1px solid var(--border); font-weight:700; }
+  /* 9: the welcome title and subtitle get their own dark scrim, so they
+     read on any part of the striped photo, in either theme. White on this
+     panel over pure white is about 7:1. */
+  #welcomeOverlay .scene-page__intro{ background:linear-gradient(180deg, rgba(8,21,35,.72), rgba(8,21,35,.86)); border-radius:16px; padding:12px 16px 14px; text-shadow:none; }
+  #welcomeOverlay .scene-page__title{ text-shadow:none; font-size:32px; justify-content:center; }
+  #welcomeOverlay .scene-page__subtitle{ opacity:1; max-width:none; }
+  /* Anchored by its BOTTOM edge just above the sheet, so a title that wraps
+     to two lines grows upward over the photo instead of under the sheet. */
+  #welcomeOverlay .scene-page__intro{ top:calc(var(--scene-photo-height) - 12px); transform:translateY(-100%); }
+  /* 12: one line on usage counting. */
+  .welcome-usage-note{ margin:14px auto 0; max-width:34ch; color:var(--steel); font-size:12px; line-height:1.6; }
+  .welcome-usage-note .link-btn{ display:flex; margin:0 auto; font-size:12px; min-height:44px; padding:0 8px; }
+  #settingsOverlay.above-welcome{ z-index:60; }
+  /* 10: on a desktop the welcome sheet stands on an opaque backdrop - the
+     half-visible app behind it, with its sidebar text clipped, read as a
+     broken layout. */
+  @media (min-width:900px){
+    #welcomeOverlay{ background:var(--club-navy); }
+  }
+  /* 14: at 390px a category row wrapped "ימים" onto its own line and the
+     "לפני 50 ימים" badge onto two. The counts and the badge now keep their
+     words together, and the pair moves under the name when it must. */
+  .report-row{ flex-wrap:wrap; row-gap:6px; column-gap:8px; }
+  .report-row-meta{ margin-inline-start:auto; }
+  .report-counts, .report-flag{ white-space:nowrap; }
+  /* 15: the selected (by default, today's) calendar number was white on
+     the energy orange in light theme, 3.46:1. Dark ink, as dark theme
+     already uses: 5.49:1. */
+  body[data-scene] .cal-cell.selected .cal-daynum{ color:#1a0d08; }
+  /* 15: "delete all data" in dark theme, #FF7869 on the settings card,
+     4.12:1. #FF9488 is 4.98:1 there and stays the same red family. */
+  :root[data-theme="dark"] .chip-btn.danger{ color:#FF9488; }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .chip-btn.danger{ color:#FF9488; } }
+  /* 16: the profile edit button was a 30x30 target. */
+  #settingsBody [data-action="edit-user-name"]{ min-width:44px; min-height:44px; }
   .badge-new{ display:inline-flex; align-items:center; padding:1px 8px; border-radius:999px; background:var(--energy); color:#1a0d08; font-size:11px; font-weight:800; }
 </style>
 </head>
@@ -3508,6 +3548,7 @@
       <input id="welcomeBoxStartInput" type="date" class="text-input" aria-labelledby="welcomeBoxStartLabel" style="margin-bottom:16px; text-align:center;" />
       <button data-action="save-user-name" class="save-btn" style="max-width:none; margin-bottom:10px;"><span id="welcomeSaveLabel">בואו נתחיל</span></button>
       <button id="welcomeSkipBtn" data-action="skip-user-name" class="link-btn">דלג</button>
+      <p id="welcomeUsageNote" class="welcome-usage-note">האפליקציה סופרת שימוש בלי שם ובלי פרטים מהאימונים. <button type="button" class="link-btn" data-action="open-usage-setting">אפשר לכבות בהגדרות</button></p>
     </div>
   </div>
 </div>

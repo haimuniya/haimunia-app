@@ -5195,7 +5195,7 @@ function updateStreakLabel() {
 // shown - a real feature (a monthly summary), not just decoration, so it
 // lives next to renderCalendarGrid() and is recomputed on every month nav
 // the grid itself already handles. "Total sets" counts strength entries
-// only (one row in `entries` is one logged set); a WOD session is a
+// only (each row's own `sets` count, summed); a WOD session is a
 // different unit of work and isn't folded into that count. "PR days"
 // counts a day once even if it carried multiple PRs.
 function computeCalendarMonthStats(year, month) {
@@ -5211,7 +5211,11 @@ function computeCalendarMonthStats(year, month) {
     ...monthEntries.filter((e) => isFlameworthyEntry(e, celebratableIds)),
     ...monthWods.filter((e) => e.isPR),
   ].map((e) => e.date)).size;
-  return { trainingDays, totalSets: monthEntries.length, prDays };
+  // One row in `entries` is one logged LINE, which carries its own set count
+  // ("3 × 5 @ 60"). Counting rows reported 3 sets of squats as 1 (audit
+  // 2026-11, finding 7). Rows from before the field existed count as one.
+  const totalSets = monthEntries.reduce((n, e) => n + (Number.isFinite(e.sets) && e.sets > 0 ? Math.round(e.sets) : 1), 0);
+  return { trainingDays, totalSets, prDays };
 }
 function renderCalendarGrid() {
   const grid = document.getElementById("calGrid");
@@ -5523,8 +5527,8 @@ function renderVolumeReport() {
           <div class="dot" style="background:${esc(catColor(cat))}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(catLabel(cat))}</span>
         </div>
-        <div class="flex items-center gap-10">
-          <span class="mono" style="color:var(--steel); font-size:12px;">${bidiUnit(volumeCountsLabel(setsWeek, setsMonth))}</span>
+        <div class="flex items-center gap-10 report-row-meta">
+          <span class="mono report-counts" style="color:var(--steel); font-size:12px;">${bidiUnit(volumeCountsLabel(setsWeek, setsMonth))}</span>
           <span class="report-flag" style="color:${flagColor}; background:${flagBg};">${flagText}</span>
         </div>
       </div>`;
@@ -6033,16 +6037,19 @@ ${renderNewAppSettingsBlock()}
         <div class="settings-block-title">קובץ גיבוי להורדה</div>
         <div class="footer-note"${storageOK ? "" : ' style="color:var(--red-text);" role="alert"'}>${storageOK ? esc("נשמר במכשיר הזה בלבד, ללא שרת") : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
         ${staleBackupNote}
-        <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
-          <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
-          <span style="color:var(--border); font-size:11px;">·</span>
-          <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
+        <!-- Audit 2026-11, finding 8: these were two 36px underlined text
+             links sitting under the "backup is old" warning - the warning
+             asked for an action the screen barely offered. Export is the
+             one the warning is about, so it is the primary button. -->
+        <div class="backup-actions">
+          <button class="backup-btn backup-btn-primary" data-action="export-data">ייצוא גיבוי</button>
+          <button class="backup-btn backup-btn-secondary" data-action="import-data">ייבוא גיבוי</button>
         </div>
         ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
         <div class="footer-note" style="margin-bottom:0;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל את יומן האימונים המלא, התרגילים והאימונים שהוספתם, משקל גוף ומדידות — בלי השם שלכם ובלי הגדרות. הוא יורד לתיקיית ההורדות של המכשיר ונשאר שם: במכשיר משותף כל מי שמשתמש בו יכול לפתוח אותו. שמרו אותו במקום בטוח, ומחקו אותו מההורדות אם אינכם צריכים אותו שם</div>
       </div>
 
-      <div class="settings-block">
+      <div class="settings-block" id="usageSettingsBlock">
         <div class="settings-block-title">ספירת שימוש</div>
         <div class="footer-note" style="margin-bottom:8px;">כדי שהמועדון ידע כמה משתמשים באפליקציה, נספרים רק פתיחת האפליקציה, רישום אימון ופתיחת מסך — בלי שם ובלי שום פרט מהאימונים. לכל ספירה מצורף מזהה אקראי קבוע של הטלפון: הוא לא מגלה מי אתם, אבל מקשר את הספירות של הטלפון הזה לאורך הימים. יומני השרת שומרים את כתובת ה־IP לזמן קצר, והספירות עצמן נמחקות אחרי 180 יום.</div>
         ${renderUsageCountingRow()}
@@ -7243,9 +7250,12 @@ function closeSettings() {
   // ask-clear/cancel-clear call render() themselves.
   confirmClear = false;
   render();
-  document.body.style.overflow = "";
+  // Opened from the welcome sheet's usage line: the sheet is still up behind,
+  // so the page stays locked under it.
+  const welcome = document.getElementById("welcomeOverlay");
+  document.body.style.overflow = welcome && welcome.classList.contains("open") ? "hidden" : "";
   const overlay = document.getElementById("settingsOverlay");
-  if (overlay) overlay.classList.remove("open");
+  if (overlay) overlay.classList.remove("open", "above-welcome");
   if (settingsOpenerEl && typeof settingsOpenerEl.focus === "function") settingsOpenerEl.focus();
   settingsOpenerEl = null;
   // AFTER focus has been returned to the opener: setting inert while focus is
@@ -7268,7 +7278,10 @@ registerAppDialog("wodBuilder", { overlayId: "wodBuilderOverlay", isOpen: () => 
 registerAppDialog("achievements", { overlayId: "achievementsOverlay", isOpen: () => document.getElementById("achievementsOverlay").classList.contains("open"), close: closeAchievements });
 registerAppDialog("celebration", { overlayId: "celebrationOverlay", isOpen: () => document.getElementById("celebrationOverlay").classList.contains("open"), close: closeCelebration });
 registerAppDialog("notifications", { overlayId: "notificationsOverlay", isOpen: () => document.getElementById("notificationsOverlay").classList.contains("open"), close: closeNotifications });
-registerAppDialog("onboarding", { overlayId: "onboardingOverlay", isOpen: () => document.getElementById("onboardingOverlay").classList.contains("open"), close: closeOnboarding, escapable: false });
+// The tour is optional now - opened from a card or from Settings, never a
+// gate - so Escape and back close it like every other sheet (audit 2026-11,
+// finding 17). closeOnboarding() is the same path as its own "skip".
+registerAppDialog("onboarding", { overlayId: "onboardingOverlay", isOpen: () => document.getElementById("onboardingOverlay").classList.contains("open"), close: closeOnboarding });
 registerAppDialog("welcome", { overlayId: "welcomeOverlay", isOpen: () => document.getElementById("welcomeOverlay").classList.contains("open"), close: closeWelcomeModal, escapable: false });
 
 // Real-user report: on a phone, with an app dialog open (achievements was
@@ -7945,6 +7958,17 @@ document.addEventListener("click", (e) => {
   // tapping it to read the changelog must not land in Community's
   // notification center just because they happen to have unread there.
   else if (action === "open-release-notes") { openNotifications({ all: true }); }
+  // The welcome sheet's one line about usage counting (audit 2026-11,
+  // finding 12) links straight to the setting, over the sheet.
+  else if (action === "open-usage-setting") {
+    openSettings();
+    const ov = document.getElementById("settingsOverlay");
+    if (ov) ov.classList.add("above-welcome");
+    setTimeout(() => {
+      const block = document.getElementById("usageSettingsBlock");
+      if (block && typeof block.scrollIntoView === "function") block.scrollIntoView({ block: "center" });
+    }, 60);
+  }
   else if (action === "prefill-from-recent") {
     const w = Number(el.dataset.weight), r = Number(el.dataset.reps), st = Number(el.dataset.sets);
     if (isFinite(w)) applyFieldValue("step", "weight", w);
