@@ -1,3 +1,31 @@
+# 3.3.0 — Quality audit fixes — 2026-11-12
+
+Fixes from the 3.2.0 quality audit. No change to the database (box-log-db
+stays at v7) or to the stored record format.
+
+- Data safety: every IndexedDB write now rejects when its transaction aborts
+  (a commit-time QuotaExceededError used to leave the save hanging). A
+  database that fails to load shows an error with a retry instead of the
+  fresh-install welcome. A boot exception shows an error with a reload
+  button (src/boot-guard.js) instead of an endless loading screen.
+- Import: one all-or-nothing transaction, the app's own confirm sheet, and
+  backups holding only session notes are accepted.
+- Service worker: navigations and precached files come from the release's
+  own versioned cache. Start no longer waits on the network, and a new
+  index.html can never run against old scripts. Navigation preload is off.
+- UX: month set count sums sets; backup buttons; welcome contrast, desktop
+  backdrop and a line about usage counting; ✦ opens all release notes;
+  contrast and 44px targets; Escape closes the tour; the Rx hint waits for a
+  save attempt; the header date refreshes.
+- Security/perf: frame-ancestors removed from the meta CSP; smaller logo and
+  mark images; npm audit fix. The usage table's own CHECK constraints and
+  its (day, device_id, event, screen) primary key already limit what anon
+  inserts can write, so no policy change was needed.
+- Usage rows now carry app: "old", so this app's counts stop landing as
+  "unknown" next to the club app's.
+- 404 page links back to this app instead of the organisation root.
+- Tests no longer depend on the current month.
+
 # 3.2.0 — The move to the new app, built and switched off — 2026-11-12
 
 Two things for the move to the new club app (haimunia.pages.dev), both behind

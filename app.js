@@ -15,7 +15,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "3.2.0";
+const APP_VERSION = "3.3.0";
 
 // A movement typed into the WOD builder that isn't in the built-in list
 // above - persisted (see WODTAGSTORE), same "custom X" pattern as
@@ -1414,6 +1414,13 @@ function closeCelebration() {
 // history members actually saw, and their stored lastSeenVersion ("2.34.0")
 // is what makes only the entries above it show on first open.
 const RELEASE_NOTES = [
+  { version: "3.3.0", date: "2026-11-12", items: [
+    "האפליקציה נפתחת מיד גם בלי קליטה טובה, ישר מהטלפון",
+    "ייבוא גיבוי נשמר בשלמותו או לא בכלל — אף פעם לא חצי",
+    "בלוח השנה, מספר הסטים בחודש סופר עכשיו כל סט, לא כל שורה",
+    "כפתורי גיבוי גדולים וברורים בהגדרות, וכפתור עדכוני הגרסה למעלה פותח את כל העדכונים",
+    "אם משהו משתבש בפתיחה תופיע הודעה עם כפתור לטעינה מחדש — האימונים שלכם נשארים במכשיר",
+  ] },
   { version: "3.1.0", date: "2026-09-23", items: [
     "ספירת שימוש: המועדון יודע כמה משתמשים באפליקציה וכמה רושמים אימונים, לפי מזהה אקראי של הטלפון — בלי שם ובלי שום פרט מהאימונים. אפשר לכבות בהגדרות ← ספירת שימוש",
   ] },
@@ -1543,10 +1550,16 @@ function unseenReleaseNotes() {
 // computes for the badge count. Must be read before openNotifications()
 // calls markNotificationsSeen() (it already is - render happens first) or
 // this would always render empty.
-function renderNotificationsList() {
+// `showAll`: every release note, newest first, the unseen ones tagged "חדש".
+// The header button and Settings' "מה חדש" row ask for that - a direct
+// question about version updates deserves the whole answer (audit 2026-11,
+// finding 11). The boot gate still shows only what is unseen.
+function renderNotificationsList(showAll) {
   const el = document.getElementById("notificationsList");
   if (!el) return;
-  const toShow = unseenReleaseNotes();
+  const unseen = unseenReleaseNotes();
+  const unseenVersions = new Set(unseen.map((r) => r.version));
+  const toShow = showAll ? RELEASE_NOTES.slice() : unseen;
   if (!toShow.length) {
     // Local var rather than the ternary inline: test/app-innerhtml-sinks.test.mjs
     // (SEC-018) checks each innerHTML sink's ${...} expressions by exact
@@ -1564,6 +1577,7 @@ function renderNotificationsList() {
     <div class="cat-group">
       <div class="cat-head flex items-center gap-8">
         <span class="cat-name mono" style="direction:ltr; unicode-bidi:isolate;">${esc(r.version)}</span>
+        ${showAll && unseenVersions.has(r.version) ? '<span class="badge-new">חדש</span>' : ""}
         <span style="color:var(--steel); font-size:11px; margin-inline-start:auto;">${esc(fmtDate(r.date))}</span>
       </div>
       <ul style="margin:6px 0 4px; padding-inline-start:20px; color:var(--chalk); font-size:13.5px; line-height:1.6;">
@@ -1602,11 +1616,15 @@ function openHeaderNotifications() {
   // with an empty "מה חדש" sheet was the reported defect. The badge is
   // refreshed first because the commonest way to get here with social > 0 and
   // no centre to open is a stale count.
-  if (openNotifications({ onlyIfUnseen: true })) return;
+  // The button is labelled "עדכוני גרסה", so it opens the version updates:
+  // all of them, new ones tagged. It used to open only unseen notes and
+  // otherwise answer "אין התראות חדשות" - which is what nearly every tap got,
+  // and named a thing the button is not (audit 2026-11, finding 11).
+  if (RELEASE_NOTES.length) { openNotifications({ all: true }); return; }
   updateNotificationsBadge();
   // render(), because showToast() only STORES the pending toast - the same
   // pairing every other showToast() call site in this file uses.
-  showToast("אין התראות חדשות");
+  showToast("אין עדכוני גרסה עדיין");
   render();
 }
 // A real, user-reported bug: on Chrome/Android, "every time I open the app
@@ -1659,7 +1677,7 @@ let notificationsOpenerEl = null;
 function openNotifications(opts) {
   if (opts && opts.onlyIfUnseen && !unseenReleaseNotes().length) return false;
   notificationsOpenerEl = document.activeElement;
-  renderNotificationsList();
+  renderNotificationsList(!!(opts && opts.all));
   document.body.style.overflow = "hidden";
   document.getElementById("notificationsOverlay").classList.add("open");
   if (unseenReleaseNotes().length) { markNotificationsSeen(); updateNotificationsBadge(); }
@@ -2540,7 +2558,9 @@ function restoreAppConfirmFocus() {
   if (el && typeof el.focus === "function") el.focus();
 }
 function closeAppConfirm() {
+  const closing = appConfirmDialog;
   appConfirmDialog = null;
+  if (closing && typeof closing.onCancel === "function") closing.onCancel();
   // appConfirmDialog is already null, so this dialog no longer counts as open.
   // A confirm raised from inside another dialog (askDeleteCustomWod from the
   // WOD picker, say) must not unlock the page that dialog is still covering.
@@ -2561,6 +2581,7 @@ function runAppConfirm() {
   else if (c.action === "delete-custom-wod") deleteCustomWod(c.payload.id);
   else if (c.action === "save-set") saveSet(true);
   else if (c.action === "save-wod") saveWod(true);
+  else if (c.action === "import-backup") { render(); c.payload.resolve(true); }
   else render();
 }
 function renderAppConfirmSheet() {
@@ -2568,7 +2589,7 @@ function renderAppConfirmSheet() {
   if (!c) return "";
   // Markup mirrors cloud.js's renderConfirmSheet() field for field, so the
   // two halves of the app can never drift into looking like two products.
-  return `<div class="modal-overlay open" id="appConfirmOverlay" data-action="close-app-confirm" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle" style="align-items:center;padding:0 20px;">
+  return `<div class="modal-overlay open" id="appConfirmOverlay" data-action="close-app-confirm" data-confirm-kind="${esc(c.action || "")}" role="dialog" aria-modal="true" aria-labelledby="appConfirmTitle" style="align-items:center;padding:0 20px;">
       <div class="modal-sheet" style="border-radius:22px;border-bottom:1px solid var(--border);max-height:none;">
         <div style="padding:24px 22px calc(env(safe-area-inset-bottom,0px) + 20px);">
           <h2 id="appConfirmTitle" style="margin-top:0;color:var(--chalk);font-weight:800;font-size:17px;margin-bottom:8px;">${bidiText(c.title)}</h2>
@@ -3155,6 +3176,11 @@ async function loadWodRxDefault() {
   // A remembered answer pre-selects the toggle; no answer leaves it unset.
   wodRx = wodRxDefault;
 }
+// Whether the member has tried to file this WOD without answering Rx /
+// Scaled. The orange "בחרו איך ביצעתם" line used to show the moment the form
+// opened, scolding before anything was attempted (audit 2026-11, finding
+// 19); it now answers a tap on the save button instead.
+let wodRxAttempted = false;
 function setWodRx(rx) {
   // Refuses anything that is not one of the three answers rather than storing
   // it: this writes the member's remembered default to disk, and a value
@@ -3452,7 +3478,10 @@ async function importDataFromFile(file) {
   // else (the tab is literally named רישום, and so are רישום סט / יומן
   // האימונים / הרישום הראשון). Reached straight from the settings backup
   // card's "ייבוא גיבוי", so it is the same screen as the rename.
-  if (incoming === 0) return bad("הייבוא נכשל — לא נמצאו רישומים תקינים בקובץ");
+  // A backup holding only session notes (or only WOD-builder movements) is a
+  // real backup, not an empty file (audit 2026-11, finding 21).
+  const noteCount = Object.keys(incomingNotes).length;
+  if (incoming === 0 && noteCount === 0 && incomingTags.length === 0) return bad("הייבוא נכשל — לא נמצאו רישומים תקינים בקובץ");
 
   // The import merges into existing data and cannot be undone from inside the
   // app, so confirm first and drop a rollback backup on the way in.
@@ -3460,34 +3489,53 @@ async function importDataFromFile(file) {
   // Live bug hunt (2026-09-11): a 1-record backup (a very real case - a
   // single manually-recreated entry, or a trimmed test file) confirmed as
   // "לייבא 1 רישומים?" - missing singular.
-  const incomingLabel = incoming === 1 ? "רישום אחד" : `${incoming} רישומים`;
-  const question = hasExisting
-    ? `הייבוא יוסיף ${incomingLabel} לנתונים הקיימים ולא ניתן לבטל אותו.\nלפני כן יורד גיבוי של המצב הנוכחי.\n\nלהמשיך?`
-    : `לייבא ${incomingLabel}?`;
-  if (!window.confirm(question)) { setImportMessage("הייבוא בוטל"); render(); return; }
+  const notesLabel = noteCount === 1 ? "הערת אימון אחת" : `${noteCount} הערות אימון`;
+  const incomingLabel = incoming === 0
+    ? (noteCount ? notesLabel : "תנועות לבונה האימונים")
+    : (incoming === 1 ? "רישום אחד" : `${incoming} רישומים`);
+  // The app's own confirm sheet, like every other confirmation here - not
+  // the browser's confirm(), which looked like a different product and
+  // could not be styled or read right to left (audit 2026-11, finding 18).
+  const accepted = await new Promise((resolve) => {
+    askAppConfirm({
+      action: "import-backup",
+      title: "ייבוא גיבוי",
+      message: hasExisting
+        ? `הייבוא יוסיף ${incomingLabel} לנתונים הקיימים ולא ניתן לבטל אותו. לפני כן יורד גיבוי של המצב הנוכחי.`
+        : `לייבא ${incomingLabel}?`,
+      confirmLabel: "לייבא",
+      payload: { resolve },
+      onCancel: () => resolve(false),
+    });
+  });
+  if (!accepted) { setImportMessage("הייבוא בוטל"); render(); return; }
 
   if (hasExisting) {
     try { downloadBackup(await buildBackupPayload(), `box-log-rollback-${todayISO()}.json`); } catch (e) {}
   }
 
-  let ok = 0, failed = 0;
-  const write = async (list, fn) => {
-    for (const rec of list) {
-      try { await fn(rec); ok++; } catch (e) { failed++; if (failed === 1) noteStorageError(e); }
-    }
-  };
-  await write(clean.customMovements, dbAddMovement);
-  await write(clean.customWods, dbAddCustomWod);
-  await write(clean.entries, dbPut);
-  await write(clean.wodEntries, dbPutWodEntry);
-  await write(clean.bodyweightEntries, dbPutBodyweight);
-  await write(clean.measureTypes, dbAddMeasureType);
-  await write(clean.measureEntries, dbPutMeasurement);
-  for (const [date, text] of Object.entries(incomingNotes)) {
-    try { await dbSetSetting(`sessionNote:${date}`, text); } catch (e) {}
-  }
-  for (const tag of incomingTags) {
-    try { await dbAddWodMovementTag(tag); } catch (e) {}
+  // ALL OR NOTHING (audit 2026-11, finding 13): one transaction over every
+  // store, so a failure half way leaves the log exactly as it was.
+  let ok = 0;
+  try {
+    await dbImportAll({
+      movements: clean.customMovements,
+      customWods: clean.customWods,
+      entries: clean.entries,
+      wodEntries: clean.wodEntries,
+      bodyweight: clean.bodyweightEntries,
+      measureTypes: clean.measureTypes,
+      measurements: clean.measureEntries,
+      settings: Object.entries(incomingNotes).map(([date, text]) => ({ key: `sessionNote:${date}`, value: text })),
+      wodTags: incomingTags,
+    });
+    ok = incoming;
+  } catch (e) {
+    noteStorageError(e);
+    await reloadFromDb();
+    setImportMessage("הייבוא נכשל — לא יובא דבר, והנתונים הקיימים לא השתנו");
+    render();
+    return;
   }
 
   await reloadFromDb();
@@ -3496,7 +3544,9 @@ async function importDataFromFile(file) {
   // popped one celebration listing every medal it had ever earned.
   baselineSeenAchievements();
 
-  const parts = [ok === 1 ? "יובא רישום אחד" : `יובאו ${ok} רישומים`];
+  const parts = [];
+  if (ok || !noteCount) parts.push(ok === 1 ? "יובא רישום אחד" : `יובאו ${ok} רישומים`);
+  if (noteCount) parts.push(noteCount === 1 ? "יובאה הערת אימון אחת" : `יובאו ${noteCount} הערות אימון`);
   // Say what was dropped, rather than letting a count quietly not add up.
   if (orphanWodEntries.length) {
     parts.push(orphanWodEntries.length === 1
@@ -3504,7 +3554,6 @@ async function importDataFromFile(file) {
       : `${orphanWodEntries.length} רישומי אימון דולגו — האימונים שלהם כבר לא קיימים`);
   }
   if (rejected) parts.push(`${rejected} נפסלו`);
-  if (failed) parts.push(`${failed} נכשלו בשמירה`);
   setImportMessage(parts.join(", "));
   render();
 }
@@ -4097,7 +4146,13 @@ async function saveWod(sanityConfirmed) {
   // is not answered yet. The CTA is disabled in that state (see render()),
   // and this is the guard behind it - a WOD may not be filed as Rx or as
   // scaled because of what the app assumed.
-  if (!wodEffortAnswered(wodRx)) return;
+  if (!wodEffortAnswered(wodRx)) {
+    wodRxAttempted = true;
+    renderWodContent();
+    const first = document.querySelector(".rx-toggle .rx-btn");
+    if (first && typeof first.focus === "function") first.focus();
+    return;
+  }
   if (!isFinite(wodMinutes) || !isFinite(wodSeconds) || !isFinite(wodRounds) || !isFinite(wodReps) || !isFinite(wodWeight) || !isFinite(wodScaledWeight)) return;
   if (w.scoreType === "emom" && !wodEmomReps.every((r) => isFinite(r))) return;
   const editId = editingWodEntryId;
@@ -5147,7 +5202,7 @@ function updateStreakLabel() {
 // shown - a real feature (a monthly summary), not just decoration, so it
 // lives next to renderCalendarGrid() and is recomputed on every month nav
 // the grid itself already handles. "Total sets" counts strength entries
-// only (one row in `entries` is one logged set); a WOD session is a
+// only (each row's own `sets` count, summed); a WOD session is a
 // different unit of work and isn't folded into that count. "PR days"
 // counts a day once even if it carried multiple PRs.
 function computeCalendarMonthStats(year, month) {
@@ -5163,7 +5218,11 @@ function computeCalendarMonthStats(year, month) {
     ...monthEntries.filter((e) => isFlameworthyEntry(e, celebratableIds)),
     ...monthWods.filter((e) => e.isPR),
   ].map((e) => e.date)).size;
-  return { trainingDays, totalSets: monthEntries.length, prDays };
+  // One row in `entries` is one logged LINE, which carries its own set count
+  // ("3 × 5 @ 60"). Counting rows reported 3 sets of squats as 1 (audit
+  // 2026-11, finding 7). Rows from before the field existed count as one.
+  const totalSets = monthEntries.reduce((n, e) => n + (Number.isFinite(e.sets) && e.sets > 0 ? Math.round(e.sets) : 1), 0);
+  return { trainingDays, totalSets, prDays };
 }
 function renderCalendarGrid() {
   const grid = document.getElementById("calGrid");
@@ -5475,8 +5534,8 @@ function renderVolumeReport() {
           <div class="dot" style="background:${esc(catColor(cat))}"></div>
           <span style="font-weight:700; font-size:14px;">${esc(catLabel(cat))}</span>
         </div>
-        <div class="flex items-center gap-10">
-          <span class="mono" style="color:var(--steel); font-size:12px;">${bidiUnit(volumeCountsLabel(setsWeek, setsMonth))}</span>
+        <div class="flex items-center gap-10 report-row-meta">
+          <span class="mono report-counts" style="color:var(--steel); font-size:12px;">${bidiUnit(volumeCountsLabel(setsWeek, setsMonth))}</span>
           <span class="report-flag" style="color:${flagColor}; background:${flagBg};">${flagText}</span>
         </div>
       </div>`;
@@ -5985,16 +6044,19 @@ ${renderNewAppSettingsBlock()}
         <div class="settings-block-title">קובץ גיבוי להורדה</div>
         <div class="footer-note"${storageOK ? "" : ' style="color:var(--red-text);" role="alert"'}>${storageOK ? esc("נשמר במכשיר הזה בלבד, ללא שרת") : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
         ${staleBackupNote}
-        <div class="flex items-center justify-center gap-10" style="margin-bottom:8px; flex-wrap:wrap;">
-          <button class="link-btn" data-action="export-data">ייצוא גיבוי</button>
-          <span style="color:var(--border); font-size:11px;">·</span>
-          <button class="link-btn" data-action="import-data">ייבוא גיבוי</button>
+        <!-- Audit 2026-11, finding 8: these were two 36px underlined text
+             links sitting under the "backup is old" warning - the warning
+             asked for an action the screen barely offered. Export is the
+             one the warning is about, so it is the primary button. -->
+        <div class="backup-actions">
+          <button class="backup-btn backup-btn-primary" data-action="export-data">ייצוא גיבוי</button>
+          <button class="backup-btn backup-btn-secondary" data-action="import-data">ייבוא גיבוי</button>
         </div>
         ${importMessage ? `<div class="footer-note" role="status" aria-live="polite" style="color:var(--brass); margin-bottom:8px;">${esc(importMessage)}</div>` : ""}
         <div class="footer-note" style="margin-bottom:0;">קובץ הגיבוי הוא טקסט פשוט (JSON) וכולל את יומן האימונים המלא, התרגילים והאימונים שהוספתם, משקל גוף ומדידות — בלי השם שלכם ובלי הגדרות. הוא יורד לתיקיית ההורדות של המכשיר ונשאר שם: במכשיר משותף כל מי שמשתמש בו יכול לפתוח אותו. שמרו אותו במקום בטוח, ומחקו אותו מההורדות אם אינכם צריכים אותו שם</div>
       </div>
 
-      <div class="settings-block">
+      <div class="settings-block" id="usageSettingsBlock">
         <div class="settings-block-title">ספירת שימוש</div>
         <div class="footer-note" style="margin-bottom:8px;">כדי שהמועדון ידע כמה משתמשים באפליקציה, נספרים רק פתיחת האפליקציה, רישום אימון ופתיחת מסך — בלי שם ובלי שום פרט מהאימונים. לכל ספירה מצורף מזהה אקראי קבוע של הטלפון: הוא לא מגלה מי אתם, אבל מקשר את הספירות של הטלפון הזה לאורך הימים. יומני השרת שומרים את כתובת ה־IP לזמן קצר, והספירות עצמן נמחקות אחרי 180 יום.</div>
         ${renderUsageCountingRow()}
@@ -6484,7 +6546,9 @@ function syncWodSaveCta(w) {
     btn.dataset.action = "save-wod";
     label.textContent = `${editingWodEntryId ? "עדכון" : "רישום"} אימון — ${w.name}`;
     const unanswered = !wodEffortAnswered(wodRx);
-    btn.disabled = unanswered;
+    // Not natively disabled: a disabled button swallows the tap, and the tap
+    // is what now brings up the reason (saveWod() -> wodRxAttempted).
+    btn.disabled = false;
     btn.setAttribute("aria-disabled", String(unanswered));
     btn.style.opacity = unanswered ? ".45" : "";
   } else if (wodSubTab === "log") {
@@ -6678,7 +6742,7 @@ function renderWodLogSection() {
       <button class="rx-btn ${wodRx === false ? "active-scaled" : ""}" data-action="set-rx" data-rx="0" role="radio" aria-checked="${wodRx === false}">מותאם (Scaled)<span class="term-sub">במשקלים שמתאימים לי</span></button>
       <button class="rx-btn ${wodRx === WOD_EFFORT_PLUS ? "active-plus" : ""}" data-action="set-rx" data-rx="plus" role="radio" aria-checked="${wodRx === WOD_EFFORT_PLUS}">מוגבר (Rx+)<span class="term-sub">כבד מהמוגדר</span></button>
     </div>
-    ${wodRx === null ? `<div class="footer-note" role="status" style="color:var(--brass); margin-top:-10px; margin-bottom:16px;">בחרו איך ביצעתם את האימון</div>` : ""}
+    ${wodRx === null && wodRxAttempted ? `<div class="footer-note" role="alert" style="color:var(--brass); margin-top:-10px; margin-bottom:16px;">בחרו איך ביצעתם את האימון</div>` : ""}
 
     <input id="wodPartnerTagInput" class="text-input" dir="auto" maxlength="${LIMITS.partnerTag}" style="margin-bottom:16px;" placeholder="עם פרטנר? (אופציונלי, לדוגמה עם דנה)" aria-label="שם הפרטנר (אופציונלי)" value="${esc(wodPartnerTag)}" />
 
@@ -6972,6 +7036,7 @@ function emomPrefill(w) {
 function choosePickedWod(id) {
   const next = wodById(id);
   if (!next) return;
+  wodRxAttempted = false;
   if (id !== selectedWodId) {
     endWodEditIfActive();
     wodNotes = "";
@@ -7192,9 +7257,12 @@ function closeSettings() {
   // ask-clear/cancel-clear call render() themselves.
   confirmClear = false;
   render();
-  document.body.style.overflow = "";
+  // Opened from the welcome sheet's usage line: the sheet is still up behind,
+  // so the page stays locked under it.
+  const welcome = document.getElementById("welcomeOverlay");
+  document.body.style.overflow = welcome && welcome.classList.contains("open") ? "hidden" : "";
   const overlay = document.getElementById("settingsOverlay");
-  if (overlay) overlay.classList.remove("open");
+  if (overlay) overlay.classList.remove("open", "above-welcome");
   if (settingsOpenerEl && typeof settingsOpenerEl.focus === "function") settingsOpenerEl.focus();
   settingsOpenerEl = null;
   // AFTER focus has been returned to the opener: setting inert while focus is
@@ -7217,7 +7285,10 @@ registerAppDialog("wodBuilder", { overlayId: "wodBuilderOverlay", isOpen: () => 
 registerAppDialog("achievements", { overlayId: "achievementsOverlay", isOpen: () => document.getElementById("achievementsOverlay").classList.contains("open"), close: closeAchievements });
 registerAppDialog("celebration", { overlayId: "celebrationOverlay", isOpen: () => document.getElementById("celebrationOverlay").classList.contains("open"), close: closeCelebration });
 registerAppDialog("notifications", { overlayId: "notificationsOverlay", isOpen: () => document.getElementById("notificationsOverlay").classList.contains("open"), close: closeNotifications });
-registerAppDialog("onboarding", { overlayId: "onboardingOverlay", isOpen: () => document.getElementById("onboardingOverlay").classList.contains("open"), close: closeOnboarding, escapable: false });
+// The tour is optional now - opened from a card or from Settings, never a
+// gate - so Escape and back close it like every other sheet (audit 2026-11,
+// finding 17). closeOnboarding() is the same path as its own "skip".
+registerAppDialog("onboarding", { overlayId: "onboardingOverlay", isOpen: () => document.getElementById("onboardingOverlay").classList.contains("open"), close: closeOnboarding });
 registerAppDialog("welcome", { overlayId: "welcomeOverlay", isOpen: () => document.getElementById("welcomeOverlay").classList.contains("open"), close: closeWelcomeModal, escapable: false });
 
 // Real-user report: on a phone, with an app dialog open (achievements was
@@ -7893,7 +7964,18 @@ document.addEventListener("click", (e) => {
   // notes specifically, never the smart header routing above - a member
   // tapping it to read the changelog must not land in Community's
   // notification center just because they happen to have unread there.
-  else if (action === "open-release-notes") { openNotifications(); }
+  else if (action === "open-release-notes") { openNotifications({ all: true }); }
+  // The welcome sheet's one line about usage counting (audit 2026-11,
+  // finding 12) links straight to the setting, over the sheet.
+  else if (action === "open-usage-setting") {
+    openSettings();
+    const ov = document.getElementById("settingsOverlay");
+    if (ov) ov.classList.add("above-welcome");
+    setTimeout(() => {
+      const block = document.getElementById("usageSettingsBlock");
+      if (block && typeof block.scrollIntoView === "function") block.scrollIntoView({ block: "center" });
+    }, 60);
+  }
   else if (action === "prefill-from-recent") {
     const w = Number(el.dataset.weight), r = Number(el.dataset.reps), st = Number(el.dataset.sets);
     if (isFinite(w)) applyFieldValue("step", "weight", w);
@@ -8071,8 +8153,13 @@ async function init() {
       if (themePref === "auto") syncThemeColorMeta();
     });
   }
-  document.getElementById("dateLabel").textContent = new Date().toLocaleDateString("he-IL", { weekday: "short", day: "numeric", month: "short" });
-  await reloadFromDb();
+  refreshDateLabel();
+  // A DATABASE THAT FAILED TO LOAD IS NOT AN EMPTY ONE (audit 2026-11,
+  // finding 4). reloadFromDb() reports failure by returning false and leaving
+  // every list empty; carrying on from there read a member with a full log
+  // as a fresh install - welcome sheet, edition marker, first-open date and
+  // all, written over their real settings. Stop here instead and say so.
+  if (!(await reloadFromDb())) { showBootError("storage"); setUpServiceWorker(); return; }
   await loadUserName();
   await loadLastExport();
   await loadBarWeight();
@@ -8141,6 +8228,7 @@ async function init() {
   renderUserGreeting();
   countUsage("app_open");
   render();
+  bootGuardDone();
   maybeShowIOSInstallBanner();
 
   // No hard guarantee, but real-world reports say it measurably reduces
@@ -8166,6 +8254,12 @@ async function init() {
   if (userName === null && isFreshInstall) openWelcomeModal();
   else openNotifications({ onlyIfUnseen: true });
 
+  setUpServiceWorker();
+}
+
+// Registered on every boot, including one that stopped at a storage error:
+// that member most needs the next release to reach them.
+function setUpServiceWorker() {
   if ("serviceWorker" in navigator) {
     // The SW no longer calls skipWaiting() on install, so a new version parks
     // in "waiting" until offerUpdate() applies it (see the update handshake
@@ -8229,4 +8323,19 @@ async function init() {
     });
   }
 }
-init();
+// The header date was written once at boot, so an app left open overnight
+// (the normal life of an installed PWA) showed yesterday's date all morning.
+// Rewritten on every return to the foreground (audit 2026-11, finding 20).
+function refreshDateLabel() {
+  const el = document.getElementById("dateLabel");
+  if (el) el.textContent = new Date().toLocaleDateString("he-IL", { weekday: "short", day: "numeric", month: "short" });
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshDateLabel();
+});
+// init() had no catch: a boot exception left the loading screen up for good.
+// src/boot-guard.js turns it into a message with a reload button.
+init().catch((e) => {
+  try { console.error("boot failed:", e); } catch (e2) {}
+  showBootError("crash");
+});

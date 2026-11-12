@@ -8,6 +8,9 @@
 //   device_id  a random id made on this phone the first time it counts
 //   event      "app_open", "workout_logged" or "screen_open"
 //   screen     which of the four screens, for "screen_open" only
+//   app        always "old": which app the row came from. The table takes
+//              old | club | unknown, and without it this app's rows landed
+//              as unknown next to the club app's.
 //
 // No name, no workout, no weight, no date or time (the server stamps the
 // day), no account. One fact is sent at most once a day per device, because
@@ -67,7 +70,7 @@
 
   function send(key, ep) {
     var parts = key.split("|");
-    var body = { device_id: deviceId(), event: parts[0] };
+    var body = { device_id: deviceId(), event: parts[0], app: "old" };
     if (parts[1]) body.screen = parts[1];
     return global.fetch(ep.url, {
       method: "POST",
