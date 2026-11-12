@@ -28,6 +28,7 @@ const REQUIRED_ASSETS = [
   "./app.js",
   "./app-config.js",
   "./src/usage.js",
+  "./src/boot-guard.js",
   "./frame-guard.js",
   "./theme-init.js",
   "./src/shared/safe-helpers.js",

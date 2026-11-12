@@ -3012,6 +3012,8 @@
   }
   html[data-layout="desktop"][data-staff="1"] .staff-home > .page-title{ margin-bottom:14px; }
 
+  /* ---- Audit 2026-11 fixes ---- */
+  .badge-new{ display:inline-flex; align-items:center; padding:1px 8px; border-radius:999px; background:var(--energy); color:#1a0d08; font-size:11px; font-weight:800; }
 </style>
 </head>
 <body>
@@ -3515,6 +3517,7 @@
      its helpers; app-config before app.js, which reads the brand from it.
      theme-init.js stays synchronous in <head> on purpose: it sets the theme
      before first paint. -->
+<script defer src="./src/boot-guard.js"></script>
 <script defer src="./src/shared/safe-helpers.js"></script>
 <script defer src="./app-config.js"></script>
 <script defer src="./src/usage.js"></script>
