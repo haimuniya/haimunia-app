@@ -32,7 +32,10 @@ test("no shipped script names a remote host, except the usage endpoint in app-co
       // wa.me is the member's own hand-off in the support sheet, opened only
       // when they tap it; w3.org is the SVG namespace string.
       .filter((h) => !/^(wa\.me|www\.w3\.org)$/.test(h))
-      .filter((h) => !(f === "app-config.js" && `https://${h}` === USAGE_HOST));
+      .filter((h) => !(f === "app-config.js" && `https://${h}` === USAGE_HOST))
+      // The new club app's address (newApp.url, 3.2.0): a link the member taps,
+      // shown only when the owner turns the move on. Nothing is requested from it.
+      .filter((h) => !(f === "app-config.js" && h === "haimunia.pages.dev"));
     assert.deepEqual(hosts, [], `${f} names ${hosts.join(", ")}`);
   }
 });

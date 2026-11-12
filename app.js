@@ -15,7 +15,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "3.1.2";
+const APP_VERSION = "3.2.0";
 
 // A movement typed into the WOD builder that isn't in the built-in list
 // above - persisted (see WODTAGSTORE), same "custom X" pattern as
@@ -1767,6 +1767,186 @@ function closeSupport() {
   if (supportOpenerEl && typeof supportOpenerEl.focus === "function") supportOpenerEl.focus();
   supportOpenerEl = null;
 }
+// ---- The move to the new club app (owner decision, 2026-11-12) --------------------------
+// Built now, OFF until HAIMUNIA_CONFIG.newApp.enabled is true. When on: a dismissible card on
+// the home screen and a "create transfer code" row in Settings. This app keeps working with no
+// end date; nobody is moved, every member chooses if and when.
+//
+// The transfer code. The backup is encrypted HERE, with a key that exists only in the code the
+// member copies, and only ciphertext is sent. The server (box-log project, Edge Function
+// transfer-put) keeps it 24 hours at most and hands it out once. Protocol, fixed by
+// shahafrach/haimunia-app-demo (test/transfer-edge-functions.test.mjs) and read by the new app's
+// src/transfer.js:
+//   code      13 random bytes, 21 Crockford base32 characters (4-4-4-4-5)
+//   HKDF      SHA-256, empty salt; info "haimunia-transfer:lookup:v1" -> 32 bytes (hex = lookup)
+//                                     "haimunia-transfer:key:v1"    -> AES-GCM-256 key
+//   AES-GCM   12-byte IV, AAD "haimunia-transfer:v1"; plaintext = gzip(JSON backup + "prefs")
+//   put       POST {usage.url}/functions/v1/transfer-put {lookup, iv, ciphertext}
+// Body weight and session notes are inside the encrypted backup: the one recorded exception to
+// "body weight never leaves the device", because the server cannot read it.
+const NEW_APP_DISMISS_KEY = "haimunia:newAppBannerDismissed";
+const TRANSFER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const TRANSFER_AAD = "haimunia-transfer:v1";
+const TRANSFER_MAX_CIPHERTEXT = 5 * 1024 * 1024;
+function newAppCfg() {
+  const c = window.HAIMUNIA_CONFIG && window.HAIMUNIA_CONFIG.newApp;
+  return c && c.enabled === true && typeof c.url === "string" && /^https:\/\//.test(c.url) ? c : null;
+}
+function newAppBannerDismissed() {
+  try { return localStorage.getItem(NEW_APP_DISMISS_KEY) === "1"; } catch (e) { return false; }
+}
+function renderNewAppBanner() {
+  const c = newAppCfg();
+  if (!c || newAppBannerDismissed()) return "";
+  return `
+    <div class="card" id="newAppBanner" style="margin-bottom:12px;">
+      <div style="font-weight:700; font-size:14px; color:var(--chalk); margin-bottom:4px;">האפליקציה החדשה של האימוניה</div>
+      <div style="color:var(--steel); font-size:12.5px; margin-bottom:12px;">אותו יומן, עם המועדון. אפשר לעבור מתי שנוח, עם כל הנתונים. האפליקציה הזאת ממשיכה לעבוד.</div>
+      <div class="flex items-center gap-10">
+        <button class="chip-btn" data-action="open-transfer" style="flex:1; min-height:44px;">איך עוברים</button>
+        <button class="chip-btn" data-action="new-app-dismiss" style="flex:1; min-height:44px;">לא עכשיו</button>
+      </div>
+    </div>`;
+}
+function renderNewAppSettingsBlock() {
+  if (!newAppCfg()) return "";
+  return `
+      <div class="settings-block">
+        <div class="settings-block-title">מעבר לאפליקציה החדשה</div>
+        <div class="footer-note">קוד העברה מעביר את כל היומן לאפליקציה החדשה בלי קובץ. הוא מוצפן בטלפון הזה, תקף פעם אחת ול-24 שעות.</div>
+        <div class="flex items-center justify-center gap-10" style="margin-bottom:0; flex-wrap:wrap;">
+          <button class="link-btn" data-action="open-transfer">יצירת קוד העברה</button>
+        </div>
+      </div>`;
+}
+
+function transferEncodeCode(bytes) {
+  let out = "", acc = 0, bits = 0;
+  for (const b of bytes) {
+    acc = (acc << 8) | b; bits += 8;
+    while (bits >= 5) { bits -= 5; out += TRANSFER_ALPHABET[(acc >> bits) & 31]; acc &= (1 << bits) - 1; }
+  }
+  if (bits > 0) out += TRANSFER_ALPHABET[(acc << (5 - bits)) & 31];
+  return [out.slice(0, 4), out.slice(4, 8), out.slice(8, 12), out.slice(12, 16), out.slice(16)].join("-");
+}
+function transferB64(u8) {
+  let s = "";
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function transferGzip(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function transferDerive(codeBytes) {
+  const enc = (t) => new TextEncoder().encode(t);
+  const subtle = window.crypto.subtle;
+  const base = await subtle.importKey("raw", codeBytes, "HKDF", false, ["deriveBits", "deriveKey"]);
+  const salt = new Uint8Array(0);
+  const lookupBits = new Uint8Array(await subtle.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info: enc("haimunia-transfer:lookup:v1") }, base, 256));
+  const key = await subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt, info: enc("haimunia-transfer:key:v1") },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt"]);
+  return { lookup: Array.from(lookupBits, (b) => b.toString(16).padStart(2, "0")).join(""), key };
+}
+function transferPrefs() {
+  return { userName, boxStartDate, barWeight, pctIncrement, wodRxDefault, theme: themePref, textScale: textScalePref };
+}
+/** Build, encrypt and upload one transfer. Resolves to the code to show; throws Error(<reason>). */
+async function createTransferCode() {
+  const usage = window.HAIMUNIA_CONFIG && window.HAIMUNIA_CONFIG.usage;
+  if (!usage || !usage.url || !usage.key) throw new Error("not_configured");
+  if (!window.crypto || !window.crypto.subtle || typeof CompressionStream !== "function") throw new Error("no_crypto");
+  const codeBytes = window.crypto.getRandomValues(new Uint8Array(13));
+  const { lookup, key } = await transferDerive(codeBytes);
+  const payload = Object.assign(await buildBackupPayload(), { prefs: transferPrefs() });
+  const plain = await transferGzip(new TextEncoder().encode(JSON.stringify(payload)));
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await window.crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: new TextEncoder().encode(TRANSFER_AAD) }, key, plain));
+  if (ct.length > TRANSFER_MAX_CIPHERTEXT) throw new Error("too_large");
+  let res;
+  try {
+    res = await fetch(usage.url.replace(/\/+$/, "") + "/functions/v1/transfer-put", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: usage.key },
+      body: JSON.stringify({ lookup, iv: transferB64(iv), ciphertext: transferB64(ct) }),
+      credentials: "omit", cache: "no-store",
+    });
+  } catch (e) { throw new Error("network"); }
+  if (res.status === 429) throw new Error("rate_limited");
+  if (res.status === 503) throw new Error("full");
+  if (res.status === 413) throw new Error("too_large");
+  if (!res.ok) throw new Error("server");
+  return transferEncodeCode(codeBytes);
+}
+const TRANSFER_ERRORS = {
+  not_configured: "ההעברה לא מוגדרת בגרסה הזאת.",
+  no_crypto: "הדפדפן הזה לא תומך בהעברה מוצפנת. אפשר להשתמש בקובץ גיבוי.",
+  network: "אין חיבור כרגע. אפשר לנסות שוב כשהחיבור חוזר.",
+  rate_limited: "נוצרו היום יותר מדי קודים מהרשת הזאת. אפשר לנסות שוב מחר, או להשתמש בקובץ גיבוי.",
+  full: "השרת עמוס כרגע. אפשר לנסות שוב בעוד שעה, או להשתמש בקובץ גיבוי.",
+  too_large: "היומן גדול מדי להעברה בקוד. אפשר להשתמש בקובץ גיבוי.",
+  server: "השרת לא ענה כמו שצריך. אפשר לנסות שוב בעוד רגע.",
+};
+const transferState = { busy: false, code: "", error: "" };
+function renderTransferContent() {
+  const c = newAppCfg();
+  const url = c ? c.url : "";
+  if (transferState.code) {
+    return `
+    <div class="settings-block">
+      <div class="settings-block-title">הקוד שלכם</div>
+      <div class="mono" dir="ltr" style="font-size:20px; font-weight:700; letter-spacing:1px; text-align:center; color:var(--chalk); margin:8px 0 12px;">${esc(transferState.code)}</div>
+      <button class="chip-btn" data-action="transfer-copy" style="width:100%; min-height:44px; margin-bottom:10px;">העתקת הקוד</button>
+      <div class="footer-note" style="margin-bottom:0;">הקוד מוצג פעם אחת. הוא תקף פעם אחת ול-24 שעות. באפליקציה החדשה, אחרי שהיא מותקנת במסך הבית: הגדרות ← קוד העברה, ומדביקים. היומן כאן לא נמחק.</div>
+    </div>
+    ${url ? `<div class="settings-block"><a class="link-btn" href="${esc(url)}" target="_blank" rel="noopener">לאפליקציה החדשה</a></div>` : ""}`;
+  }
+  return `
+    <div class="settings-block">
+      <div class="footer-note">הקוד מעביר את כל היומן לאפליקציה החדשה: אימונים, תרגילים ואימונים שהוספתם, משקל גוף, מדידות, הערות והגדרות. הכול מוצפן כאן בטלפון לפני שליחה, והשרת לא יכול לקרוא אותו.</div>
+      ${transferState.error ? `<div class="footer-note" role="alert" style="color:var(--red-text);">${esc(transferState.error)}</div>` : ""}
+      <button class="chip-btn" data-action="transfer-create" style="width:100%; min-height:44px;"${transferState.busy ? " disabled" : ""}>${transferState.busy ? "מצפין ושולח…" : "יצירת קוד העברה"}</button>
+    </div>
+    ${url ? `<div class="settings-block"><div class="footer-note" style="margin-bottom:6px;">אפשר גם לפתוח את האפליקציה החדשה ולהתקין אותה קודם.</div><a class="link-btn" href="${esc(url)}" target="_blank" rel="noopener">לאפליקציה החדשה</a></div>` : ""}`;
+}
+function paintTransfer() {
+  const body = document.getElementById("transferBody");
+  if (body) body.innerHTML = renderTransferContent();
+}
+let transferOpenerEl = null;
+function openTransfer() {
+  if (!newAppCfg()) return;
+  closeNavMenu();
+  transferOpenerEl = document.activeElement;
+  transferState.error = ""; transferState.busy = false; transferState.code = "";
+  paintTransfer();
+  document.body.style.overflow = "hidden";
+  document.getElementById("transferOverlay").classList.add("open");
+  setTimeout(() => focusFirstAppDialogEl("transferOverlay"), 50);
+}
+function closeTransfer() {
+  nudgeViewportAfterModalClose();
+  document.getElementById("transferOverlay").classList.remove("open");
+  transferState.code = ""; // shown once
+  releaseScrollLockIfLastDialog();
+  if (transferOpenerEl && typeof transferOpenerEl.focus === "function") transferOpenerEl.focus();
+  transferOpenerEl = null;
+}
+async function runCreateTransfer() {
+  if (transferState.busy) return;
+  transferState.busy = true; transferState.error = ""; paintTransfer();
+  try { transferState.code = await createTransferCode(); }
+  catch (e) { transferState.error = TRANSFER_ERRORS[e && e.message] || TRANSFER_ERRORS.server; }
+  transferState.busy = false; paintTransfer();
+}
+function copyTransferCode() {
+  const code = transferState.code;
+  if (!code) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(code).then(() => showToast("הקוד הועתק"), () => showToast("לא הצלחנו להעתיק. אפשר לסמן ולהעתיק ידנית"));
+  } else showToast("אפשר לסמן את הקוד ולהעתיק ידנית");
+}
+
 function supportNote(text) {
   const el = document.getElementById("supportSendNote");
   if (el) el.textContent = text;
@@ -4581,6 +4761,7 @@ function renderLogTab() {
 
 
     ${renderUpgradeBackupCard()}
+    ${renderNewAppBanner()}
     ${renderTourCard()}
 
     <!-- The four-slot empty state (icon / forward-looking headline / one
@@ -5799,6 +5980,7 @@ function renderSettingsBody() {
         </button>
       </div>
 
+${renderNewAppSettingsBlock()}
       <div class="settings-block">
         <div class="settings-block-title">קובץ גיבוי להורדה</div>
         <div class="footer-note"${storageOK ? "" : ' style="color:var(--red-text);" role="alert"'}>${storageOK ? esc("נשמר במכשיר הזה בלבד, ללא שרת") : esc(storageErrMsg || "שמירה נכשלה — בדקו את מקום האחסון")}</div>
@@ -6885,6 +7067,7 @@ registerAppDialog("appConfirm", { overlayId: "appConfirmOverlay", isOpen: () => 
 // the sheet underneath and leave the visible one - which is the exact defect
 // openAchievements()'s own comment above describes, reached a second way.
 registerAppDialog("support", { overlayId: "supportOverlay", isOpen: () => document.getElementById("supportOverlay").classList.contains("open"), close: closeSupport });
+registerAppDialog("transfer", { overlayId: "transferOverlay", isOpen: () => document.getElementById("transferOverlay").classList.contains("open"), close: closeTransfer });
 
 // COMM-358. Every role="tablist" group in this app (the fixed bottom tab
 // bar, WOD's Rx/Scaled-style subtabbar, Community's feed-scope filter)
@@ -7721,6 +7904,18 @@ document.addEventListener("click", (e) => {
     showToast(`מולא: ${entrySummaryFromParts(w, r, st)}`);
   }
   else if (action === "open-support") { openSupport(); }
+  else if (action === "open-transfer") { openTransfer(); }
+  else if (action === "close-transfer") {
+    if (el.id === "transferOverlay" && e.target !== el) return;
+    closeTransfer();
+  }
+  else if (action === "transfer-create") { runCreateTransfer(); }
+  else if (action === "transfer-copy") { copyTransferCode(); }
+  else if (action === "new-app-dismiss") {
+    try { localStorage.setItem(NEW_APP_DISMISS_KEY, "1"); } catch (e) { /* stays dismissed for this visit */ }
+    const card = document.getElementById("newAppBanner");
+    if (card) card.remove();
+  }
   else if (action === "close-support") {
     // THE BACKDROP GUARD, missing when this shipped and reported from a real
     // phone the same day: "trying to put text it closes page". #supportOverlay

@@ -17,6 +17,14 @@ window.HAIMUNIA_CONFIG = Object.freeze({
     key: "sb_publishable_MRSX0PLMZjoDIX4iuDbI2g_G2EdMRu6",
   }),
 
+  // The move to the new club app (haimunia.pages.dev). Built, OFF until the
+  // owner turns it on: then the home screen shows a dismissible invitation and
+  // Settings offers "create transfer code". Nothing else changes and this app
+  // keeps working with no end date. Turning it on is this one line, released.
+  newApp: Object.freeze({
+    enabled: false,
+    url: "https://haimunia.pages.dev/",
+  }),
   brand: Object.freeze({
     appName: "האימוניה",
     wordmark: "האימוניה",
