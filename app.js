@@ -15,7 +15,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "3.2.0";
+const APP_VERSION = "3.3.0";
 
 // A movement typed into the WOD builder that isn't in the built-in list
 // above - persisted (see WODTAGSTORE), same "custom X" pattern as
@@ -1414,6 +1414,13 @@ function closeCelebration() {
 // history members actually saw, and their stored lastSeenVersion ("2.34.0")
 // is what makes only the entries above it show on first open.
 const RELEASE_NOTES = [
+  { version: "3.3.0", date: "2026-11-12", items: [
+    "האפליקציה נפתחת מיד גם בלי קליטה טובה, ישר מהטלפון",
+    "ייבוא גיבוי נשמר בשלמותו או לא בכלל — אף פעם לא חצי",
+    "בלוח השנה, מספר הסטים בחודש סופר עכשיו כל סט, לא כל שורה",
+    "כפתורי גיבוי גדולים וברורים בהגדרות, וכפתור עדכוני הגרסה למעלה פותח את כל העדכונים",
+    "אם משהו משתבש בפתיחה תופיע הודעה עם כפתור לטעינה מחדש — האימונים שלכם נשארים במכשיר",
+  ] },
   { version: "3.1.0", date: "2026-09-23", items: [
     "ספירת שימוש: המועדון יודע כמה משתמשים באפליקציה וכמה רושמים אימונים, לפי מזהה אקראי של הטלפון — בלי שם ובלי שום פרט מהאימונים. אפשר לכבות בהגדרות ← ספירת שימוש",
   ] },
