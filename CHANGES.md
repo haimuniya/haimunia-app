@@ -1,3 +1,10 @@
+# 3.1.2 — Usage counts reach the club project again — 2026-11-12
+
+The Supabase project that received the anonymous usage counts was deleted,
+so no count has arrived since. The counts now go to the box-log project
+(hvwakffluwvegedefoth), which records them as app `old`. Same three facts,
+same random device id, same Settings switch. Nothing else changes.
+
 # 3.1.1 — Progress lists each lift once — 2026-09-24
 
 The Progress screen showed every logged lift twice: in the exercise list
