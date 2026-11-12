@@ -18,7 +18,12 @@ stays at v7) or to the stored record format.
   contrast and 44px targets; Escape closes the tour; the Rx hint waits for a
   save attempt; the header date refreshes.
 - Security/perf: frame-ancestors removed from the meta CSP; smaller logo and
-  mark images; supabase/usage-insert-policy.sql (not applied); npm audit fix.
+  mark images; npm audit fix. The usage table's own CHECK constraints and
+  its (day, device_id, event, screen) primary key already limit what anon
+  inserts can write, so no policy change was needed.
+- Usage rows now carry app: "old", so this app's counts stop landing as
+  "unknown" next to the club app's.
+- 404 page links back to this app instead of the organisation root.
 - Tests no longer depend on the current month.
 
 # 3.2.0 — The move to the new app, built and switched off — 2026-11-12

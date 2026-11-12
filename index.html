@@ -28,28 +28,10 @@
   on every start, so it was removed (audit 2026-11, finding 22).
   frame-guard.js is what stops framing on a host without real headers.
 
-  IT IS NO LONGER THE ONLY MITIGATION. Since 2026-09-16 the app is served by
-  Cloudflare Pages, which reads the repo's _headers file, and the real headers
-  are live and verified on the origin:
-      content-security-policy: frame-ancestors 'none'
-      x-frame-options: DENY
-      strict-transport-security: max-age=31536000; includeSubDomains
-      cross-origin-opener-policy: same-origin
-  That closes SEC-014, which every earlier version of this comment described
-  as unfixable on the host of the day. Verified directly
-  against the live production app (COMM-334, 2026-09-03: both the raw HTTP
-  response headers and the served HTML of
-  https://haimuniya.github.io/haimunia-app/) rather than assumed: production
-  ships the same kind of meta-tag CSP as this demo, on the same
-  no-real-headers host, and its meta tag already lists frame-ancestors
-  'none' too (as inertly as it does here) — it is not "no CSP at all" as an
-  earlier version of this comment claimed. At that date the only real
-  remaining gap on both apps, at the header/CSP layer specifically, was the
-  same one: moving off GitHub Pages to get real response headers. This app
-  closed it by moving to Cloudflare Pages on 2026-09-16 (the headers above).
+  The app is served by GitHub Pages, which cannot send custom response
+  headers, so frame-ancestors / X-Frame-Options cannot be set at all here.
 
-  Security hunt round 8: that gap is not being left fully unmitigated
-  anymore. frame-guard.js (loaded first, before this meta tag is even
+  Security hunt round 8: frame-guard.js (loaded first, before this meta tag is even
   parsed) is a client-side framebuster — it cannot be delivered as a real
   header on this host, but window.top === window.self holds for every
   legitimate load (an installed PWA, an ordinary tab), so a script-level

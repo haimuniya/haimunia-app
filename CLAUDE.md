@@ -50,7 +50,7 @@ Tests boot the real `index.html` in jsdom with fake-indexeddb via
 - `src/usage.js` sends pseudonymous counts to the `training_log_usage` table
   (Supabase, config in `app-config.js`).
 - Never add names, emails, free text or anything that identifies a member to
-  that data. Allowed fields: `device_id`, `event`, `screen`.
+  that data. Allowed fields: `device_id`, `event`, `screen`, `app` (always `"old"`).
 - Tests and browser checks must never send a real count. Test: `test/usage-counting.test.mjs`.
 
 ## Sibling repo
