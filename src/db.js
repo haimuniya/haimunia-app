@@ -20,6 +20,13 @@ const DB_NAME = "box-log-db", DB_VERSION = 7, STORE = "entries", MOVSTORE = "mov
 const WOD_TAGS_SETTING = "wodMovementTags";
 let _dbPromise = null;
 
+// EVERY COMMITTED WRITE IS ANNOUNCED, so app.js can tell other open tabs to
+// re-read (see "TWO TABS" in app.js). One listener; a throw in it never
+// reaches the write's caller.
+let _dbChangeListener = null;
+function onDbChange(fn) { _dbChangeListener = typeof fn === "function" ? fn : null; }
+function dbChanged() { try { if (_dbChangeListener) _dbChangeListener(); } catch (e) {} }
+
 // A WRITE MUST SETTLE EVEN WHEN THE TRANSACTION ABORTS (audit 2026-11).
 // Every write below resolved on oncomplete and rejected on onerror only. Per
 // the IndexedDB spec a transaction can also abort at COMMIT time with no
@@ -47,9 +54,20 @@ function txAbortError(tx) {
 // below), which is what stops the OTHER tab from blocking in the first
 // place; onblocked is a defensive log for the rare case a browser still
 // can't complete the handshake in time.
+//
+// A CONNECTION THE BROWSER CLOSES IS REOPENED (audit 2026-11). Besides
+// versionchange, a browser may close a connection on its own - the member
+// clears site data, storage is evicted under pressure, the disk goes away -
+// and then fires "close" on it. The cached promise kept handing out that dead
+// connection, so every later transaction() threw InvalidStateError until a
+// reload. Both events now drop the cache (only if it still holds THIS
+// connection, so a late event can never discard a newer one), and the next
+// access opens a fresh connection.
 function openDB() {
   if (_dbPromise) return _dbPromise;
-  _dbPromise = new Promise((resolve, reject) => {
+  let thisPromise = null;
+  const forget = () => { if (_dbPromise === thisPromise) _dbPromise = null; };
+  thisPromise = _dbPromise = new Promise((resolve, reject) => {
     // Only ever runs on a device that has never had the app: an existing
     // member's database is already at v7 and opens without an upgrade.
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -70,10 +88,11 @@ function openDB() {
       // Step aside for a newer version opened elsewhere (another tab, or a
       // future reload of this same tab after a deploy) instead of holding
       // this connection open and blocking it indefinitely.
-      db.onversionchange = () => { db.close(); _dbPromise = null; };
+      db.onversionchange = () => { db.close(); forget(); };
+      db.onclose = () => { forget(); };
       resolve(db);
     };
-    req.onerror = () => { _dbPromise = null; reject(req.error); };
+    req.onerror = () => { forget(); reject(req.error); };
   });
   return _dbPromise;
 }
@@ -93,7 +112,7 @@ async function dbSetSetting(key, value) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SETTINGSTORE, "readwrite");
     tx.objectStore(SETTINGSTORE).put({ key, value });
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -103,7 +122,7 @@ async function dbClearSettings() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SETTINGSTORE, "readwrite");
     tx.objectStore(SETTINGSTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -135,7 +154,7 @@ async function dbAddMovement(m) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MOVSTORE, "readwrite");
     tx.objectStore(MOVSTORE).put(m);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -145,7 +164,7 @@ async function dbClearMovements() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MOVSTORE, "readwrite");
     tx.objectStore(MOVSTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -170,7 +189,7 @@ async function dbAddWodMovementTag(t) {
       const next = list.filter((x) => x && x.name !== t.name).concat([t]);
       store.put({ key: WOD_TAGS_SETTING, value: next });
     };
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -180,7 +199,7 @@ async function dbClearWodMovementTags() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SETTINGSTORE, "readwrite");
     tx.objectStore(SETTINGSTORE).delete(WOD_TAGS_SETTING);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -199,7 +218,7 @@ async function dbPutWodEntry(entry) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(WODSTORE, "readwrite");
     tx.objectStore(WODSTORE).put(entry);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -209,7 +228,7 @@ async function dbDeleteWodEntry(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(WODSTORE, "readwrite");
     tx.objectStore(WODSTORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -219,7 +238,7 @@ async function dbClearWodEntries() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(WODSTORE, "readwrite");
     tx.objectStore(WODSTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -238,7 +257,7 @@ async function dbAddCustomWod(w) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CUSTOMWODSTORE, "readwrite");
     tx.objectStore(CUSTOMWODSTORE).put(w);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -248,7 +267,7 @@ async function dbClearCustomWods() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CUSTOMWODSTORE, "readwrite");
     tx.objectStore(CUSTOMWODSTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -267,7 +286,7 @@ async function dbPutBodyweight(entry) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BWSTORE, "readwrite");
     tx.objectStore(BWSTORE).put(entry);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -277,7 +296,7 @@ async function dbDeleteBodyweight(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BWSTORE, "readwrite");
     tx.objectStore(BWSTORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -287,7 +306,7 @@ async function dbClearBodyweight() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BWSTORE, "readwrite");
     tx.objectStore(BWSTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -305,7 +324,7 @@ async function dbAddMeasureType(t) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MEASTYPESTORE, "readwrite");
     tx.objectStore(MEASTYPESTORE).put(t);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -315,7 +334,7 @@ async function dbDeleteMeasureType(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MEASTYPESTORE, "readwrite");
     tx.objectStore(MEASTYPESTORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -325,7 +344,7 @@ async function dbClearMeasureTypes() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MEASTYPESTORE, "readwrite");
     tx.objectStore(MEASTYPESTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -343,7 +362,7 @@ async function dbPutMeasurement(m) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MEASSTORE, "readwrite");
     tx.objectStore(MEASSTORE).put(m);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -353,7 +372,7 @@ async function dbDeleteMeasurement(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MEASSTORE, "readwrite");
     tx.objectStore(MEASSTORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -363,7 +382,7 @@ async function dbClearMeasurements() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MEASSTORE, "readwrite");
     tx.objectStore(MEASSTORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -382,17 +401,35 @@ async function dbPut(entry) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
     tx.objectStore(STORE).put(entry);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
 }
+// AN EDIT NEVER RE-CREATES A DELETED RECORD. A plain put() of an edited set
+// whose row another tab deleted in the meantime wrote it straight back. This
+// reads and writes in one transaction and writes only if the row is still
+// there; resolves to whether it was.
+function dbUpdateExisting(storeName, record) {
+  return openDB().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    let found = false;
+    const req = store.get(record.id);
+    req.onsuccess = () => { if (req.result) { found = true; store.put(record); } };
+    tx.oncomplete = () => { resolve(found); if (found) dbChanged(); };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(txAbortError(tx));
+  }));
+}
+function dbUpdateEntry(entry) { return dbUpdateExisting(STORE, entry); }
+function dbUpdateWodEntry(entry) { return dbUpdateExisting(WODSTORE, entry); }
 async function dbDelete(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
     tx.objectStore(STORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -402,7 +439,7 @@ async function dbClear() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
     tx.objectStore(STORE).clear();
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -412,7 +449,7 @@ async function dbDeleteMovementRecord(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MOVSTORE, "readwrite");
     tx.objectStore(MOVSTORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -422,7 +459,7 @@ async function dbDeleteCustomWod(id) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CUSTOMWODSTORE, "readwrite");
     tx.objectStore(CUSTOMWODSTORE).delete(id);
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
   });
@@ -449,7 +486,7 @@ async function dbImportAll(batch) {
   if (!stores.size) return;
   return new Promise((resolve, reject) => {
     const tx = db.transaction([...stores], "readwrite");
-    tx.oncomplete = () => resolve();
+    tx.oncomplete = () => { resolve(); dbChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(txAbortError(tx));
     try {

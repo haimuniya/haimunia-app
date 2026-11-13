@@ -1,3 +1,33 @@
+# 3.4.0 — QA audit fixes — 2026-11-13
+
+Fixes from the 2026-11 QA audit. No change to the database (box-log-db stays
+at v7) or to the stored record format. The transfer flag stays off.
+
+- Contrast: the delete-confirm button keeps white ink in dark (was 2.13:1),
+  placeholders use --steel, the active WOD-builder chip's gloss uses
+  --energy-text, and the WOD save button before Rx is answered is a muted
+  fill instead of a .45 fade (was 1.47:1). Checked by
+  test/audit-contrast.test.mjs from the tokens.
+- Saving a session note on the calendar shows the save toast.
+- The update banner is a plain button: "הקישו כדי לעדכן", no status role.
+- CI: .github/workflows/test.yml runs the version check and npm test.
+- Usage counting: one flush at a time, each pending fact once per flush,
+  backoff from 30 s doubling to 15 min, at most five failed flushes per open.
+- Two tabs stay in step: every committed write is announced over
+  BroadcastChannel (storage event as fallback) and the other tab re-reads
+  IndexedDB; "delete everything" reaches the other tab. An edit is written
+  only if the row is still on disk, so a deleted set never comes back.
+- A database connection closed by the browser is reopened on next access.
+- A refresh keeps the open screen and the set form (sessionStorage). "Today"
+  follows the clock on return to the foreground and at midnight.
+- "Rx+" no longer paints as "+17:52 · Rx". Week streaks run Sunday to
+  Saturday. The 404 link works from nested paths. privacy.html drops
+  frame-ancestors from its meta CSP (ignored there, logged as an error).
+- Removed code for features not in this edition: community/staff CSS, the
+  unused photo header, window.PAGE_SCENES, the staff-sidebar nav filter and
+  two unused photos.
+- Proposal, not applied: docs/usage-table-proposal.sql.
+
 # 3.3.0 — Quality audit fixes — 2026-11-12
 
 Fixes from the 3.2.0 quality audit. No change to the database (box-log-db

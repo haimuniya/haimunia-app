@@ -22,8 +22,17 @@
 // NEVER IN THE WAY. Offline, blocked, misconfigured, the server down - every
 // failure is swallowed. Nothing waits on this, nothing retries in a loop, and
 // the app does not know or care whether a count arrived. A fact that could
-// not be sent is kept (a handful at most) and tried once more the next time
-// the app counts something.
+// not be sent is kept (a handful at most) for a later flush.
+//
+// ONE FLUSH AT A TIME, AND IT BACKS OFF. Every count used to resend the whole
+// pending list, so with the server failing each tab switch re-POSTed every
+// fact again (38 requests in one short session). Now a count only adds its
+// fact to the list and asks for a flush. A flush sends each pending fact
+// once; while one is in flight, another is not started. After a failed flush
+// the next one waits 30 s, then 60 s, 120 s ... (capped at 15 minutes), and
+// after MAX_FAILED_FLUSHES failures in a row nothing more is sent until the
+// app is opened again. The browser saying it is back online lifts the wait,
+// not the cap.
 (function (global) {
   "use strict";
   var OFF_KEY = "haimunia:usageCountingOff";   // "1" when the member turned it off
@@ -33,6 +42,15 @@
   var EVENTS = { app_open: 1, workout_logged: 1, screen_open: 1 };
   var SCREENS = { add: 1, history: 1, calendar: 1, wod: 1 };
   var MAX_PENDING = 8;
+  var BACKOFF_BASE_MS = 30000;
+  var BACKOFF_MAX_MS = 15 * 60000;
+  var MAX_FAILED_FLUSHES = 5;
+  // In memory, per page load: a new open starts with a clean slate.
+  var inFlight = null;          // the running flush, if any
+  var flushAgain = false;       // a count arrived while it ran
+  var failedFlushes = 0;
+  var nextFlushAt = 0;
+  function now() { return global.Date.now(); }
 
   function ls(fn) { try { return fn(global.localStorage); } catch (e) { return null; } }
   function readJson(key, fallback) {
@@ -101,6 +119,50 @@
     setPending(next);
   }
 
+  function addPending(key) {
+    var current = readJson(PENDING_KEY, []);
+    if (!Array.isArray(current)) current = [];
+    if (current.indexOf(key) === -1) current.push(key);
+    setPending(current);
+  }
+
+  // Sends every pending fact once. Never runs two at a time and never runs
+  // inside the backoff window. Resolves to whether anything was sent.
+  function flush() {
+    if (inFlight) { flushAgain = true; return inFlight; }
+    if (failedFlushes >= MAX_FAILED_FLUSHES || now() < nextFlushAt) return Promise.resolve(false);
+    if (global.navigator && global.navigator.onLine === false) return Promise.resolve(false);
+    var ep = endpoint();
+    if (!ep || typeof global.fetch !== "function") return Promise.resolve(false);
+    var queue = readJson(PENDING_KEY, []);
+    if (!Array.isArray(queue)) queue = [];
+    var sent = readJson(SENT_KEY, {});
+    var stale = queue.filter(function (k) { return sent[k] === today(); });
+    if (stale.length) settlePending(stale, []);
+    queue = queue.filter(function (k) { return sent[k] !== today(); });
+    if (!queue.length) return Promise.resolve(false);
+    flushAgain = false;
+    inFlight = Promise.all(queue.map(function (k) {
+      var p;
+      try { p = send(k, ep); } catch (e) { p = Promise.resolve(false); }
+      return p.then(function (ok) { if (ok) markSent(k); return ok; }, function () { return false; });
+    })).then(function (results) {
+      settlePending(queue.filter(function (_, i) { return results[i]; }), queue.filter(function (_, i) { return !results[i]; }));
+      if (results.every(Boolean)) { failedFlushes = 0; nextFlushAt = 0; }
+      else {
+        failedFlushes += 1;
+        nextFlushAt = now() + Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * Math.pow(2, failedFlushes - 1));
+      }
+      return results.some(Boolean);
+    }, function () { return false; }).then(function (any) {
+      inFlight = null;
+      if (flushAgain && failedFlushes === 0) return flush().then(function (more) { return any || more; });
+      flushAgain = false;
+      return any;
+    });
+    return inFlight;
+  }
+
   // Returns a promise that always resolves (to whether anything was sent), so
   // a caller may await it in a test and must never need to catch it.
   function count(event, screen) {
@@ -108,26 +170,20 @@
       if (!EVENTS[event]) return Promise.resolve(false);
       if (event === "screen_open" ? !SCREENS[screen] : screen) return Promise.resolve(false);
       if (!isOn()) return Promise.resolve(false);
-      var ep = endpoint();
-      if (!ep || typeof global.fetch !== "function") return Promise.resolve(false);
+      if (!endpoint()) return Promise.resolve(false);
       var key = factKey(event, screen);
       var sent = readJson(SENT_KEY, {});
-      var pending = readJson(PENDING_KEY, []);
-      if (!Array.isArray(pending)) pending = [];
-      var queue = pending.filter(function (k) { return k !== key; });
-      if (sent[key] !== today()) queue.push(key);
-      if (!queue.length) return Promise.resolve(false);
-      if (global.navigator && global.navigator.onLine === false) { settlePending([], queue); return Promise.resolve(false); }
-      return Promise.all(queue.map(function (k) {
-        return send(k, ep).then(function (ok) { if (ok) markSent(k); return ok; });
-      })).then(function (results) {
-        settlePending(queue.filter(function (_, i) { return results[i]; }), queue.filter(function (_, i) { return !results[i]; }));
-        return results.some(Boolean);
-      }, function () { return false; });
+      if (sent[key] !== today()) addPending(key);
+      return flush().catch(function () { return false; });
     } catch (e) {
       return Promise.resolve(false);
     }
   }
+
+  // Back online: the wait is over (the cap still holds).
+  try {
+    if (global.addEventListener) global.addEventListener("online", function () { nextFlushAt = 0; if (isOn()) flush(); });
+  } catch (e) {}
 
   function setOn(on) {
     ls(function (s) {

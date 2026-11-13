@@ -41,7 +41,30 @@ function newDom(url, opts = {}) {
   });
   const { window } = dom;
 
-  window.indexedDB = new FDBFactory();
+  // The app arms a timer for the next midnight (refreshToday in app.js).
+  // jsdom runs window timers on real Node timers, so that one would keep the
+  // test process alive until midnight. A timer longer than ten minutes is
+  // handed to an unref'd Node timer instead: it still fires if the process is
+  // still running, it just never holds the process open.
+  const jsdomSet = window.setTimeout.bind(window);
+  const jsdomClear = window.clearTimeout.bind(window);
+  const longTimers = new Map();
+  let longId = 1e9;
+  window.setTimeout = (fn, ms, ...args) => {
+    if (!(Number(ms) > 600000) || typeof fn !== "function") return jsdomSet(fn, ms, ...args);
+    const id = longId++;
+    const handle = setTimeout(() => { longTimers.delete(id); fn(...args); }, ms);
+    handle.unref();
+    longTimers.set(id, handle);
+    return id;
+  };
+  window.clearTimeout = (id) => {
+    if (longTimers.has(id)) { clearTimeout(longTimers.get(id)); longTimers.delete(id); return; }
+    jsdomClear(id);
+  };
+  // opts.indexedDB shares one database between two windows: two tabs of the
+  // same origin, or the same tab before and after a reload.
+  window.indexedDB = opts.indexedDB || new FDBFactory();
   window.IDBKeyRange = FDBKeyRange;
 
   // jsdom implements neither matchMedia nor a full randomUUID-capable crypto.
@@ -97,6 +120,10 @@ export async function bootApp(opts = {}) {
   const window = newDom(opts.url, opts);
   if (opts.localStorage) {
     for (const [key, value] of Object.entries(opts.localStorage)) window.localStorage.setItem(key, value);
+  }
+  // What a reload of the same tab keeps: its sessionStorage.
+  if (opts.sessionStorage) {
+    for (const [key, value] of Object.entries(opts.sessionStorage)) window.sessionStorage.setItem(key, value);
   }
   // Seeds IndexedDB BEFORE the app opens it - the shape of a member's phone
   // on the first open of this edition. opts.seed(indexedDB) gets the raw

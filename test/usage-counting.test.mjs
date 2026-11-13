@@ -159,6 +159,10 @@ test("a count that could not be sent is tried once more later, not lost and not 
   const firstTry = r.calls.length;
   assert.ok(firstTry >= 1);
   online = true;
+  // The browser saying it is back online lifts the backoff; the next count
+  // then goes out with everything that was waiting.
+  window.dispatchEvent(new window.Event("online"));
+  await tick(50);
   window.document.querySelector("[data-action='switch-tab'][data-tab='calendar']").click();
   await tick(100);
   const retried = bodies(r.calls.slice(firstTry)).map((b) => b.event).sort();
@@ -206,4 +210,86 @@ test("the config carries only the publishable key - never a secret", () => {
   const cfg = read("app-config.js");
   assert.match(cfg, /key: "sb_publishable_[A-Za-z0-9_-]+"/);
   assert.doesNotMatch(cfg, /service_role|sb_secret_|eyJ[A-Za-z0-9_-]{20,}/);
+});
+
+// Audit 2026-11: with the server failing, every count re-sent the whole
+// pending list - 38 POSTs in one short session. One flush at a time, each
+// pending fact once per flush, then exponential backoff and a cap.
+function serverDown() {
+  const r = recorder(() => Promise.resolve({ ok: false, status: 503 }));
+  return r;
+}
+async function bootWithClock(r) {
+  let offset = 0;
+  const window = await bootApp({
+    beforeScripts: (w) => {
+      r.beforeScripts(w);
+      const realNow = w.Date.now.bind(w.Date);
+      w.Date.now = () => realNow() + offset;
+    },
+  });
+  return { window, advance: (ms) => { offset += ms; } };
+}
+const switchTo = (window, t) => window.document.querySelector(`[data-action='switch-tab'][data-tab='${t}']`).click();
+
+test("server failing: a busy session sends one flush, not one per count", async () => {
+  const r = serverDown();
+  const { window } = await bootWithClock(r);
+  await tick(100);
+  for (const t of ["calendar", "history", "wod", "add", "calendar", "history", "add"]) { switchTo(window, t); await tick(20); }
+  window.choosePickedMovement("back-squat");
+  window.applyFieldValue("step", "weight", 60); window.applyFieldValue("step", "reps", 5);
+  await window.saveSet();
+  await tick(80);
+  assert.equal(r.calls.length, 1, `only the first flush went out: ${JSON.stringify(bodies(r.calls))}`);
+  const pending = JSON.parse(window.localStorage.getItem("haimunia:usagePending") || "[]");
+  assert.ok(pending.includes("app_open|") && pending.includes("workout_logged|"), "nothing is lost while waiting");
+  assert.ok(pending.length <= 8, "and the list stays small");
+});
+
+test("after the backoff, each pending fact is sent once; the wait doubles; then it stops", async () => {
+  const r = serverDown();
+  const { window, advance } = await bootWithClock(r);
+  await tick(100);
+  assert.equal(r.calls.length, 1);
+  switchTo(window, "calendar"); await tick(30);
+  assert.equal(r.calls.length, 1, "inside the 30 s wait nothing is sent");
+
+  advance(31000);
+  switchTo(window, "history"); await tick(60);
+  const second = bodies(r.calls.slice(1)).map((b) => b.event + (b.screen ? ":" + b.screen : "")).sort();
+  assert.deepEqual(second, ["app_open", "screen_open:add", "screen_open:calendar", "screen_open:history"], "one POST per pending fact");
+  assert.equal(new Set(second).size, second.length, "no fact twice in one flush");
+
+  const afterSecond = r.calls.length;
+  advance(31000);
+  switchTo(window, "wod"); await tick(60);
+  assert.equal(r.calls.length, afterSecond, "the second wait is 60 s, not 30 s");
+  advance(30000);
+  switchTo(window, "add"); await tick(60);
+  assert.ok(r.calls.length > afterSecond, "after 60 s it tries again");
+
+  // Failures 3, 4 and 5 (waits of 120 s, 240 s, 480 s), then the cap.
+  for (const wait of [121000, 241000]) { advance(wait); switchTo(window, "calendar"); await tick(60); }
+  const atCap = r.calls.length;
+  advance(16 * 60000); switchTo(window, "history"); await tick(60);
+  assert.ok(r.calls.length > atCap, "the fifth flush still goes out");
+  const capped = r.calls.length;
+  for (let i = 0; i < 3; i++) { advance(60 * 60000); switchTo(window, i % 2 ? "add" : "wod"); await tick(60); }
+  window.dispatchEvent(new window.Event("online")); await tick(60);
+  assert.equal(r.calls.length, capped, "after five failed flushes nothing more is sent this session");
+});
+
+test("the server recovering clears the backoff", async () => {
+  let up = false;
+  const r = recorder(() => Promise.resolve(up ? { ok: true, status: 201 } : { ok: false, status: 503 }));
+  const { window, advance } = await bootWithClock(r);
+  await tick(100);
+  up = true;
+  advance(31000);
+  switchTo(window, "calendar"); await tick(80);
+  const n = r.calls.length;
+  switchTo(window, "history"); await tick(80);
+  assert.equal(r.calls.length, n + 1, "a fresh count goes straight out once a flush has succeeded");
+  assert.deepEqual(JSON.parse(window.localStorage.getItem("haimunia:usagePending") || "[]"), []);
 });

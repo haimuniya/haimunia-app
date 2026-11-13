@@ -341,6 +341,10 @@
   button, input, textarea { font-family:inherit; }
   button{ background:none; border:none; color:inherit; cursor:pointer; padding:0; }
   input{ font-size:16px; }
+  /* The browser's default placeholder grey measured 2.93:1 on --surface2.
+     --steel is the app's secondary-text token and clears 4.5:1 on every
+     input surface in both themes (test/audit-contrast.test.mjs). */
+  input::placeholder, textarea::placeholder{ color:var(--steel); opacity:1; }
   html[data-text-scale="large"]{ zoom:var(--text-scale); }
   button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible { outline:2px solid var(--brass); outline-offset:2px; }
   /* 'Rubik' before the generic for the same reason as .save-btn/.page-title
@@ -559,28 +563,6 @@
   .rep-cell{ flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:8px 4px; text-align:center; }
   .rep-cell-label{ color:var(--steel); font-size:11.5px; font-weight:700; }
   .rep-cell-val{ font-weight:700; font-size:13px; }
-  /* Direction 06 "Club Balance" handoff: a shallow real-photo strip at the
-     top of a screen, identifying the club without competing with the task
-     below it. aspect-ratio 3.6/1 (inside README1.md's 3:1-4:1 range) keeps
-     it well under the "16% of mobile viewport height" ceiling at every
-     width narrower than the max-height cap (390px/3.6 ≈ 108px vs a 135px
-     ceiling at a 844px-tall viewport); max-height is a hard backstop for
-     wider/shorter viewports where aspect-ratio alone would grow past that.
-     object-fit:cover + explicit width/height on the <img> (set inline by
-     photoHeaderHtml()) avoid layout shift while the file loads. */
-  .photo-header{ position:relative; margin-bottom:16px; border-radius:20px; overflow:hidden; border:1px solid var(--border); box-shadow:var(--shadow-card); aspect-ratio:960/260; max-height:150px; }
-  .photo-header img{ width:100%; height:100%; object-fit:cover; display:block; }
-  /* Navy overlay, dark theme only (README1.md: "Add a navy overlay in dark
-     mode") - same photo, calmer in the low-light palette. Two blocks for
-     the same reason every other dark rule here is duplicated (auto vs the
-     explicit data-theme stamp); this is a plain rule, not a custom
-     property, so theme-token-parity.test.mjs's --token diff does not apply
-     to it - kept byte-identical between the two blocks by convention only. */
-  .photo-header::after{ content:""; position:absolute; inset:0; pointer-events:none; }
-  :root[data-theme="dark"] .photo-header::after{ background:linear-gradient(180deg, rgba(21,35,66,.10), rgba(21,35,66,.45)); }
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]) .photo-header::after{ background:linear-gradient(180deg, rgba(21,35,66,.10), rgba(21,35,66,.45)); }
-  }
   /* ==== Immersive scene primitives (IMPLEMENTATION_SPEC.md §3, §5) ======
      .scene-page is the outer wrapper each scene-mapped render function
      returns in place of renderTabHeader()+content. Photo stays UNDER the
@@ -623,7 +605,6 @@
      AC units at the very top. */
   .scene-page--progress{ --scene-image:url('./assets/club-photos/progress-blue-rig.jpg'); --scene-position:center 18%; }
   .scene-page--library{ --scene-image:url('./assets/club-photos/library-rings.jpg'); --scene-position:center 45%; }
-  .scene-page--community{ --scene-image:url('./assets/club-photos/community-logo-wall.jpg'); }
   .scene-page--achievements{ --scene-image:url('./assets/club-photos/achievements-plates.jpg'); }
   .scene-page__scrim{ position:absolute; z-index:-2; inset:0; pointer-events:none;
     background:linear-gradient(180deg, rgba(3,10,20,.24) 0, rgba(3,10,20,.08) 25%, rgba(3,10,20,.54) 47%, rgba(3,10,20,.76) 100%); }
@@ -935,6 +916,10 @@
   .icon-btn{ min-width:44px; min-height:44px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border-radius:12px; }
   .save-btn{ width:100%; max-width:448px; background:linear-gradient(180deg, color-mix(in srgb, var(--energy) 78%, white), var(--energy)); color:#1a0d08; font-family:'Anton','Secular One','Rubik',sans-serif; font-weight:400; letter-spacing:0.5px; font-size:19px; padding:16px 0; border-radius:16px; display:flex; align-items:center; justify-content:center; gap:8px; box-shadow:0 10px 26px -6px rgba(232,93,61,.5); transition:opacity .15s; }
   .save-btn:active{ opacity:.85; }
+  /* The WOD save button before Rx/Scaled is answered. It used to be faded
+     with opacity:.45, which took its own label to 1.47:1. A muted fill with
+     --steel ink reads as "not yet" and keeps the label legible. */
+  #bottomBar .save-btn[aria-disabled="true"], body[data-scene] #bottomBar .save-btn[aria-disabled="true"]{ background:var(--surface2); color:var(--steel); border:1px solid var(--border); box-shadow:none; backdrop-filter:none; }
   /* Shared tinted icon chip, reused by the Phase 2 nav menu and anywhere a
      generic gray icon badge would otherwise be re-derived inline per call
      site. color-mix() keeps every tint theme-correct automatically — it
@@ -1689,7 +1674,9 @@
      existing markup already uses, sharing the identical declaration rather
      than being a second, drifting copy of it. */
   .format-chip-sub, .term-sub{ display:block; font-weight:600; font-size:13px; color:var(--steel); margin-top:3px; line-height:1.3; }
-  .format-chip.active .format-chip-sub{ color:var(--energy); opacity:.85; }
+  /* --energy-text at full strength: --energy at .85 opacity on the active
+     tint measured 2.5:1 (light) and 2.7:1 (dark). */
+  .format-chip.active .format-chip-sub{ color:var(--energy-text); }
   /* ...and the format row becomes 2x2 rather than 4-across. At 390px, four
      flex:1 chips are ~85px wide, where a 13px gloss like "כמה סיבובים
      הספקתם" wraps to four ragged lines - the spec's rule is "shorten the
@@ -1847,41 +1834,7 @@
      faces - the same reason .page-title and .celebration-title above are 400.
      Size goes up a little to carry the lighter weight. */
   .ach-section-title{ font-family:'Anton','Secular One','Rubik',sans-serif; font-weight:400; font-size:15.5px; letter-spacing:.2px; color:var(--chalk); }
-  /* THE FEED'S SCOPE FILTER, riding the "הפיד שלי" section head instead of
-     a rail of its own (cloud.js, filterHtml + sectionHead's `trailing`).
-     It was four .chip-btn role="tab"s in a .chip-row, measured at 96px tall
-     at 390x844 because the four Hebrew labels wrap onto two lines - the
-     third stacked navigation layer on a screen that already carries the
-     bottom bar and the community sub-tab bar.
-     margin-inline-start:auto, not margin-left: this is an RTL document and
-     the logical property is what puts the control at the row's END on both
-     directions rather than pinning it to a physical side.
-     width:auto overrides .text-input's own width:100%, which would take the
-     whole row and push the heading out.
-     NO COLOUR OF ITS OWN, deliberately - every paint it has comes from
-     .text-input's tokens (--surface2, --border, --chalk), so it themes
-     itself in light and dark and needs no duplicate in either dark block.
-     min-height:44px keeps it a real tap target; the smaller font is what
-     stops the longest scope label ("אחרי מי שאני עוקב/ת") from truncating
-     at 390px, measured, not assumed. */
-  .feed-scope-select{ margin-inline-start:auto; width:auto; max-width:62%; min-height:44px; padding:6px 10px; font-size:13.5px; font-weight:700; }
-  /* Usability pass: the Manage tab's "ניהול" sub-tab (cloud.js
-     renderManageApp) stacks five rare admin tools - moderation, audit log,
-     club settings, analytics, onboarding content - one after another, which
-     read as one undifferentiated ~5000px scroll. Wrapping each in <details>
-     (manageAdminArea(), cloud.js) fixes that without adding a second layer
-     of tabs, which is exactly what the operator-depth rework (see that
-     function's own comment) collapsed seven sub-tabs down to three to avoid
-     in the first place. Own summary styling rather than reusing
-     .ach-section-head/.ach-section-title directly: those sit INSIDE each
-     area too (one per sub-section), and a summary needs a disclosure
-     affordance those don't. */
-  details.manage-area{ margin-top:18px; }
-  details.manage-area > summary{ display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer; list-style:none; font-family:'Anton','Secular One','Rubik',sans-serif; font-weight:400; font-size:15.5px; letter-spacing:.2px; color:var(--chalk); }
-  details.manage-area > summary::-webkit-details-marker{ display:none; }
-  details.manage-area > summary::before{ content:"›"; display:inline-block; color:var(--steel); transition:transform .15s ease; flex-shrink:0; }
-  details.manage-area[open] > summary::before{ transform:rotate(90deg); }
-  details.manage-area > .manage-area-body{ margin-top:12px; }
+  
   .ach-row{ display:flex; gap:14px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
   /* Community tab: real buttons and admin-only framing, instead of the
      11px underlined .link-btn (meant for a de-emphasized action like
@@ -2045,14 +1998,7 @@
   input[type="checkbox"]:focus-visible, .movecheck-row:focus-visible{
     outline:2px solid var(--brass); outline-offset:2px; }
   .chip-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-  /* color:var(--energy-text), not --energy - found via axe while touching
-     an unrelated invite-tab restructure, but pre-existing and shared: this
-     class renders on every admin sectionHead() across the app (moderation,
-     analytics, incomplete-signups, the invite panels...), not just here.
-     --energy is contrast-safe as a fill/border (this rule's own background/
-     border-color), never as small text - the exact distinction this file's
-     token comments already establish elsewhere. */
-  .admin-tag{ display:inline-flex; align-items:center; font-size:10px; font-weight:800; letter-spacing:.3px; color:var(--energy-text); background:rgba(232,93,61,.12); border:1px solid var(--energy); border-radius:999px; padding:2px 9px; margin-inline-start:8px; }
+  
   /* Generic small status pill for non-admin badges (challenge/event "joined",
      completed) - previously these overrode .admin-tag's background only,
      leaving its energy-orange text/border in place underneath a brass fill:
@@ -2060,7 +2006,7 @@
      itself now stays reserved for real admin-context labels ("ניהול"). */
   .tag{ display:inline-flex; align-items:center; font-size:10px; font-weight:800; letter-spacing:.3px; border-radius:999px; padding:2px 9px; margin-inline-start:8px; border:1px solid transparent; }
   .tag-brass{ background:var(--brass); border-color:var(--brass); color:var(--avatar-ink); }
-  .admin-card{ border-color:var(--energy); }
+  
   .field-label{ font-size:11px; font-weight:700; color:var(--steel); display:block; margin-bottom:4px; }
   .field + .field{ margin-top:10px; }
   /* ...but only when the fields are actually stacked. The two-up form rows
@@ -2087,124 +2033,9 @@
   /* Community: identity + timing, so a feed post reads as a person and a
      moment rather than an anonymous card of numbers. */
   .avatar-badge{ display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; border-radius:50%; color:var(--avatar-ink); font-weight:800; line-height:1; }
-  /* THE CLUB BOARD (design direction C, "לוח הקיר"). Today's programming is
-     the one thing on this screen that exists physically in the gym - it is
-     written on a board on the wall - so it is drawn as that board rather than
-     as another card. This is the only surface in the app with its own
-     material, and that is the point: it should be recognisable across the
-     room, not blend into the feed.
-     Slate is darker than --surface in BOTH themes on purpose; it is a
-     material, not an elevation, so it does not follow the card ramp. */
-  .wod-board{
-    position:relative;
-    background:
-      radial-gradient(90% 60% at 25% 8%, rgba(242,236,225,.055), transparent 62%),
-      radial-gradient(70% 50% at 85% 95%, rgba(242,236,225,.035), transparent 60%),
-      linear-gradient(178deg, #1B2531, #141C27);
-    border:1px solid #0A0F16;
-    border-radius:8px;
-    padding:20px 18px 18px;
-    margin-bottom:12px;
-    box-shadow:0 1px 0 rgba(242,236,225,.08) inset, 0 22px 40px -22px rgba(0,0,0,.95);
-    overflow:hidden;
-    color:#F2ECE1;
-  }
-  /* Chalk dust. A data URI, so it costs no request and nothing for the CSP
-     to allow. */
-  .wod-board::after{
-    content:""; position:absolute; inset:0; pointer-events:none; opacity:.40; mix-blend-mode:soft-light;
-    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='c'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4'/></filter><rect width='160' height='160' filter='url(%23c)' opacity='.42'/></svg>");
-  }
-  .wod-board > *{ position:relative; }
-  .wod-board-eyebrow{ font-size:11px; color:var(--brass); font-weight:700; letter-spacing:.16em; }
-  .wod-board-date{ font-size:11px; color:rgba(242,236,225,.45); font-weight:600; }
-  .wod-board-title{ font-family:'Anton','Secular One','Rubik',sans-serif; font-weight:400; font-size:21px; line-height:1.15; color:#FFFDF8; margin:14px 0; }
-  .wod-board-lines{ font-family:'JetBrains Mono','Rubik',ui-monospace,monospace; font-size:15px; line-height:1.9; direction:ltr; text-align:left; color:#F2ECE1; white-space:pre-wrap; }
-  .wod-board-rule{ height:1px; background:rgba(242,236,225,.15); margin:16px 0 14px; }
-  .wod-board-label{ font-size:10.5px; color:rgba(242,236,225,.45); font-weight:700; letter-spacing:.14em; margin-bottom:9px; }
-  .wod-board-names{ display:flex; flex-wrap:wrap; align-items:center; font-size:14px; font-weight:600; color:#F2ECE1; }
-  .wod-board-sep{ color:rgba(242,236,225,.28); padding:0 9px; }
-  .wod-board-ghost{ background:rgba(242,236,225,.06); border-color:rgba(242,236,225,.15); color:#F2ECE1; }
-  .post-card{ padding:16px; }
-  .post-head{ display:flex; align-items:center; gap:10px; margin-bottom:10px; }
-  .post-head-text{ display:flex; flex-direction:column; gap:1px; min-width:0; flex:1 1 auto; }
-  /* THE NAME LINE: the profile link, then the role badge, on ONE line.
-     Measured on a 390px phone, both halves of this were wrong. The name is a
-     real <button> carrying .link-btn, so it inherited that idiom's UNDERLINE
-     - a heavy rule under the heaviest text on the card, which reads as a
-     defect rather than as a link - and .link-btn's `display:inline-flex`
-     made `text-overflow:ellipsis` a no-op, so a long Hebrew display name
-     wrapped to a second line and pushed the timestamp down with it. The
-     badge sat INSIDE that same button, so it wrapped with it.
-     The row is the fix: the name takes whatever room is left and ellipses on
-     one line, the badge never shrinks and never wraps, and neither is
-     underlined. `min-width:0` on both the row and the link is what actually
-     lets a flex item shrink below its content width - without it the
-     ellipsis never triggers. */
-  .post-author-row{ display:flex; align-items:center; gap:6px; min-width:0; }
-  .post-author{ font-weight:800; font-size:14px; color:var(--chalk); min-width:0; max-width:100%;
-    display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  /* Beats .link-btn (two classes to its one) on exactly the three properties
-     that idiom sets and this one cannot live with. Everything else about
-     .link-btn - that it is a button, its cursor, its focus ring - is kept. */
-  .post-author.link-btn{ text-decoration:none; display:block; min-height:0; padding:0; font-size:14px; }
-  .post-author.link-btn:hover{ text-decoration:none; }
-  .post-author-row .badge-tag{ flex:0 0 auto; font-size:9.5px; padding:1px 6px; }
-  .post-time{ color:var(--steel); font-size:11px; }
-  .post-title{ font-size:16px; margin-bottom:4px; }
-  .post-result{ color:var(--brass); font-weight:700; }
-  .post-photo{ width:100%; max-height:360px; object-fit:cover; border-radius:12px; margin-top:10px; display:block; }
-  /* 2-4 photos lay out as a 2-column grid (matching .ach-grid's visual
-     weight) instead of stacking full-width - each cell keeps .post-photo's
-     own rounding but drops its standalone margin-top in favor of the
-     grid's own gap. */
-  .post-media-grid{ display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:10px; }
-  .post-media-grid .post-photo{ margin-top:0; max-height:200px; }
-  .post-actions{ margin-top:12px; }
-  /* Feed polish pass. The action row used to be two identical grey
-     .chip-btn boxes - a reaction and a comment count looked exactly like
-     any utility toggle elsewhere in the app (a filter chip, a subtab).
-     Cheer gets the same filled-pill treatment .pick-hero-cta already
-     established for a primary warm CTA (color-mix at 8%/50%). --energy-text
-     on this exact 8% tint measures 5.41:1 light / 4.83:1 dark - computed
-     against the actual tinted background, not the untinted --surface -
-     both still AA; comments stays a plain, quieter icon+count since it
-     opens a thread rather than registering a reaction. */
-  .post-actions .chip-btn[data-community-action="cheer"]{ background:color-mix(in srgb, var(--energy) 8%, var(--surface)); border-color:color-mix(in srgb, var(--energy) 50%, transparent); color:var(--energy-text); font-weight:800; }
-  .post-actions .chip-btn[data-community-action="toggle-comments"]{ background:transparent; border-color:transparent; color:var(--steel); font-weight:600; }
-  /* A club-wide notice used to be indistinguishable from any other card
-     except for a badge string and an emoji typed into the title - now a
-     visibly separate voice in the feed, the same color-mix pattern as the
-     cheer pill above. Contrast computed against the ACTUAL tinted
-     background this text sits on, not the untinted --surface: --brass
-     .post-title text on this 8% tint measures 5.13:1 light / 6.19:1 dark -
-     both still comfortably AA. */
-  .post-card[data-post-type="POST_ANNOUNCEMENT"]{ background:color-mix(in srgb, var(--brass) 8%, var(--surface)); border-color:color-mix(in srgb, var(--brass) 35%, var(--border)); }
-  .post-mark-icon{ background:color-mix(in srgb, var(--brass) 22%, var(--surface)); border:1px solid color-mix(in srgb, var(--brass) 45%, transparent); }
-  /* A thin top accent instead of a repainted card - a PR or achievement is
-     still an ordinary post, just one worth a half-second longer glance
-     scrolling past it, not a second visual language. */
-  .post-card[data-post-type="POST_PR"],.post-card[data-post-type="POST_ACHIEVEMENT"],.post-card[data-post-type="POST_ATTENDANCE_MILESTONE"]{ border-top:3px solid color-mix(in srgb, var(--brass) 55%, transparent); }
-  /* Same accent, the two other link-card types that shipped with only a
-     bare emoji in their title and nothing else - challenge/event get their
-     own hues rather than reusing brass, matching sectionHead("var(--teal)",
-     ...)/("var(--blue)", ...) already used for these exact categories
-     elsewhere in Community. */
-  .post-card[data-post-type="POST_CHALLENGE"]{ border-top:3px solid color-mix(in srgb, var(--teal) 55%, transparent); }
-  .post-card[data-post-type="POST_EVENT"]{ border-top:3px solid color-mix(in srgb, var(--blue) 55%, transparent); }
-  /* The composer trigger - was a plain .chip-btn, now the fake-input row
-     every social feed uses for the same tap target: own avatar + a
-     placeholder-styled label, full-width, left-aligned text (RTL: text
-     starts at the trailing edge, same reading direction as a real input). */
-  .post-composer-trigger{ display:flex; align-items:center; gap:10px; width:100%; background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:8px 14px 8px 8px; margin:0 0 10px; box-shadow:var(--shadow-card); text-align:start; }
-  .post-composer-trigger-text{ color:var(--steel); font-size:13.5px; }
-  .comment-row{ display:flex; align-items:flex-start; gap:8px; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:8px 10px; }
+  
   .tab-badge{ display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; padding:0 4px; margin-inline-start:6px; border-radius:999px; background:var(--red); color:#fff; font-size:10px; font-weight:800; }
-  /* Promoted from ~19 classless, inline-styled cloud.js elements (COMM-347):
-     each of these instances used to retype its whole look inline, in some
-     cases identically at 2-3 call sites. Only genuinely dynamic values
-     (a computed width, a conditional accent color) stay inline now. */
-  .reaction-strip{ display:flex; align-items:center; gap:6px; margin-top:8px; }
+  
   /* .coach-badge and .pr-badge were two independently-inlined copies of the
      exact same small filled pill - one shared rule, matching how
      .admin-tag/.tag already centralize their own pill look. */
@@ -2224,34 +2055,7 @@
      lines or picks up the underline of whatever link it happens to sit
      inside is wrong on the comment rows too. */
   .badge-tag{ display:inline-block; vertical-align:middle; font-size:10px; font-weight:800; color:#0c0c0c; background:var(--brass); border-radius:999px; padding:1px 7px; white-space:nowrap; text-decoration:none; }
-  .post-menu-wrap{ position:relative; margin-inline-start:auto; flex:0 0 auto; }
-  /* THE ⋯ MENU, ANCHORED ON THE SIDE THE ROOM IS ON.
-     `margin-inline-start:auto` above puts the button at the card's
-     inline-END - the LEFT edge on a Hebrew screen. The panel was anchored
-     `inset-inline-start:0`, which in RTL is `right:0`: its right edge pinned
-     to the button's right edge, 172px of menu growing LEFTWARD, off the card
-     and then off the screen. Nothing showed it as overflow, either, because
-     #app is `overflow-x:hidden` - the part that fell outside was simply
-     clipped away, which is the "items are cut off" half of the same defect.
-     `inset-inline-end:0` anchors the panel's END edge to the button's END
-     edge instead, so it grows back INTO the card, where the room is, and
-     stays aligned to the control that opened it. The width is capped against
-     the viewport as well, so a longer label or a larger text scale cannot
-     push it back out. */
-  .post-menu{ position:absolute; inset-inline-end:0; top:calc(100% + 6px); z-index:60;
-    min-width:172px; max-width:min(240px, calc(100vw - 48px));
-    background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:4px;
-    box-shadow:0 10px 30px rgba(0,0,0,.25); }
-  /* 44px is this app's own tap-target floor (.tabbtn, .icon-btn, .link-btn--tap
-     all declare it) and these are destructive actions being tapped with a
-     thumb. A label too long for one line wraps INSIDE the item and the item
-     grows - the panel is an overlay, so it costs the card nothing. */
-  .post-menu-item{ display:flex; align-items:center; width:100%; text-align:start; padding:10px 12px;
-    background:none; border:0; border-radius:8px; color:var(--chalk); font-size:13px; line-height:1.4;
-    min-height:44px; cursor:pointer; }
-  .post-menu-item:hover{ background:var(--surface2); }
-  .post-menu-item:focus-visible{ background:var(--surface2); }
-  .post-menu-item.danger{ color:var(--red-text); }
+  
 
 
   /* ===== מסך תצוגה במועדון (202609230005) =============================
@@ -2261,106 +2065,7 @@
      how it reads from the far side of a room, on a screen nobody will ever
      zoom. */
   :root[data-gym-display="1"] body{ overflow:hidden; }
-  .gd-root{ position:fixed; inset:0; z-index:100; display:flex; flex-direction:column;
-    gap:2.2vmin; padding:4vmin 5vmin; background:var(--club-navy); color:var(--chalk);
-    font-family:inherit; overflow:hidden; }
-  .gd-head{ display:flex; align-items:baseline; justify-content:space-between; gap:2vmin; }
-  .gd-brand{ font-size:3.2vmin; font-weight:800; letter-spacing:.04em; color:var(--brass); }
-  .gd-clock{ font-size:3.2vmin; font-weight:700; color:var(--steel);
-    font-variant-numeric:tabular-nums; }
-  .gd-title{ margin:0; font-size:8vmin; font-weight:800; line-height:1.05; text-wrap:balance; }
-  .gd-note{ font-size:3.2vmin; color:var(--steel); }
-  .gd-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column;
-    gap:1.2vmin; overflow:hidden; flex:1; }
-  .gd-row{ display:flex; align-items:center; gap:2.4vmin; background:var(--surface);
-    border:1px solid var(--border); border-radius:1.6vmin; padding:1.6vmin 2.4vmin; }
-  .gd-rank{ font-size:3.6vmin; font-weight:800; color:var(--steel); min-width:5vmin;
-    font-variant-numeric:tabular-nums; }
-  .gd-name{ font-size:4.4vmin; font-weight:700; flex:1; min-width:0;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .gd-result{ font-size:4.4vmin; font-weight:800; color:var(--energy-text);
-    display:flex; align-items:center; gap:1.2vmin; font-variant-numeric:tabular-nums; }
-  .gd-rx{ font-size:2.2vmin; font-weight:800; color:var(--club-navy);
-    background:var(--brass); border-radius:999px; padding:.3vmin 1.2vmin; }
-  .gd-empty{ flex:1; display:flex; flex-direction:column; align-items:center;
-    justify-content:center; gap:1.6vmin; text-align:center; }
-  .gd-empty-title{ font-size:6vmin; font-weight:800; }
-  .gd-empty-sub{ font-size:3.2vmin; color:var(--steel); }
-  .gd-foot{ font-size:2.2vmin; color:var(--steel); text-align:center; }
-
-  /* ===== The social feed pass =========================================
-     EVERY RULE BELOW IS BUILT FROM TOKENS (--surface, --surface2, --border,
-     --steel, --chalk, --brass, --energy, --energy-text, --blue), which is
-     why none of them is repeated in the two dark blocks further down: a
-     colour that is a token themes itself, and a duplicate would be a second
-     place to forget. The only literals here are geometry and alpha.
-     ===================================================================== */
-
-  /* The type tag on the head's time line. Was a `· word` glued onto the
-     timestamp, which read as part of the date. */
-  .post-type-tag{ display:inline-block; vertical-align:baseline; margin-inline-start:6px; padding:1px 7px; border-radius:999px; background:var(--surface2); color:var(--steel); font-size:10px; font-weight:800; letter-spacing:.02em; }
-
-  /* The structured half of a card - a workout's figures, a PR's rows, an
-     event's meta - separated from the member's own words above it by a hair
-     rather than by a box, so a card with one still reads as one card. */
-  .post-result-block{ margin-top:10px; }
-  .post-result-block:first-child{ margin-top:0; }
-
-  /* The reaction pill. Same filled-pill treatment the cheer chip already
-     had, plus a pressed state: one reaction per member, so the button is
-     either pressed or it is not, and aria-pressed says which. */
-  .reaction-pill{ display:inline-flex; align-items:center; gap:6px; background:color-mix(in srgb, var(--energy) 8%, var(--surface)); border-color:color-mix(in srgb, var(--energy) 50%, transparent); color:var(--energy-text); font-weight:800; }
-  .reaction-pill.is-mine{ background:color-mix(in srgb, var(--energy) 18%, var(--surface)); border-color:var(--energy); }
-  .reaction-pill .reaction-icon{ flex:0 0 auto; }
-  .reaction-pill .reaction-count{ font-variant-numeric:tabular-nums; }
-  /* The comment count beside it: the same pill geometry so the two line up,
-     but deliberately NOT the same filled treatment - it opens a thread
-     rather than registering a reaction, and the rule just below keeps it
-     transparent and quiet. Its glyph is a stroke icon on currentColor, so it
-     takes --steel from that rule in both themes. */
-  .comment-pill{ display:inline-flex; align-items:center; gap:6px; }
-  .comment-pill .action-icon{ flex:0 0 auto; }
-  .comment-pill .reaction-count{ font-variant-numeric:tabular-nums; }
-  /* "דנה ועוד 4" - a name, not a number, and a real button because tapping
-     it opens the list of who. */
-  .reaction-summary{ color:var(--steel); font-size:12px; font-weight:600; padding:0 2px; }
-  .reaction-summary:hover{ color:var(--chalk); text-decoration:underline; }
-
-  /* Comments under every card: the two latest, the reply links and the
-     always-present "הוספת תגובה…" box. The hairline is what separates the
-     conversation from the post without adding a second card edge. */
-  .comment-preview-wrap{ margin-top:10px; padding-top:8px; border-top:1px solid var(--border); }
-  .comment-preview .comment-row{ background:var(--surface2); border-color:transparent; }
-  .comment-more{ color:var(--steel); font-size:12px; font-weight:600; }
-
-  /* THE SEND CONTROL LIVES INSIDE THE FIELD, AND ONLY ONCE THERE IS TEXT.
-     It used to be a filled orange .chip-btn beside the input, and on a 390px
-     phone the two did not fit on one line: the form is flex-wrap, so the
-     button dropped underneath - a full-width primary CTA reading "שליחה"
-     under EVERY card in the feed, on an empty field it could do nothing
-     with. One send affordance per card, appearing when it has something to
-     send, is the whole of the fix. It is still the form's <button
-     type="submit">, so Enter in the field and a tap on the icon are the same
-     submit they always were, and it is hidden with display:none (not
-     opacity) so it is out of the tab order and out of the accessibility tree
-     while there is nothing to send. */
-  /* The form keeps the margin and the positioning context the inline styles
-     it replaced were carrying: .mention-picker is `position:absolute;
-     top:100%` and hangs off THIS element, so dropping `position:relative`
-     here would send the @-picker to the initial containing block. */
-  .comment-form{ position:relative; margin-top:8px; }
-  .comment-form .text-input{ width:100%; padding-inline-end:46px; }
-  .comment-send{ position:absolute; inset-inline-end:5px; top:50%; transform:translateY(-50%);
-    width:36px; height:36px; border:0; border-radius:999px; padding:0; background:transparent;
-    color:var(--energy-text); cursor:pointer; display:none; align-items:center; justify-content:center; }
-  .comment-form[data-has-text="1"] .comment-send{ display:inline-flex; }
-  .comment-send:hover{ background:color-mix(in srgb, var(--energy) 12%, transparent); }
-  .comment-send:disabled{ color:var(--steel); cursor:default; }
-
-  /* The composer row: the fake input plus the camera beside it. */
-  .post-composer-row{ display:flex; align-items:center; gap:8px; margin:0 0 10px; }
-  .post-composer-row .post-composer-trigger{ flex:1 1 auto; margin:0; }
-  .composer-photo-btn{ flex:0 0 auto; width:40px; height:40px; border-radius:999px; background:var(--surface); border:1px solid var(--border); color:var(--steel); font-size:17px; line-height:1; box-shadow:var(--shadow-card); display:flex; align-items:center; justify-content:center; }
+  
 
   /* The streak figure on "החברים הפעילים במועדון". It used to be a .mono
      span holding the WHOLE phrase, and .mono is `direction:ltr;
@@ -2372,56 +2077,7 @@
      document's own direction. */
   .streak-count{ color:var(--brass); font-weight:700; font-size:12.5px; white-space:nowrap; flex:0 0 auto; }
   .streak-count .streak-days{ font-weight:800; font-size:13px; }
-  /* THE SAME UNDERLINE, ONE CARD DOWN. The rows of that list put the avatar
-     and the member's name inside one .link-btn, which is this app's INLINE
-     link idiom - so the name carried the same rule under it that the post
-     author's did, on the same screen. A whole row is not an inline link:
-     no underline, no 36px floor of its own (the row sets its own height),
-     and the name ellipses rather than shoving the streak off the end.
-     Declared as a class rather than as a fourth inline style block because
-     eleven other member-name links in this module still carry the underline
-     on surfaces this pass did not photograph - see the PR - and this is what
-     they move to. */
-  .member-row-link{ display:flex; align-items:center; gap:10px; min-width:0; padding:0; min-height:0;
-    color:inherit; text-decoration:none; text-align:start; }
-  .member-row-link .member-row-name{ font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-
-  /* "התאמנו היום" - the same rows the card used, laid out as faces. Scrolls
-     horizontally rather than wrapping, so six classmates cost one row at any
-     width. RTL: the row is a plain flex and inherits the document direction,
-     so the first face sits at the trailing (right) edge like every other
-     list on this screen. */
-  .classmates-strip{ margin:0 0 12px; }
-  .classmates-strip-row{ display:flex; gap:12px; overflow-x:auto; padding-bottom:4px; }
-  .classmate-cell{ flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:5px; width:62px; }
-  .classmate-chip{ display:flex; flex-direction:column; align-items:center; gap:5px; width:100%; background:none; border:0; padding:0; color:inherit; cursor:pointer; }
-  .classmate-chip-name{ font-size:11px; color:var(--steel); max-width:62px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  /* The card's follow control, at strip size. Only the metrics change - the
-     button, its action and follow() behind it are the shared ones. */
-  .classmate-chip-follow .chip-btn{ padding:2px 10px; font-size:10.5px; min-height:0; }
-
-  /* Stacked avatars on the club-WOD roll-up. The negative inline margin is
-     what makes them overlap; :first-child cancels it so the group still
-     starts flush with whatever precedes it. */
-  .stacked-avatars{ display:flex; align-items:center; }
-  .stacked-avatar{ display:inline-flex; margin-inline-start:-8px; border-radius:50%; box-shadow:0 0 0 2px var(--surface); }
-  .stacked-avatar:first-child{ margin-inline-start:0; }
-  .stacked-avatar-more{ width:28px; height:28px; align-items:center; justify-content:center; background:var(--surface2); color:var(--steel); font-size:11px; font-weight:800; }
-  .club-wod-rollup .field-label{ margin-bottom:4px; }
-
-  /* "פוסטים חדשים". Sticky rather than fixed, so it rides the top of the
-     feed panel and never covers the tab bar or the composer. */
-  .new-posts-pill-wrap{ position:sticky; top:8px; z-index:20; display:flex; justify-content:center; pointer-events:none; height:0; }
-  .new-posts-pill{ pointer-events:auto; box-shadow:0 6px 18px rgba(0,0,0,.18); }
-
-  /* Pull to refresh. Height is written by the touchmove handler, never by a
-     render; data-ready flips once the pull passes the trigger distance. */
-  .pull-refresh{ height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; transition:height .18s ease; }
-  .pull-refresh-mark{ width:22px; height:22px; border-radius:50%; border:2px solid var(--border); border-top-color:var(--brass); }
-  .pull-refresh[data-ready="1"] .pull-refresh-mark{ border-color:var(--brass); border-top-color:var(--energy); }
-  @media (prefers-reduced-motion: no-preference){
-    .pull-refresh[data-ready="1"] .pull-refresh-mark{ animation:pullSpin .9s linear infinite; }
-  }
+  
   @keyframes pullSpin{ to{ transform:rotate(360deg); } }
 
   /* Skeleton blocks. One rule for all six shapes the loading card uses, and
@@ -2453,20 +2109,7 @@
     .celebration-sheet{ animation:celebrationPop .35s cubic-bezier(.34,1.56,.64,1); }
   }
   @keyframes celebrationPop{ 0%{ transform:scale(.85); opacity:0; } 100%{ transform:scale(1); opacity:1; } }
-
-  /* ---- The printable joining sheet -----------------------------------
-     The box owner's objection to the invite flow was that a 48-character
-     hex code "cannot be printed on a flyer". cloud.js's renderInviteQrPanel()
-     renders [data-invite-print] - a QR, three instructions and the code as a
-     fallback - and window.print() is the whole delivery mechanism. No popup
-     (a blocker eats it), no generated PDF, no download.
-
-     The card is in the normal document flow but visually hidden on screen,
-     because a print stylesheet cannot reveal markup that was never
-     rendered. clip-path rather than display:none: a printer must be able to
-     lay it out, and display:none in the base state is not reliably undone
-     by a print media block in every engine. */
-  .invite-print-card{ position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  
   @media print{
     /* Hide the whole app, then re-show the sheet. visibility (not display)
        is what makes this reliable: it inherits, so one rule on <body> hides
@@ -2488,26 +2131,7 @@
        that look like the app crashed. */
     html{ background:#FFFFFF; }
     body{ visibility:hidden; background:#FFFFFF; }
-    .invite-print-card, .invite-print-card *{ visibility:visible; }
-    .invite-print-card{
-      position:absolute; inset-block-start:0; inset-inline-start:0;
-      width:100%; height:auto; overflow:visible;
-      clip-path:none; white-space:normal;
-      display:flex; flex-direction:column; align-items:center;
-      gap:14px; padding:24px; text-align:center;
-      /* Printed on white paper with black ink regardless of the app's own
-         dark theme, and stated explicitly: a dark-themed card would come out
-         of the printer as a solid black page, and a QR needs dark modules on
-         a light ground to scan at all. */
-      background:#FFFFFF; color:#000000;
-      font-family:Rubik, system-ui, sans-serif;
-    }
-    .invite-print-club{ font-size:26pt; font-weight:800; }
-    .invite-print-title{ font-size:15pt; }
-    .invite-print-qr{ width:78mm; height:78mm; }
-    .invite-print-steps{ font-size:12pt; line-height:1.9; text-align:right; direction:rtl; padding-inline-start:20px; margin:0; }
-    .invite-print-code-label{ font-size:10pt; }
-    .invite-print-code{ font-family:'JetBrains Mono', monospace; font-size:9pt; word-break:break-all; max-width:120mm; }
+  
   }
   /* Approved immersive composition — shared by the existing render paths. */
   :root{ --club-coral:#f0443e; --club-blue:#1455b8; }
@@ -2681,7 +2305,7 @@
   .scene-page--add .steppers .stepper:last-child:nth-child(3){grid-column:1/-1;}
   .scene-page--add .stepper-val,.scene-page--add .stepper-btn{min-width:44px; min-height:44px;}
   @media(min-width:900px){.scene-page--add .steppers{grid-template-columns:repeat(3,minmax(0,1fr));}.scene-page--add .steppers .stepper:last-child:nth-child(3){grid-column:auto;}}
-  .scene-page--gymnastics{--scene-image:url('./assets/club-photos/library-rings.jpg');}
+  
   body[data-scene] .cal-cell.today .cal-daynum{text-decoration:underline; text-underline-offset:4px;}
 
   :root .scene-page > .scene-sheet{background:var(--club-paper);}
@@ -2936,13 +2560,7 @@
     color:var(--steel); font-size:11px; font-weight:800; letter-spacing:.08em;
     text-transform:uppercase; padding:6px 10px 4px;
   }
-  /* THE CENTRE COLUMN, and the one tab it applies to. #app is the logging
-     column on every other tab and keeps its own width there; only the staff
-     home widens, which is what :has() is checking for. Same mechanism the
-     ניהול tab's 940px rule already uses two blocks up. */
-  html[data-layout="desktop"][data-staff="1"] #app:has(#content .staff-home){
-    max-width:none; flex:1 1 auto; min-width:0;
-  }
+  
   /* THE LEFT CONTEXT COLUMN. The ≥1280 rules above already reveal
      #contextCol once it has an element child and style it as a sticky card;
      this only sets its measure for the staff shell and makes it appear from
@@ -2969,31 +2587,7 @@
   @media (max-width: 1180px){
     html[data-layout="desktop"][data-staff="1"] .app-shell:has(> .context-col > *) > .context-col{ display:none; }
   }
-
-  /* ---- The week strip ------------------------------------------------ */
-  /* Seven boxes, published or empty, and the state is a WORD in every one
-     of them rather than a colour alone. */
-  html[data-layout="desktop"][data-staff="1"] .staff-week{
-    display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:8px;
-  }
-  html[data-layout="desktop"][data-staff="1"] .staff-week-day{
-    min-height:72px; display:flex; flex-direction:column; gap:4px;
-    border:1px solid var(--border); border-radius:12px; padding:8px;
-    background:var(--surface2); color:var(--steel); text-align:start;
-  }
-  html[data-layout="desktop"][data-staff="1"] .staff-week-day.is-published{
-    background:var(--surface); color:var(--chalk); border-color:var(--brass);
-  }
-  html[data-layout="desktop"][data-staff="1"] .staff-week-day[aria-current="date"]{
-    box-shadow:inset 0 0 0 1px var(--teal);
-  }
-  html[data-layout="desktop"][data-staff="1"] .staff-week-when{
-    font-size:11px; font-weight:800; color:var(--steel);
-  }
-  html[data-layout="desktop"][data-staff="1"] .staff-week-what{
-    font-size:12.5px; font-weight:700; overflow-wrap:anywhere;
-  }
-  html[data-layout="desktop"][data-staff="1"] .staff-home > .page-title{ margin-bottom:14px; }
+  
 
   /* ---- Audit 2026-11 fixes ---- */
   /* 8: backup actions are real buttons, export first. */
@@ -3032,22 +2626,24 @@
   body[data-scene] .cal-cell.selected .cal-daynum{ color:#1a0d08; }
   /* 15: "delete all data" in dark theme, #FF7869 on the settings card,
      4.12:1. #FF9488 is 4.98:1 there and stays the same red family. */
-  :root[data-theme="dark"] .chip-btn.danger{ color:#FF9488; }
-  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .chip-btn.danger{ color:#FF9488; } }
+  /* :not(.primary): this rule outranks .chip-btn.primary.danger, so the
+     filled delete-confirm button painted #FF9488 on --red (2.14:1). The
+     filled button keeps its white ink (4.56:1 on dark --red). */
+  :root[data-theme="dark"] .chip-btn.danger:not(.primary){ color:#FF9488; }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]) .chip-btn.danger:not(.primary){ color:#FF9488; } }
   /* 16: the profile edit button was a 30x30 target. */
   #settingsBody [data-action="edit-user-name"]{ min-width:44px; min-height:44px; }
   .badge-new{ display:inline-flex; align-items:center; padding:1px 8px; border-radius:999px; background:var(--energy); color:#1a0d08; font-size:11px; font-weight:800; }
 </style>
 </head>
 <body>
-<!-- Bigger and more explicit on purpose: an in-place reload doesn't always
-     fully swap the service worker on an installed/standalone PWA (iOS in
-     particular), so the copy tells the user the reliable fix — close and
-     reopen the app — rather than implying a tap alone is enough. Tapping
-     still fires the same SKIP_WAITING handshake as a bonus shortcut. -->
-<button id="updateBanner" data-action="reload-app" role="status" aria-live="polite" style="display:none; position:fixed; top:0; left:0; right:0; z-index:60; background:var(--energy); color:#1a0d08; text-align:center; padding:calc(max(env(safe-area-inset-top,0px), 28px) + 16px) 20px 16px; width:100%; box-shadow:0 4px 16px rgba(0,0,0,.25);">
+<!-- The banner IS the update control: tapping it posts SKIP_WAITING and the
+     page reloads on the new version (applyUpdate in app.js). So it says
+     "tap to update", it is a plain button with that as its accessible name,
+     and it carries no role="status" (a status region is not a control). -->
+<button type="button" id="updateBanner" data-action="reload-app" aria-label="עדכון חדש זמין. הקישו כדי לעדכן" style="display:none; position:fixed; top:0; left:0; right:0; z-index:60; background:var(--energy); color:#1a0d08; text-align:center; padding:calc(max(env(safe-area-inset-top,0px), 28px) + 16px) 20px 16px; width:100%; box-shadow:0 4px 16px rgba(0,0,0,.25);">
   <div style="font-weight:800; font-size:16px; margin-bottom:3px;">עדכון חדש זמין</div>
-  <div style="font-weight:600; font-size:13px; opacity:.85;">סגרו את האפליקציה ופתחו אותה מחדש כדי לעדכן</div>
+  <div style="font-weight:700; font-size:13px;">הקישו כדי לעדכן</div>
 </button>
 
 <!-- The two "add to home screen" banners used to live here, as their own

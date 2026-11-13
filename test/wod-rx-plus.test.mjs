@@ -199,7 +199,8 @@ test("every surface that names the effort names Rx+, not \"Scaled\" and not sile
   assert.equal(window.wodEffortLabel("plus"), "מוגבר (Rx+)");
   assert.equal(window.wodEffortLabel(true), "מלא (Rx)");
   assert.equal(window.wodEffortLabel(false), "מותאם (Scaled)");
-  assert.equal(window.wodEffortTag("plus"), " · Rx+");
+  // Isolated LTR, so the "+" stays after "Rx" inside an RTL line.
+  assert.equal(window.wodEffortTag("plus"), " · \u2066Rx+\u2069");
   assert.equal(window.wodEffortTag(true), "", "Rx is the unmarked case");
   assert.equal(window.wodEffortTag(false), " · מותאם");
 
@@ -236,4 +237,16 @@ test("setWodRx refuses a value the loader would later reject", async () => {
   // loadWodRxDefault() drops on the next boot: a silently forgotten preference.
   assert.equal(await window.dbGetSetting("haimunia:wodRxDefault"), "plus",
     "the last real answer stands");
+});
+
+// Audit 2026-11: "17:52 · Rx+" painted as "+17:52 · Rx". The trailing "+" sat
+// outside the LTR run bidiUnit() isolates, so the RTL line put it at the far
+// end. In the readout the whole "Rx+" now sits inside one LTR isolate.
+test("Rx+ keeps its plus sign next to Rx in an RTL readout", async () => {
+  const window = await bootApp();
+  const html = window.bidiUnit("17:52" + window.wodEffortTag("plus"));
+  assert.ok(html.includes("\u2066Rx+\u2069"), html);
+  const scratch = window.document.createElement("div");
+  scratch.innerHTML = html;
+  assert.match(scratch.textContent, /17:52 · \u2066Rx\+\u2069$/, "the plus is never stranded outside the isolate");
 });
