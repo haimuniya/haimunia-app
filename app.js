@@ -15,7 +15,7 @@ let barWeight = 20;
 // Single source of truth for the app version. After bumping this, run
 // `npm run sync-version` to copy it into SW_VERSION in sw.js — `npm test`
 // fails if the two drift apart.
-const APP_VERSION = "3.3.0";
+const APP_VERSION = "3.4.0";
 
 // A movement typed into the WOD builder that isn't in the built-in list
 // above - persisted (see WODTAGSTORE), same "custom X" pattern as
@@ -155,11 +155,6 @@ const PAGE_SCENES = Object.freeze({
   history: { className: "scene-page--progress" },
   wod: { className: "scene-page--library" },
 });
-// A plain top-level `const` does NOT become a window property the way a
-// `var`/function declaration does - cloud.js (its own IIFE) reaches this
-// through window, per its own established convention for every other
-// cross-file reference, so it has to be assigned explicitly.
-window.PAGE_SCENES = PAGE_SCENES;
 function getNavItems() {
   // `group` is read by ONE surface: the desktop staff sidebar, which shows
   // these same destinations under three headings instead of as one list of
@@ -283,12 +278,8 @@ function navChevronHtml() {
 // desktop sidebar still passes onlyOther=false and shows every item
 // (including the preview) regardless, since it has no bottom bar to split
 // against.
-// `pick` (optional) narrows the registry further, after onlyOther. It exists
-// for the staff sidebar, which renders these same rows under three headings;
-// a caller that passes nothing gets exactly what this function always gave.
-function renderNavRows(withIds, onlyOther, pick) {
-  let items = onlyOther ? getNavItems().filter((item) => !item.main) : getNavItems();
-  if (typeof pick === "function") items = items.filter(pick);
+function renderNavRows(withIds, onlyOther) {
+  const items = onlyOther ? getNavItems().filter((item) => !item.main) : getNavItems();
   return items.map((item) => {
     const isActive = tab === item.tab;
     // The "tabbtn" class here is load-bearing, not styling (its visual
@@ -318,26 +309,6 @@ function renderTabHeader(navId) {
   const item = getNavItems().find((i) => i.id === navId);
   if (!item) return "";
   return `<h1 class="page-title">${esc(item.label)}</h1>`;
-}
-// Direction 06 "Club Balance" handoff (README1.md/CLAUDE_CODE_PROMPT.md).
-// One shared real-photo header - the crop/overlay/lazy-load rules live here
-// exactly once rather than being re-decided per screen; each render function
-// only picks which asset per README1's photo-mapping table. assetPath is
-// root-relative (e.g. "assets/photos/club-rig-wide.jpeg"), sized 960x260 to
-// match the .photo-header aspect-ratio exactly (index.html) - explicit
-// width/height reserves the box before the file loads, avoiding layout
-// shift. opts.eager skips loading="lazy" for the one screen that is already
-// on screen at first paint (the Add tab); every other screen is reached by
-// navigating there, so lazy-loading them costs nothing a member would
-// notice and keeps first paint from waiting on decorative photography.
-// A plain top-level function (not IIFE-scoped), so it becomes a window
-// property like every other cross-file shared helper here - cloud.js reaches
-// it as window.photoHeaderHtml(), the same way it reaches every other
-// platform module, per that file's own documented convention.
-function photoHeaderHtml(assetPath, altText, opts) {
-  opts = opts || {};
-  const loading = opts.eager ? "eager" : "lazy";
-  return `<div class="photo-header"><img src="${esc(assetPath)}" alt="${esc(altText)}" width="960" height="260" loading="${loading}"></div>`;
 }
 function renderNavSettingsRow() {
   // Fresh-eyes audit: on the desktop sidebar (renderDesktopSidebar below)
@@ -859,7 +830,16 @@ function categoryPRCounts() {
   return counts;
 }
 function loggedDates() { return [...entries.map((e) => e.date), ...wodEntries.map((e) => e.date)]; }
-function weekBucket(iso) { return Math.floor(new Date(iso + "T00:00:00").getTime() / 86400000 / 7); }
+// Weeks run Sunday to Saturday, the Israeli week. This used to divide local
+// midnight's epoch milliseconds by a week: day 0 of the epoch is a Thursday,
+// and local midnight in Israel falls on the previous UTC day, so weeks ran
+// Friday to Thursday (and shifted with DST). The day number is now taken from
+// the calendar date itself (Date.UTC, no time zone, no DST); +4 moves the
+// boundary from Thursday to Sunday (1970-01-04 was a Sunday, day 3).
+function weekBucket(iso) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  return Math.floor((Date.UTC(y, m - 1, d) / 86400000 + 4) / 7);
+}
 function longestWeekStreak() {
   const buckets = [...new Set(loggedDates().map(weekBucket))].sort((a, b) => a - b);
   let longest = 0, current = 0, prev = null;
@@ -2263,6 +2243,9 @@ async function saveSet(sanityConfirmed) {
   const date = logDateExplicitlyChosen ? clampLogDate(logDate) : todayISO();
   const editId = editingEntryId;
   const existing = editId ? entries.find((e) => e.id === editId) : null;
+  // The set being edited was deleted (in another tab, picked up by the tab
+  // sync below). Saving now would file it again under a new id.
+  if (editId && !existing) { editedSetVanished(editId); return; }
   // Editing keeps the row's original group/label; a fresh save only joins
   // the active ladder/superset (if any) — see toggleLadderMode().
   const groupId = existing ? (existing.groupId ?? null) : (ladderMode ? ladderGroupId : null);
@@ -2331,7 +2314,13 @@ async function saveSet(sanityConfirmed) {
   // mutation or celebration decision means a failed save has NO visible
   // side effect beyond the existing storage-error banner - never a
   // celebration for a set that doesn't exist.
-  try { await dbPut(entry); storageOK = true; } catch (e) { noteStorageError(e); render(); return; }
+  // An edit goes through dbUpdateEntry(), which writes only if the row is
+  // still on disk: a set deleted in another tab must never come back.
+  try {
+    if (existing) { if (!(await dbUpdateEntry(entry))) { editedSetVanished(editId); return; } }
+    else await dbPut(entry);
+    storageOK = true;
+  } catch (e) { noteStorageError(e); render(); return; }
   // Three separate gates stand between "the arithmetic says record" and a
   // full-screen card, all from the same finding: praise that costs nothing
   // teaches the member that praise from this app means nothing.
@@ -2724,6 +2713,9 @@ async function startEditEntry(id) {
   if (!entry) return;
   try {
     const fresh = (await dbLoadAll()).find((e) => e.id === id);
+    // Read fine and the row is not there: another tab deleted it. Opening
+    // the editor on the stale copy is how a deleted set used to come back.
+    if (!fresh) { editedSetVanished(id, "הסט הזה כבר נמחק."); return; }
     if (fresh) {
       entry = fresh;
       // Self-heals the in-memory copy too, so History/Calendar reflect the
@@ -3163,8 +3155,12 @@ function wodEffortLabel(rx) {
 }
 // The suffix form, where Rx is the unmarked case and only a departure from it
 // is worth the ink. Includes its own separator so a caller cannot forget it.
+//
+// "Rx+" is wrapped in a left-to-right isolate (U+2066 ... U+2069). Without it
+// the "+" is a neutral at the end of an RTL line and is painted at the far
+// end: "17:52 · Rx+" read on screen as "+17:52 · Rx" (audit 2026-11).
 function wodEffortTag(rx) {
-  if (rx === WOD_EFFORT_PLUS) return " · Rx+";
+  if (rx === WOD_EFFORT_PLUS) return " · \u2066Rx+\u2069";
   return rx ? "" : " · מותאם";
 }
 let wodRxDefault = null;
@@ -3581,13 +3577,218 @@ async function reloadFromDb() {
   }
 }
 
-async function clearAllData() {
-  // The one truly irreversible action in the app used to have no safety
-  // net, unlike import (which downloads a rollback file for a far less
-  // destructive merge). Auto-download the same backup export would
-  // produce, before anything is actually wiped.
-  const hasData = entries.length || wodEntries.length || customMovements.length || customWods.length || bodyweightEntries.length || measureTypes.length || measureEntries.length;
-  if (hasData) downloadBackup(await buildBackupPayload(), `box-log-backup-before-delete-${todayISO()}.json`);
+// ---------- TWO TABS ----------
+// Audit 2026-11: two tabs (or two windows of the installed app) on one phone
+// never heard from each other. Each kept the lists it loaded at boot, so the
+// second showed stale totals, a set deleted in one came back when the other
+// saved its stale copy, and "delete everything" in one left the other
+// showing the whole log.
+//
+// Every committed IndexedDB write calls dbChanged() (src/db.js). This tab
+// then tells the others, through a BroadcastChannel, or where a browser has
+// none, through a localStorage key whose "storage" event reaches every other
+// tab of the origin. A tab that hears "changed" re-reads everything from
+// IndexedDB, the one source of truth; "cleared" wipes its memory the same way
+// clearAllData() wipes this one's. Nothing about the data itself is sent, only
+// that something changed.
+//
+// The other half of "a deleted set never comes back" is in db.js: an edit is
+// written with dbUpdateEntry(), which refuses to write a row that is no
+// longer there, so even a tab that never got the message cannot restore it.
+const TAB_SYNC_NAME = "haimunia:tabSync";
+const TAB_ID = uid("tab");
+let tabSyncChannel = null;
+let tabSyncPostTimer = null;
+let tabSyncReloadTimer = null;
+let tabSyncReloading = false;
+let tabSyncReloadAgain = false;
+let tabSyncReady = false; // set once init() has painted; earlier, init reads fresh anyway
+try {
+  if (typeof BroadcastChannel === "function") {
+    tabSyncChannel = new BroadcastChannel(TAB_SYNC_NAME);
+    tabSyncChannel.onmessage = (e) => onTabSyncMessage(e && e.data);
+  }
+} catch (e) { tabSyncChannel = null; }
+window.addEventListener("storage", (e) => {
+  if (!e || e.key !== TAB_SYNC_NAME || !e.newValue) return;
+  let msg = null;
+  try { msg = JSON.parse(e.newValue); } catch (err) { return; }
+  onTabSyncMessage(msg);
+});
+function tabSyncPost(type) {
+  const msg = { type, from: TAB_ID, at: Date.now() };
+  try {
+    if (tabSyncChannel) { tabSyncChannel.postMessage(msg); return; }
+    localStorage.setItem(TAB_SYNC_NAME, JSON.stringify(msg));
+  } catch (e) { /* best effort: the other tab still re-reads on its own next edit */ }
+}
+// Writes come in bursts (an import, a clear, a save plus its settings), so
+// "changed" is coalesced into one message. "cleared" goes at once and makes
+// a pending "changed" pointless.
+function tabSyncAnnounce(type) {
+  if (type === "cleared") {
+    clearTimeout(tabSyncPostTimer);
+    tabSyncPostTimer = null;
+    tabSyncPost("cleared");
+    return;
+  }
+  if (tabSyncPostTimer) return;
+  tabSyncPostTimer = setTimeout(() => { tabSyncPostTimer = null; tabSyncPost("changed"); }, 30);
+}
+onDbChange(() => tabSyncAnnounce("changed"));
+function onTabSyncMessage(msg) {
+  if (!msg || typeof msg !== "object" || msg.from === TAB_ID || !tabSyncReady) return;
+  if (msg.type === "cleared") {
+    clearTimeout(tabSyncReloadTimer);
+    tabSyncReloadTimer = null;
+    applyClearFromOtherTab();
+  } else if (msg.type === "changed") {
+    clearTimeout(tabSyncReloadTimer);
+    tabSyncReloadTimer = setTimeout(syncFromOtherTab, 40);
+  }
+}
+async function syncFromOtherTab() {
+  tabSyncReloadTimer = null;
+  if (tabSyncReloading) { tabSyncReloadAgain = true; return; }
+  tabSyncReloading = true;
+  try {
+    // reloadFromDb() also moves the bodyweight stepper to the latest reading;
+    // a member half way through setting it in this tab keeps their value.
+    const keepBw = bwWeight;
+    if (!(await reloadFromDb())) return;
+    bwWeight = keepBw;
+    // First, before any other await: the set or WOD open for editing.
+    if (editingEntryId && !entries.some((e) => e.id === editingEntryId)) {
+      editedSetVanished(editingEntryId, "הסט שפתחתם לעריכה נמחק בלשונית אחרת.");
+    }
+    if (editingWodEntryId && !wodEntries.some((e) => e.id === editingWodEntryId)) {
+      editedWodVanished(editingWodEntryId, "האימון שפתחתם לעריכה נמחק בלשונית אחרת.");
+    }
+    await loadUserName();
+    await loadLastExport();
+    await loadBarWeight();
+    await loadPctIncrement();
+    await loadBoxStartDate();
+    try {
+      const seen = await dbGetSetting(SEEN_ACHIEVEMENTS_KEY);
+      if (Array.isArray(seen)) seenAchievementIds = new Set(seen);
+    } catch (e) {}
+    // The open day's note is read again, unless the member is typing one.
+    const active = document.activeElement;
+    if (!active || active.id !== "sessionNoteInput") calNoteDate = null;
+    renderUserGreeting();
+    render();
+  } finally {
+    tabSyncReloading = false;
+    if (tabSyncReloadAgain) { tabSyncReloadAgain = false; syncFromOtherTab(); }
+  }
+}
+async function applyClearFromOtherTab() {
+  // A pending undo here would put a deleted row back into a wiped device.
+  settleToast(false);
+  clearMemoryLists();
+  clearMemoryMemberFlags();
+  try { firstOpenDate = cleanISODate(await dbGetSetting(FIRST_OPEN_DATE_KEY)) || todayISO(); }
+  catch (e) { firstOpenDate = todayISO(); }
+  resetViewAfterClear();
+  calNoteDate = null;
+  calNoteText = "";
+  renderUserGreeting();
+  render();
+  if (userName === null) { closeSettings(); openWelcomeModal(); }
+}
+// The set (or WOD) open for editing is gone from disk. Leave edit mode and
+// say so; never save it again under a new id.
+function editedSetVanished(id, message) {
+  entries = entries.filter((e) => e.id !== id);
+  if (editingEntryId === id) { editingEntryId = null; logDate = todayISO(); logDateExplicitlyChosen = false; }
+  showToast(message || "הסט הזה כבר נמחק, ולכן השינוי לא נשמר.");
+  render();
+}
+function editedWodVanished(id, message) {
+  wodEntries = wodEntries.filter((e) => e.id !== id);
+  if (editingWodEntryId === id) { editingWodEntryId = null; wodLogDate = todayISO(); wodLogDateExplicitlyChosen = false; }
+  showToast(message || "האימון הזה כבר נמחק, ולכן השינוי לא נשמר.");
+  render();
+}
+
+// ---------- A REFRESH KEEPS THE SCREEN ----------
+// Audit 2026-11: a refresh (or the phone dropping the tab from memory and
+// reloading it) always landed on the log screen and dropped a half-typed set.
+// The open screen and the set form are kept in sessionStorage, which belongs
+// to this tab only and is gone when the tab closes, and restored on boot.
+// Nothing here is member data: a saved set is in IndexedDB as always.
+const SESSION_VIEW_KEY = "haimunia:sessionView";
+let sessionViewReady = false; // nothing is written until boot has restored
+function saveSessionView() {
+  if (!sessionViewReady) return;
+  try {
+    sessionStorage.setItem(SESSION_VIEW_KEY, JSON.stringify({
+      tab, wodSubTab,
+      draft: {
+        selectedId, chosen: movementExplicitlyChosen, type: logEntryType,
+        weight, reps, sets, durationSeconds,
+        date: logDateExplicitlyChosen ? logDate : null,
+        editId: editingEntryId,
+      },
+    }));
+  } catch (e) {}
+}
+function restoreSessionView() {
+  sessionViewReady = true;
+  let v = null;
+  try { v = JSON.parse(sessionStorage.getItem(SESSION_VIEW_KEY) || "null"); } catch (e) { v = null; }
+  if (!v || typeof v !== "object") return;
+  // A ?tab= link is an explicit request and wins over the remembered screen.
+  if (!VALID_TABS.includes(urlTab) && VALID_TABS.includes(v.tab)) tab = v.tab;
+  if (["log", "benchmarks", "history"].includes(v.wodSubTab)) wodSubTab = v.wodSubTab;
+  const d = v.draft;
+  if (!d || typeof d !== "object") return;
+  if (typeof d.selectedId !== "string" || !movementById(d.selectedId)) return;
+  // A draft that was editing a set no longer on disk is dropped whole.
+  if (d.editId != null && !entries.some((e) => e.id === d.editId)) return;
+  const inRange = (x, lo, hi) => typeof x === "number" && isFinite(x) && x >= lo && x <= hi;
+  selectedId = d.selectedId;
+  movementExplicitlyChosen = d.chosen === true;
+  if (d.type === "reps" || d.type === "duration") logEntryType = d.type;
+  if (inRange(d.weight, 0, LIMITS.weight)) weight = d.weight;
+  if (inRange(d.reps, 0, LIMITS.reps)) reps = d.reps;
+  if (inRange(d.sets, 1, LIMITS.sets)) sets = d.sets;
+  if (inRange(d.durationSeconds, 1, LIMITS.duration)) durationSeconds = d.durationSeconds;
+  if (typeof d.date === "string" && cleanISODate(d.date)) { logDate = clampLogDate(d.date); logDateExplicitlyChosen = true; }
+  if (d.editId != null) editingEntryId = d.editId;
+}
+
+// ---------- "TODAY" MOVES ON ----------
+// An app left open past midnight kept yesterday as "today": the header date,
+// the date shown on the log and WOD forms, the calendar's today ring. The
+// forms' dates are only followed while the member has not picked one
+// (logDateExplicitlyChosen), exactly as at save time. Run on every return to
+// the foreground and by a timer set for the next midnight.
+let todayIso = todayISO();
+let midnightTimer = null;
+function refreshToday() {
+  refreshDateLabel();
+  const now = todayISO();
+  if (now !== todayIso) {
+    todayIso = now;
+    if (!logDateExplicitlyChosen) logDate = now;
+    if (!wodLogDateExplicitlyChosen) wodLogDate = now;
+    render();
+  }
+  scheduleMidnightRefresh();
+}
+function scheduleMidnightRefresh() {
+  clearTimeout(midnightTimer);
+  const d = new Date();
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 1);
+  midnightTimer = setTimeout(refreshToday, Math.max(1000, next.getTime() - d.getTime()));
+}
+
+// The in-memory halves of "delete everything", shared with a tab that hears
+// another tab did it (applyClearFromOtherTab) so the two can never disagree
+// about what a wiped device looks like.
+function clearMemoryLists() {
   endLadder();
   entries = [];
   wodEntries = [];
@@ -3598,43 +3799,26 @@ async function clearAllData() {
   measureEntries = [];
   measureValues = bag();
   customWodMovementTags = [];
-  try {
-    await dbClear();
-    await dbClearWodEntries();
-    await dbClearMovements();
-    await dbClearCustomWods();
-    await dbClearBodyweight();
-    await dbClearMeasureTypes();
-    await dbClearMeasurements();
-    await dbClearWodMovementTags();
-    // "delete everything" must also drop the stored name and export marker.
-    await dbClearSettings();
-    try { localStorage.removeItem(USER_NAME_KEY); localStorage.removeItem(LAST_EXPORT_KEY); } catch (e) {}
-    userName = null;
-    boxStartDate = null;
-    seenAchievementIds = new Set();
-    lastExportAt = null;
-    // dbClearSettings() above has already wiped these on disk; this is the
-    // in-memory half, and without it the flags survive the wipe and the
-    // member is dropped back at the welcome sheet with a first run that has
-    // already been marked as spent — no tour card, no arrival card, and an
-    // install banner eligible immediately. A device that has just been
-    // returned to empty is a first run by every definition the sequence
-    // uses, so say so. (hasOnboarded was already in this position before
-    // the §1 work and was already wrong; it is fixed here with the rest.)
-    hasOnboarded = false;
-    firstLogCelebrated = false;
-    firstLogArrivalPending = false;
-    celebrationShowingArrival = false;
-    firstOpenDate = todayISO();
-    await dbSetSetting(FIRST_OPEN_DATE_KEY, firstOpenDate).catch(() => {});
-    // The install dismissal is deliberately NOT cleared here, for the same
-    // reason the theme preference is not: it is a standing answer about this
-    // browser, not training data, and "delete my workouts" is not permission
-    // to re-ask a question the member already declined.
-  } catch (e) {
-    noteStorageError(e);
-  }
+}
+function clearMemoryMemberFlags() {
+  userName = null;
+  boxStartDate = null;
+  seenAchievementIds = new Set();
+  lastExportAt = null;
+  // dbClearSettings() above has already wiped these on disk; this is the
+  // in-memory half, and without it the flags survive the wipe and the
+  // member is dropped back at the welcome sheet with a first run that has
+  // already been marked as spent — no tour card, no arrival card, and an
+  // install banner eligible immediately. A device that has just been
+  // returned to empty is a first run by every definition the sequence
+  // uses, so say so. (hasOnboarded was already in this position before
+  // the §1 work and was already wrong; it is fixed here with the rest.)
+  hasOnboarded = false;
+  firstLogCelebrated = false;
+  firstLogArrivalPending = false;
+  celebrationShowingArrival = false;
+}
+function resetViewAfterClear() {
   selectedId = MOVEMENTS[0].id;
   movementExplicitlyChosen = false; // COMM-360: back to "nothing chosen yet", same as a cold load
   historyId = null;
@@ -3660,6 +3844,40 @@ async function clearAllData() {
   wodLogDateExplicitlyChosen = false;
   editingWodEntryId = null;
   confirmClear = false;
+}
+async function clearAllData() {
+  // The one truly irreversible action in the app used to have no safety
+  // net, unlike import (which downloads a rollback file for a far less
+  // destructive merge). Auto-download the same backup export would
+  // produce, before anything is actually wiped.
+  const hasData = entries.length || wodEntries.length || customMovements.length || customWods.length || bodyweightEntries.length || measureTypes.length || measureEntries.length;
+  if (hasData) downloadBackup(await buildBackupPayload(), `box-log-backup-before-delete-${todayISO()}.json`);
+  clearMemoryLists();
+  try {
+    await dbClear();
+    await dbClearWodEntries();
+    await dbClearMovements();
+    await dbClearCustomWods();
+    await dbClearBodyweight();
+    await dbClearMeasureTypes();
+    await dbClearMeasurements();
+    await dbClearWodMovementTags();
+    // "delete everything" must also drop the stored name and export marker.
+    await dbClearSettings();
+    try { localStorage.removeItem(USER_NAME_KEY); localStorage.removeItem(LAST_EXPORT_KEY); } catch (e) {}
+    clearMemoryMemberFlags();
+    firstOpenDate = todayISO();
+    await dbSetSetting(FIRST_OPEN_DATE_KEY, firstOpenDate).catch(() => {});
+    // The install dismissal is deliberately NOT cleared here, for the same
+    // reason the theme preference is not: it is a standing answer about this
+    // browser, not training data, and "delete my workouts" is not permission
+    // to re-ask a question the member already declined.
+  } catch (e) {
+    noteStorageError(e);
+  }
+  resetViewAfterClear();
+  // The other open tabs drop their copy too (see "TWO TABS" below).
+  tabSyncAnnounce("cleared");
   renderUserGreeting();
   render();
   // Live bug hunt (2026-09-11): "מחיקת כל הנתונים" is triggered from inside
@@ -4157,6 +4375,7 @@ async function saveWod(sanityConfirmed) {
   if (w.scoreType === "emom" && !wodEmomReps.every((r) => isFinite(r))) return;
   const editId = editingWodEntryId;
   const existing = editId ? wodEntries.find((e) => e.id === editId) : null;
+  if (editId && !existing) { editedWodVanished(editId); return; }
   // Live bug hunt (2026-09-11): rx-scoped now - see bestWodScore()'s comment.
   const prevBest = bestWodScore(selectedWodId, editId, wodRx);
   // Same guard as saveSet(), and missed here for the same reason the rest of
@@ -4235,7 +4454,11 @@ async function saveWod(sanityConfirmed) {
   // Live bug hunt (2026-09-11): same write-before-mutate fix as saveSet()
   // above - a failed write must have no visible side effect (no PR flash,
   // no first-log celebration for a WOD entry that doesn't exist on disk).
-  try { await dbPutWodEntry(entry); storageOK = true; } catch (e) { noteStorageError(e); render(); return; }
+  try {
+    if (existing) { if (!(await dbUpdateWodEntry(entry))) { editedWodVanished(editId); return; } }
+    else await dbPutWodEntry(entry);
+    storageOK = true;
+  } catch (e) { noteStorageError(e); render(); return; }
   wodEntries = wodEntries.filter((e) => e.id !== entry.id);
   wodEntries.unshift(entry);
   wodEntries.sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -5318,7 +5541,10 @@ async function saveSessionNote(date, text) {
   calNoteDate = date;
   try {
     await dbSetSetting(`sessionNote:${date}`, cleaned);
-    setImportMessage("ההערה נשמרה");
+    // The same toast every other save shows. This used to call
+    // setImportMessage(), which only Settings renders, so on the calendar
+    // the save gave no sign that it had landed.
+    showToast("ההערה נשמרה");
   } catch (e) { noteStorageError(e); }
   render();
 }
@@ -6422,6 +6648,7 @@ function render() {
   const scene = PAGE_SCENES[tab];
   if (scene) document.body.dataset.scene = scene.className; else delete document.body.dataset.scene;
   if (tab !== lastCountedScreen) { lastCountedScreen = tab; countUsage("screen_open", tab); }
+  saveSessionView();
   // Captured BEFORE the swap, restored after - see focusFieldIdentity.
   const focusKey = focusFieldIdentity(document.activeElement);
   let caret = null, typed = null;
@@ -6549,8 +6776,10 @@ function syncWodSaveCta(w) {
     // Not natively disabled: a disabled button swallows the tap, and the tap
     // is what now brings up the reason (saveWod() -> wodRxAttempted).
     btn.disabled = false;
+    // The muted look comes from index.html's [aria-disabled="true"] rule,
+    // not an inline opacity (that took the label to 1.47:1).
     btn.setAttribute("aria-disabled", String(unanswered));
-    btn.style.opacity = unanswered ? ".45" : "";
+    btn.style.opacity = "";
   } else if (wodSubTab === "log") {
     // The label is a long-lived node and must not keep advertising another
     // screen's action just because the bar happens to be hidden right now -
@@ -8219,6 +8448,7 @@ async function init() {
     dbSetSetting(FIRST_LOG_CELEBRATED_KEY, true).catch(() => {});
   }
 
+  restoreSessionView();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   // The settings sheet starts closed, so it starts inert - established before
@@ -8228,6 +8458,8 @@ async function init() {
   renderUserGreeting();
   countUsage("app_open");
   render();
+  tabSyncReady = true;
+  scheduleMidnightRefresh();
   bootGuardDone();
   maybeShowIOSInstallBanner();
 
@@ -8331,7 +8563,7 @@ function refreshDateLabel() {
   if (el) el.textContent = new Date().toLocaleDateString("he-IL", { weekday: "short", day: "numeric", month: "short" });
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") refreshDateLabel();
+  if (document.visibilityState === "visible") refreshToday();
 });
 // init() had no catch: a boot exception left the loading screen up for good.
 // src/boot-guard.js turns it into a message with a reload button.
